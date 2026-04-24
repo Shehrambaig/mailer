@@ -922,15 +922,12 @@ function drillDownState(abbr) {
         .attr('text-anchor','middle').attr('dominant-baseline','middle')
         .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
 
-    // Zoom to fill viewBox — tighter padding now that side panel absorbs UI chrome
+    // Jump straight to final zoom — no transition means no intermediate k where labels blow up
     if (sFeat) {
         const [[x0,y0],[x1,y1]] = geoP.bounds(sFeat);
         const k = Math.min(mapW/(x1-x0+10), mapH/(y1-y0+10)) * 0.98;
         const tx = mapW/2 - k*(x0+x1)/2, ty = mapH/2 - k*(y0+y1)/2;
-        svgEl.transition().duration(700).ease(d3.easeCubicInOut)
-            .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k))
-            .on('end', () => updateLabelsForZoom(k));
-        // Also update immediately so labels don't flash at wrong size mid-transition
+        svgEl.call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
         updateLabelsForZoom(k);
     }
 }
