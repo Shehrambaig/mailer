@@ -45,11 +45,37 @@
 
 /* Map tooltip */
 .map-tip {
-    position:absolute; background:rgba(5,5,14,.97); backdrop-filter:blur(18px);
+    position:fixed; background:rgba(5,5,14,.97); backdrop-filter:blur(18px);
     border:1px solid rgba(0,240,255,.25); border-radius:11px; padding:12px 15px;
-    pointer-events:none; opacity:0; transition:opacity .15s; z-index:200;
+    pointer-events:none; opacity:0; transition:opacity .15s; z-index:10001;
     min-width:240px; max-width:300px; box-shadow:0 0 28px rgba(0,240,255,.1); font-size:.8rem;
 }
+
+/* State drill-down modal */
+.state-modal { position:fixed; inset:0; z-index:9999; display:none; }
+.state-modal.open { display:block; }
+.state-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.78); backdrop-filter:blur(4px); }
+.state-modal-dialog {
+    position:absolute; top:2.5vh; left:2.5vw; width:95vw; height:95vh;
+    background:#0a0a14; border:1px solid rgba(255,255,255,0.08);
+    border-radius:16px; display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+}
+.state-modal-header {
+    padding:12px 18px; display:flex; justify-content:space-between; align-items:center;
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    background:rgba(12,12,28,0.6);
+}
+.state-modal-close {
+    background:transparent; border:1px solid rgba(255,255,255,0.18); color:var(--text-secondary);
+    border-radius:8px; padding:6px 12px; cursor:pointer; font-size:.75rem; font-weight:600; font-family:inherit;
+}
+.state-modal-close:hover { background:rgba(255,255,255,0.06); color:var(--text-primary); }
+.state-modal-body { flex:1; display:flex; gap:14px; padding:14px; min-height:0; min-width:0; }
+#state-modal-map { flex:1; min-width:0; position:relative; background:#080814; border-radius:10px; overflow:hidden; }
+#state-modal-map svg { width:100%; height:100%; display:block; }
+#state-modal-panel-slot { flex:0 0 420px; min-width:0; overflow:hidden; display:flex; }
+#state-modal-panel-slot > #detail-panel { flex:1; height:100% !important; max-height:none !important; }
 .map-tip.show { opacity:1; }
 .tip-name { color:var(--accent-cyan); font-weight:700; font-size:.9rem; margin-bottom:7px; }
 .tip-scores { display:flex; gap:6px; margin-bottom:7px; }
@@ -104,7 +130,7 @@
 
 /* ── Map row (map + optional side panel) ─────────── */
 .map-row { display:flex; gap:16px; align-items:stretch; width:100%; }
-.map-row > .map-card { flex:1 1 auto; min-width:0; transition:flex-basis .35s ease; }
+.map-row > .map-card { flex:1 1 auto; min-width:0; }
 #side-panel-slot { display:none; flex:0 0 420px; min-width:0; }
 .map-row.state-mode #side-panel-slot { display:block; animation:slideInRight .35s ease; }
 .map-row.state-mode > .map-card { flex:1 1 0; }
@@ -491,6 +517,25 @@
 </div>
 
 </div><!-- intel-page -->
+
+<!-- ══ STATE DRILL-DOWN MODAL ═══════════════════════════════════════════ -->
+<div id="state-modal" class="state-modal" aria-hidden="true" role="dialog">
+    <div class="state-modal-backdrop" onclick="closeStateModal()"></div>
+    <div class="state-modal-dialog">
+        <div class="state-modal-header">
+            <div>
+                <span id="state-modal-title" style="color:var(--accent-cyan);font-weight:700;font-size:1rem;">—</span>
+                <span style="color:var(--text-muted);font-size:.72rem;margin-left:10px;">click a county for details · esc to close</span>
+            </div>
+            <button type="button" class="state-modal-close" onclick="closeStateModal()">✕ Close</button>
+        </div>
+        <div class="state-modal-body">
+            <div id="state-modal-map"></div>
+            <div id="state-modal-panel-slot"></div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
@@ -869,57 +914,89 @@ function updateLabelsForZoom(k) {
     });
 }
 
-function hoistPanel() {
-    const row  = document.getElementById('map-row');
-    const slot = document.getElementById('side-panel-slot');
-    const ar   = document.getElementById('analysis-row');
-    const panel = document.getElementById('detail-panel');
-    if (!row.classList.contains('state-mode')) {
-        row.classList.add('state-mode');
-        ar.classList.add('panel-hoisted');
-        if (panel && panel.parentNode !== slot) slot.appendChild(panel);
-        setTimeout(() => { if (scatterChart) scatterChart.resize(); }, 420);
-    }
-}
-function unhoistPanel() {
-    const row  = document.getElementById('map-row');
-    const ar   = document.getElementById('analysis-row');
-    const panel = document.getElementById('detail-panel');
-    if (row.classList.contains('state-mode')) {
-        row.classList.remove('state-mode');
-        ar.classList.remove('panel-hoisted');
-        if (panel && panel.parentNode !== ar) ar.appendChild(panel);
-        setTimeout(() => { if (scatterChart) scatterChart.resize(); }, 420);
-    }
-}
+// ── Drill-down modal ──────────────────────────────────────────
+// State drill-down is rendered inside a modal overlay rather than in-place.
+// This avoids all the layout-measurement issues the in-place hoist had (CSS
+// transitions interfering with getBoundingClientRect).
+let _natCtx = null; // saved national-view globals while modal is open
 
 function drillDownState(abbr) {
-    mapMode = 'state';
-    stateFilter = abbr;
-    document.getElementById('state-filter').value = abbr;
-    document.getElementById('back-btn').classList.add('show');
-    hoistPanel();
-    // Let the panel-hoist layout land so we measure the narrower map card correctly
-    requestAnimationFrame(() => _doDrillDown(abbr));
+    openStateModal(abbr);
 }
 
+function openStateModal(abbr) {
+    const sfNum = parseInt(ASFIPS[abbr], 10);
+    const sFeat = stateFeat.find(f => Number(f.id) === sfNum);
+    if (!sFeat) return;
+
+    mapMode = 'state';
+    stateFilter = abbr;
+    const sel = document.getElementById('state-filter');
+    if (sel) sel.value = abbr;
+
+    // Move detail panel into the modal slot.
+    const panel = document.getElementById('detail-panel');
+    const slot = document.getElementById('state-modal-panel-slot');
+    if (panel && panel.parentNode !== slot) slot.appendChild(panel);
+
+    // Show the modal BEFORE measuring (display:none → block so it has size).
+    const modal = document.getElementById('state-modal');
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('state-modal-title').textContent = (SNAMES[abbr] || abbr);
+
+    // Next frame: modal is painted, map area is measurable, render the state.
+    requestAnimationFrame(() => _renderStateInModal(abbr, sFeat));
+}
+
+function _renderStateInModal(abbr, sFeat) {
+    const mapArea = document.getElementById('state-modal-map');
+    const rect = mapArea.getBoundingClientRect();
+    const W = Math.round(rect.width);
+    const H = Math.round(rect.height);
+    if (W < 50 || H < 50) { requestAnimationFrame(() => _renderStateInModal(abbr, sFeat)); return; }
+
+    // Save national-view context so we can restore it on close.
+    if (!_natCtx) {
+        _natCtx = { svgEl, gSt, gCo, gPulse, geoP, zoomB, mapW, mapH };
+    }
+
+    // Fresh SVG inside the modal — no shared state with the national map.
+    d3.select(mapArea).selectAll('svg').remove();
+    mapW = W; mapH = H;
+    svgEl = d3.select(mapArea).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
+        .style('width', '100%').style('height', '100%')
+        .style('background', '#080814');
+
+    zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
+        gSt.attr('transform', e.transform);
+        gCo.attr('transform', e.transform);
+        gPulse.attr('transform', e.transform);
+        updateLabelsForZoom(e.transform.k);
+    });
+    svgEl.call(zoomB);
+
+    gSt = svgEl.append('g');
+    gCo = svgEl.append('g');
+    gPulse = svgEl.append('g').attr('class', 'hunt-pulses');
+
+    // Fit projection to JUST this state — state fills the modal with slight padding.
+    const proj = d3.geoAlbersUsa()
+        .fitExtent([[W * 0.04, H * 0.04], [W * 0.96, H * 0.96]], sFeat);
+    geoP = d3.geoPath().projection(proj);
+
+    _doDrillDown(abbr);
+}
+
+// Renders the state drill-down into whatever SVG the current globals point at
+// (svgEl / gSt / gCo / gPulse / geoP). Caller is responsible for sizing.
 function _doDrillDown(abbr) {
     const sfNum = parseInt(ASFIPS[abbr], 10);
-    const sFeat = stateFeat.find(f => f.id === sfNum);
+    const sFeat = stateFeat.find(f => Number(f.id) === sfNum);
     const sfPad = String(ASFIPS[abbr]).padStart(2,'0');
     const counties = countyFeat.filter(f => String(f.id).padStart(5,'0').startsWith(sfPad));
-
-    // Resize viewBox + refit projection so the viewBox aspect matches what we want
-    // on screen. Taller aspect (0.70) in state mode gives room for the state to breathe.
-    const wrap = document.getElementById('map-wrap');
-    const rect = wrap.getBoundingClientRect();
-    if (rect.width > 50) {
-        mapW = Math.round(rect.width);
-        mapH = Math.round(mapW * 0.70);
-        svgEl.attr('viewBox', `0 0 ${mapW} ${mapH}`);
-        const proj = d3.geoAlbersUsa().fitSize([mapW, mapH], topojson.feature(usGeo, usGeo.objects.states));
-        geoP = d3.geoPath().projection(proj);
-    }
 
     gSt.selectAll('*').remove();
     gCo.selectAll('*').remove();
@@ -968,7 +1045,6 @@ function _doDrillDown(abbr) {
 
     drawHuntPulses(counties);
 
-    // County name labels — font-size computed dynamically on zoom
     gCo.selectAll('.county-label')
         .data(counties.filter(f => countyData[String(f.id).padStart(5,'0')]))
         .enter().append('text')
@@ -978,37 +1054,54 @@ function _doDrillDown(abbr) {
         .attr('text-anchor','middle').attr('dominant-baseline','middle')
         .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
 
-    // Jump straight to final zoom — no transition means no intermediate k where labels blow up
-    if (sFeat) {
-        const [[x0,y0],[x1,y1]] = geoP.bounds(sFeat);
-        const k = Math.min(mapW/(x1-x0+10), mapH/(y1-y0+10)) * 0.98;
-        const tx = mapW/2 - k*(x0+x1)/2, ty = mapH/2 - k*(y0+y1)/2;
-        svgEl.call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
-        updateLabelsForZoom(k);
+    // Projection was already fit to the state; keep zoom at identity and size
+    // labels for k=1. User can still wheel-zoom in the modal if desired.
+    updateLabelsForZoom(1);
+}
+
+function closeStateModal() {
+    // Move the detail panel back to its home in the analysis row.
+    const panel = document.getElementById('detail-panel');
+    const ar = document.getElementById('analysis-row');
+    if (panel && ar && panel.parentNode !== ar) ar.appendChild(panel);
+    document.getElementById('panel-default').style.display = '';
+    document.getElementById('panel-sel').style.display = 'none';
+    selFips = null;
+
+    // Tear down the modal SVG so we don't keep listeners or DOM lingering.
+    d3.select('#state-modal-map').selectAll('svg').remove();
+
+    // Restore national-view globals.
+    if (_natCtx) {
+        svgEl = _natCtx.svgEl; gSt = _natCtx.gSt; gCo = _natCtx.gCo;
+        gPulse = _natCtx.gPulse; geoP = _natCtx.geoP; zoomB = _natCtx.zoomB;
+        mapW = _natCtx.mapW; mapH = _natCtx.mapH;
+        _natCtx = null;
     }
+
+    // Hide the modal + release body scroll.
+    document.getElementById('state-modal').classList.remove('open');
+    document.body.style.overflow = '';
+
+    mapMode = 'national';
+    stateFilter = '';
+    const sel = document.getElementById('state-filter');
+    if (sel) sel.value = '';
+    document.getElementById('back-btn').classList.remove('show');
+    const tagEl = document.getElementById('page-tagline');
+    if (tagEl) tagEl.textContent = 'Where to Hunt — Retail Market Intelligence';
 }
 
 function backToNational() {
-    selFips = null;
-    unhoistPanel();
-    document.getElementById('panel-default').style.display = '';
-    document.getElementById('panel-sel').style.display = 'none';
-    const tagEl = document.getElementById('page-tagline');
-    if (tagEl) tagEl.textContent = 'Where to Hunt — Retail Market Intelligence';
-    // Let unhoist layout land, then restore national viewBox + projection + redraw
-    requestAnimationFrame(() => {
-        const wrap = document.getElementById('map-wrap');
-        const rect = wrap.getBoundingClientRect();
-        if (rect.width > 50) {
-            mapW = Math.round(rect.width);
-            mapH = Math.round(mapW * 0.54);
-            svgEl.attr('viewBox', `0 0 ${mapW} ${mapH}`);
-            const proj = d3.geoAlbersUsa().fitSize([mapW, mapH], topojson.feature(usGeo, usGeo.objects.states));
-            geoP = d3.geoPath().projection(proj);
-        }
-        drawNationalView();
-    });
+    closeStateModal();
 }
+
+// Escape key closes the drill-down modal.
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('state-modal').classList.contains('open')) {
+        closeStateModal();
+    }
+});
 
 function updateMapColors() {
     rebuildScale();
@@ -1033,11 +1126,17 @@ function populateStateFilter() {
 
 // ── Tooltips ──────────────────────────────────────────────────
 const tipEl = document.getElementById('map-tip');
+// Move tip + drill-down modal to body so they escape #main-content's stacking
+// context (which has z-index:1 and traps our z-index:9999 below the topbar).
+document.body.appendChild(tipEl);
+const _modalEl = document.getElementById('state-modal');
+if (_modalEl) document.body.appendChild(_modalEl);
 function moveTip(ev) {
-    const r = document.getElementById('map-wrap').getBoundingClientRect();
-    let l = ev.clientX-r.left+14, t = ev.clientY-r.top-20;
-    if (l+310>r.width) l = ev.clientX-r.left-320;
-    tipEl.style.left=l+'px'; tipEl.style.top=t+'px';
+    let l = ev.clientX + 14, t = ev.clientY - 20;
+    if (l + 310 > window.innerWidth) l = ev.clientX - 320;
+    if (t < 8) t = 8;
+    tipEl.style.left = l + 'px';
+    tipEl.style.top = t + 'px';
 }
 function hideTip() { tipEl.classList.remove('show'); }
 

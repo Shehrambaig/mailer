@@ -12,3 +12,4 @@ migrations/
 /dump_static.py
 /img*.png
 /*.xlsx
+/DASHBOARD_DOCS.md
