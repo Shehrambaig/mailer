@@ -62,6 +62,35 @@
 .leg-lbl { font-size:.62rem; color:var(--text-muted); }
 .leg-metric { font-size:.7rem; color:var(--text-secondary); font-weight:600; margin-left:auto; }
 
+/* Hunt Mode ────────────────────────────────── */
+.hunt-btn { background:rgba(255,170,0,0.06); border-color:rgba(255,170,0,0.25); color:#ffaa00; font-weight:800; letter-spacing:.4px; }
+.hunt-btn:hover { color:#ffc94d; border-color:rgba(255,200,80,0.45); }
+.hunt-btn.active { background:linear-gradient(135deg,rgba(255,200,0,0.18),rgba(0,240,255,0.12)); border-color:rgba(255,200,0,0.55); color:#ffea70; box-shadow:0 0 14px rgba(255,200,0,0.35), inset 0 0 10px rgba(255,200,0,0.08); animation:huntPulseBtn 1.8s ease-in-out infinite; }
+@keyframes huntPulseBtn { 0%,100% { box-shadow:0 0 14px rgba(255,200,0,0.35); } 50% { box-shadow:0 0 22px rgba(255,200,0,0.6); } }
+@keyframes ringPulse1 {
+    0%   { r:4;  opacity:0.95; }
+    100% { r:28; opacity:0;    }
+}
+@keyframes ringPulse2 {
+    0%   { r:3;  opacity:0.75; }
+    100% { r:18; opacity:0;    }
+}
+.hunt-ring       { pointer-events:none; fill:none; stroke:#00f0ff; stroke-width:1.8; animation: ringPulse1 2.2s ease-out infinite; }
+.hunt-ring.tier2 { stroke:#ffea70; stroke-width:1.4; animation: ringPulse2 2.6s ease-out infinite; }
+
+/* Bivariate legend ────────────────────────── */
+.biv-legend { display:none; align-items:center; gap:14px; padding:6px 16px 10px; }
+.biv-legend.show { display:flex; }
+.biv-grid { display:grid; grid-template-columns:repeat(3, 18px); grid-template-rows:repeat(3, 18px); gap:1px; }
+.biv-cell { width:18px; height:18px; border:1px solid rgba(255,255,255,0.1); }
+.biv-axes { display:flex; flex-direction:column; font-size:.6rem; color:var(--text-muted); gap:2px; }
+.biv-axis-x { text-align:center; font-size:.6rem; color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; }
+.biv-corner { display:flex; flex-direction:column; font-size:.64rem; gap:2px; }
+.biv-corner .tag { font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+.biv-corner .tagline { color:var(--text-muted); font-size:.62rem; }
+
+.map-legend.hidden { display:none; }
+
 /* ── Analysis row ────────────────────────────────── */
 .analysis-row { display:grid; grid-template-columns:1fr 420px; gap:16px; }
 @media(max-width:1100px) { .analysis-row { grid-template-columns:1fr; } }
@@ -233,6 +262,7 @@
 <div class="glass-card slide-up">
     <div class="layer-bar">
         <button class="lbtn active" data-layer="g"  onclick="setLayer(this,'g')">🎯 Golden Zone</button>
+        <button class="lbtn" data-layer="biv" onclick="setLayer(this,'biv')">🎨 Buy × Exit</button>
         <button class="lbtn" data-layer="es" onclick="setLayer(this,'es')">⚡ Exit Speed</button>
         <button class="lbtn" data-layer="bs" onclick="setLayer(this,'bs')">🏷 Buy Opportunity</button>
         <button class="lbtn" data-layer="v"  onclick="setLayer(this,'v')">🏠 Home Value</button>
@@ -240,22 +270,47 @@
         <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">📉 Price Drops %</button>
         <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">💰 Income</button>
         <div class="lbtn-sep"></div>
+        <button class="lbtn hunt-btn" id="hunt-btn" onclick="toggleHunt()">🎯 HUNT MODE</button>
+        <div class="lbtn-sep"></div>
         <select id="state-filter" class="state-sel" onchange="filterState(this.value)">
             <option value="">All States</option>
         </select>
         <button class="back-btn" id="back-btn" onclick="backToNational()">← US Map</button>
         <div class="lbtn-sep"></div>
-        <small style="color:var(--text-muted);font-size:.67rem;">click state → drill into counties &nbsp;·&nbsp; click county → detail &nbsp;·&nbsp; scroll to zoom</small>
+        <small style="color:var(--text-muted);font-size:.67rem;">Hunt Mode dims bottom 75% · top 10% pop · top 3% pulse · click state → counties</small>
     </div>
     <div class="card-body p-2">
         <div id="map-wrap">
             <div id="map-tip" class="map-tip"></div>
         </div>
-        <div class="map-legend">
+        <div class="map-legend" id="gradient-legend">
             <span class="leg-lbl" id="leg-lo">Low</span>
             <div id="leg-bar" class="leg-bar" style="background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981)"></div>
             <span class="leg-lbl" id="leg-hi">High</span>
             <span class="leg-metric" id="leg-label">Golden Zone Score</span>
+        </div>
+        <div class="biv-legend" id="biv-legend">
+            <div class="biv-corner" style="text-align:right">
+                <span class="tag" style="color:#f59e0b">🐌 Buy-Hold</span>
+                <span class="tagline">motivated sellers · slow flip</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div class="biv-grid" id="biv-grid"></div>
+                <div class="biv-axis-x">Exit Speed →</div>
+            </div>
+            <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;">Buy ↑</div>
+            <div class="biv-corner">
+                <span class="tag" style="color:#10b981">🎯 Golden Zone</span>
+                <span class="tagline">buy cheap · sell fast</span>
+            </div>
+            <div class="biv-corner" style="margin-left:24px">
+                <span class="tag" style="color:#7c3aed">🔥 Hot Retail</span>
+                <span class="tagline">fast market · hard to buy cheap</span>
+            </div>
+            <div class="biv-corner">
+                <span class="tag" style="color:var(--text-muted)">⚠ Avoid</span>
+                <span class="tagline">slow · overpriced</span>
+            </div>
         </div>
     </div>
 </div>
@@ -393,14 +448,28 @@ const ASFIPS = Object.fromEntries(Object.entries(SFIPS).map(([k,v])=>[v,k]));
 const SNAMES = {'AL':'Alabama','AK':'Alaska','AZ':'Arizona','AR':'Arkansas','CA':'California','CO':'Colorado','CT':'Connecticut','DE':'Delaware','DC':'D.C.','FL':'Florida','GA':'Georgia','HI':'Hawaii','ID':'Idaho','IL':'Illinois','IN':'Indiana','IA':'Iowa','KS':'Kansas','KY':'Kentucky','LA':'Louisiana','ME':'Maine','MD':'Maryland','MA':'Massachusetts','MI':'Michigan','MN':'Minnesota','MS':'Mississippi','MO':'Missouri','MT':'Montana','NE':'Nebraska','NV':'Nevada','NH':'N. Hampshire','NJ':'New Jersey','NM':'New Mexico','NY':'New York','NC':'N. Carolina','ND':'N. Dakota','OH':'Ohio','OK':'Oklahoma','OR':'Oregon','PA':'Pennsylvania','RI':'Rhode Island','SC':'S. Carolina','SD':'S. Dakota','TN':'Tennessee','TX':'Texas','UT':'Utah','VT':'Vermont','VA':'Virginia','WA':'Washington','WV':'W. Virginia','WI':'Wisconsin','WY':'Wyoming'};
 
 const LAYERS = {
-    g:   { label:'Golden Zone Score',   colors:['#ef4444','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100` },
-    bs:  { label:'Buy Opportunity',     colors:['#1a1a3e','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100` },
-    es:  { label:'Exit Speed',          colors:['#ef4444','#0a0a2e','#7c3aed'], domain:[0,100],       fmt:v=>`${v|0}/100` },
-    v:   { label:'Home Value (Zillow)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[50000,900000],fmt:v=>`$${(v/1000).toFixed(0)}K` },
-    d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d` },
-    pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%` },
-    inc: { label:'Median Income',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[20000,120000],fmt:v=>`$${(v/1000).toFixed(0)}K` },
+    g:   { label:'Golden Zone Score',   colors:['#ef4444','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
+    biv: { label:'Buy × Exit Matrix',   biv:true },
+    bs:  { label:'Buy Opportunity',     colors:['#1a1a3e','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
+    es:  { label:'Exit Speed',          colors:['#ef4444','#0a0a2e','#7c3aed'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
+    v:   { label:'Home Value (Zillow)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[50000,900000],fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'neither' },
+    d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d`, dir:'low' },
+    pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
+    inc: { label:'Median Income',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[20000,120000],fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'high' },
 };
+
+// Bivariate palette — 3x3 Buy × Exit
+// rows = buy [LOW, MID, HIGH], cols = exit [LOW, MID, HIGH]
+const BIV_PALETTE = [
+    ['#242436', '#3a2e52', '#5a2e80'],   // low buy: dim → purple (hot retail)
+    ['#5a4018', '#6a6458', '#3a8870'],   // mid buy: amber → teal
+    ['#f59e0b', '#a8c84a', '#10b981'],   // high buy: amber → GOLDEN GREEN
+];
+function bivColor(buy, exit) {
+    const b = buy >= 55 ? 2 : buy >= 35 ? 1 : 0;
+    const e = exit >= 55 ? 2 : exit >= 35 ? 1 : 0;
+    return BIV_PALETTE[b][e];
+}
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -409,10 +478,12 @@ let countyData={}, incomeData={}, scatterRows=[], scatterMedX=50, scatterMedY=50
 let currentLayer='g', currentLevel='national', selState=null, selFips=null;
 let colorScale = d3.scaleLinear().domain([0,100]).range(['#ef4444','#f59e0b','#10b981']);
 let usGeo, stateFeat=[], countyFeat=[];
-let svgEl, gSt, gCo, geoP, zoomB;
+let svgEl, gSt, gCo, gPulse, geoP, zoomB;
 let mapW=0, mapH=0;
 let hCharts={};
 let rTab='g', rSortCol='g', rSortAsc=false;
+let huntMode=false;
+let layerPct={}; // cached percentiles per layer
 
 // ═══════════════════════════════════════════════════════════════
 // BOOT — parallel data load
@@ -481,24 +552,75 @@ function initMap() {
     zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
         gSt.attr('transform', e.transform);
         gCo.attr('transform', e.transform);
+        gPulse.attr('transform', e.transform);
     });
     svgEl.call(zoomB);
 
     gSt = svgEl.append('g');
     gCo = svgEl.append('g');
+    gPulse = svgEl.append('g').attr('class', 'hunt-pulses');
 
+    computePercentiles();
     rebuildScale();
     drawNationalView();
     populateStateFilter();
 }
 
+function computePercentiles() {
+    const lays = ['g','bs','es','d','pr','v','inc'];
+    const buckets = Object.fromEntries(lays.map(k => [k, []]));
+    for (const [fips, d] of Object.entries(countyData)) {
+        for (const k of lays) {
+            const v = k === 'inc' ? ((incomeData[fips]||{}).income||0) : (d[k]||0);
+            if (v > 0) buckets[k].push(v);
+        }
+    }
+    layerPct = {};
+    for (const k of lays) {
+        const a = buckets[k].sort((x,y) => x-y);
+        if (!a.length) { layerPct[k] = null; continue; }
+        layerPct[k] = {
+            p25: a[Math.floor(a.length*0.25)],
+            p50: a[Math.floor(a.length*0.50)],
+            p75: a[Math.floor(a.length*0.75)],
+            p90: a[Math.floor(a.length*0.90)],
+            p97: a[Math.floor(a.length*0.97)],
+        };
+    }
+}
+
 function rebuildScale() {
     const cfg = LAYERS[currentLayer];
+    const gradEl = document.getElementById('gradient-legend');
+    const bivEl  = document.getElementById('biv-legend');
+    if (cfg.biv) {
+        gradEl.classList.add('hidden');
+        bivEl.classList.add('show');
+        renderBivLegend();
+        return;
+    }
+    gradEl.classList.remove('hidden');
+    bivEl.classList.remove('show');
     colorScale = d3.scaleLinear().domain(cfg.domain).range(cfg.colors).clamp(true);
     document.getElementById('leg-bar').style.background = `linear-gradient(90deg,${cfg.colors.join(',')})`;
     document.getElementById('leg-label').textContent = cfg.label;
     document.getElementById('leg-lo').textContent = cfg.fmt(cfg.domain[0]);
     document.getElementById('leg-hi').textContent = cfg.fmt(cfg.domain[cfg.domain.length-1]);
+}
+
+function renderBivLegend() {
+    const grid = document.getElementById('biv-grid');
+    if (grid.childElementCount) return;
+    // Rows in DOM order go top→bottom; our palette[0] is LOW buy (bottom).
+    // So render palette[2] first (high buy at top).
+    for (let r = 2; r >= 0; r--) {
+        for (let c = 0; c < 3; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'biv-cell';
+            cell.style.background = BIV_PALETTE[r][c];
+            grid.appendChild(cell);
+        }
+    }
 }
 
 function countyVal(fips) {
@@ -508,33 +630,130 @@ function countyVal(fips) {
         : (d[currentLayer] || 0);
 }
 
+function fillFor(fips) {
+    const d = countyData[fips] || {};
+    if (LAYERS[currentLayer].biv) {
+        const buy = d.bs || 0, exit = d.es || 0;
+        if (!buy && !exit) return '#1a1c38';
+        return bivColor(buy, exit);
+    }
+    const val = countyVal(fips);
+    return val ? colorScale(val) : '#1a1c38';
+}
+
+// Returns 'top3', 'top10', 'mid', or 'dim' for a county under current layer
+// considering LAYER direction (high/low is "good").
+function huntTier(fips) {
+    if (!huntMode) return 'mid';
+    // Bivariate: use golden score
+    const layer = LAYERS[currentLayer].biv ? 'g' : currentLayer;
+    const dir = LAYERS[layer].dir || 'high';
+    if (dir === 'neither') return 'mid';
+    const pct = layerPct[layer];
+    if (!pct) return 'mid';
+    let v;
+    if (layer === 'inc') v = (incomeData[fips]||{}).income||0;
+    else v = (countyData[fips]||{})[layer]||0;
+    if (!v) return 'dim';
+    if (dir === 'high') {
+        if (v >= pct.p97) return 'top3';
+        if (v >= pct.p90) return 'top10';
+        if (v >= pct.p75) return 'mid';
+        return 'dim';
+    } else { // low is good
+        if (v <= pct.p25 && v > 0) {
+            // re-split lower tail for top3/10 against a low direction
+            // use symmetric cuts: anything under p25 is "promising", under ~p10 is top10, under ~p03 is top3
+            const a = Object.values(countyData).map(x=>x[layer]||0).filter(Boolean).sort((a,b)=>a-b);
+            const p03 = a[Math.floor(a.length*0.03)];
+            const p10 = a[Math.floor(a.length*0.10)];
+            if (v <= p03) return 'top3';
+            if (v <= p10) return 'top10';
+            return 'mid';
+        }
+        return 'dim';
+    }
+}
+
+function opacityFor(fips, base) {
+    if (!huntMode) return base;
+    const tier = huntTier(fips);
+    if (tier === 'top3' || tier === 'top10') return 1;
+    if (tier === 'mid') return 0.65;
+    return 0.12;  // dim
+}
+
+function strokeFor(fips, base) {
+    if (!huntMode) return { stroke: base.stroke, width: base.width };
+    const tier = huntTier(fips);
+    if (tier === 'top3')  return { stroke:'rgba(0,240,255,1)',    width: base.width * 4 };
+    if (tier === 'top10') return { stroke:'rgba(255,255,255,0.9)', width: base.width * 2.5 };
+    return { stroke: base.stroke, width: base.width };
+}
+
+function drawHuntPulses(counties) {
+    gPulse.selectAll('*').remove();
+    if (!huntMode) return;
+    // Top 20 counties on current layer's "good" direction
+    const layer = LAYERS[currentLayer].biv ? 'g' : currentLayer;
+    const dir = LAYERS[layer].dir || 'high';
+    if (dir === 'neither') return;
+    const rows = counties.map(f => {
+        const fips = String(f.id).padStart(5,'0');
+        const v = layer === 'inc' ? ((incomeData[fips]||{}).income||0) : ((countyData[fips]||{})[layer]||0);
+        const c = geoP.centroid(f);
+        return { fips, v, cx: c[0], cy: c[1] };
+    }).filter(r => r.v && !isNaN(r.cx));
+    rows.sort((a,b) => dir === 'high' ? b.v - a.v : a.v - b.v);
+    const top = rows.slice(0, 20);
+    top.forEach((r, i) => {
+        const tierCls = i < 5 ? '' : ' tier2';
+        // Two concentric staggered rings for a radar-blip effect
+        [0, 0.9].forEach((delay) => {
+            gPulse.append('circle')
+                .attr('cx', r.cx).attr('cy', r.cy)
+                .attr('r', 4)
+                .attr('class', 'hunt-ring' + tierCls)
+                .style('animation-delay', (delay + i * 0.04) + 's');
+        });
+    });
+}
+
 
 function drawNationalView() {
     mapMode = 'national';
     stateFilter = '';
     gSt.selectAll('*').remove();
     gCo.selectAll('*').remove();
+    gPulse.selectAll('*').remove();
 
-    // All counties colored individually
+    const baseStroke = { stroke:'rgba(0,0,0,0.18)', width: 0.25 };
+
     gCo.selectAll('.county-path')
         .data(countyFeat).enter().append('path')
         .attr('class','county-path')
         .attr('d', geoP)
-        .attr('fill', f => {
-            const fips = String(f.id).padStart(5,'0');
-            const val = countyVal(fips);
-            return val ? colorScale(val) : '#1a1c38';
+        .attr('fill', f => fillFor(String(f.id).padStart(5,'0')))
+        .attr('stroke', f => strokeFor(String(f.id).padStart(5,'0'), baseStroke).stroke)
+        .attr('stroke-width', f => strokeFor(String(f.id).padStart(5,'0'), baseStroke).width)
+        .attr('opacity', f => opacityFor(String(f.id).padStart(5,'0'), 0.93))
+        .style('filter', f => {
+            const t = huntTier(String(f.id).padStart(5,'0'));
+            return t === 'dim' ? 'saturate(0.35) brightness(0.6)' : null;
         })
-        .attr('stroke','rgba(0,0,0,0.18)').attr('stroke-width',0.25)
-        .attr('opacity', 0.93)
         .on('mouseover', (ev, f) => {
-            d3.select(ev.currentTarget).attr('opacity',1).attr('stroke','rgba(255,255,255,0.5)').attr('stroke-width',0.8);
+            d3.select(ev.currentTarget).attr('opacity',1).attr('stroke','rgba(255,255,255,0.6)').attr('stroke-width',0.8);
             showCountyTip(ev, String(f.id).padStart(5,'0'));
         })
         .on('mousemove', moveTip)
         .on('mouseout', (ev, f) => {
-            if (String(f.id).padStart(5,'0') !== selFips)
-                d3.select(ev.currentTarget).attr('opacity',0.93).attr('stroke','rgba(0,0,0,0.18)').attr('stroke-width',0.25);
+            const fips = String(f.id).padStart(5,'0');
+            if (fips !== selFips) {
+                const s = strokeFor(fips, baseStroke);
+                d3.select(ev.currentTarget)
+                    .attr('opacity', opacityFor(fips, 0.93))
+                    .attr('stroke', s.stroke).attr('stroke-width', s.width);
+            }
             hideTip();
         })
         .on('click', (ev, f) => {
@@ -547,7 +766,7 @@ function drawNationalView() {
             }
         });
 
-    // State borders on top as crisp lines
+    // State borders
     gSt.append('path')
         .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a !== b))
         .attr('fill','none').attr('stroke','rgba(255,255,255,0.45)').attr('stroke-width',0.9)
@@ -556,6 +775,8 @@ function drawNationalView() {
         .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a === b))
         .attr('fill','none').attr('stroke','rgba(255,255,255,0.3)').attr('stroke-width',0.7)
         .attr('d', geoP).attr('pointer-events','none');
+
+    drawHuntPulses(countyFeat);
 
     document.getElementById('back-btn').classList.remove('show');
     document.getElementById('state-filter').value = '';
@@ -577,26 +798,28 @@ function drillDownState(abbr) {
 
     gSt.selectAll('*').remove();
     gCo.selectAll('*').remove();
+    gPulse.selectAll('*').remove();
 
-    // Faint state background so borders are visible outside county data
     if (sFeat) {
         gSt.append('path').datum(sFeat)
             .attr('fill','rgba(20,22,50,0.6)').attr('stroke','rgba(255,255,255,0.2)').attr('stroke-width',1.2)
             .attr('d', geoP).attr('pointer-events','none');
     }
 
-    // County choropleth fills
+    const baseStroke = { stroke:'rgba(255,255,255,0.13)', width: 0.5 };
+
     gCo.selectAll('.county-path')
         .data(counties).enter().append('path')
         .attr('class','county-path')
         .attr('d', geoP)
-        .attr('fill', f => {
-            const fips = String(f.id).padStart(5,'0');
-            const val = countyVal(fips);
-            return val ? colorScale(val) : '#1a1c38';
+        .attr('fill', f => fillFor(String(f.id).padStart(5,'0')))
+        .attr('stroke', f => strokeFor(String(f.id).padStart(5,'0'), baseStroke).stroke)
+        .attr('stroke-width', f => strokeFor(String(f.id).padStart(5,'0'), baseStroke).width)
+        .attr('opacity', f => opacityFor(String(f.id).padStart(5,'0'), 0.92))
+        .style('filter', f => {
+            const t = huntTier(String(f.id).padStart(5,'0'));
+            return t === 'dim' ? 'saturate(0.35) brightness(0.6)' : null;
         })
-        .attr('stroke','rgba(255,255,255,0.13)').attr('stroke-width',0.5)
-        .attr('opacity', 0.92)
         .on('mouseover', (ev, f) => {
             d3.select(ev.currentTarget)
                 .attr('opacity',1).attr('stroke','rgba(0,240,255,0.65)').attr('stroke-width',1.8);
@@ -605,14 +828,20 @@ function drillDownState(abbr) {
         .on('mousemove', moveTip)
         .on('mouseout', (ev, f) => {
             const fips = String(f.id).padStart(5,'0');
-            if (fips !== selFips)
-                d3.select(ev.currentTarget).attr('opacity',0.92).attr('stroke','rgba(255,255,255,0.13)').attr('stroke-width',0.5);
+            if (fips !== selFips) {
+                const s = strokeFor(fips, baseStroke);
+                d3.select(ev.currentTarget)
+                    .attr('opacity', opacityFor(fips, 0.92))
+                    .attr('stroke', s.stroke).attr('stroke-width', s.width);
+            }
             hideTip();
         })
         .on('click', (ev, f) => {
             ev.stopPropagation();
             selectCounty(String(f.id).padStart(5,'0'));
         });
+
+    drawHuntPulses(counties);
 
     // County name labels (only when ≤ 80 counties so text isn't cramped)
     if (counties.length <= 80) {
@@ -1039,6 +1268,12 @@ function setLayer(btn, layer) {
     document.querySelectorAll('.lbtn[data-layer]').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     currentLayer = layer;
+    updateMapColors();
+}
+
+function toggleHunt() {
+    huntMode = !huntMode;
+    document.getElementById('hunt-btn').classList.toggle('active', huntMode);
     updateMapColors();
 }
 
