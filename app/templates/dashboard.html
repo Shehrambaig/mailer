@@ -93,7 +93,22 @@
 
 /* ── Analysis row ────────────────────────────────── */
 .analysis-row { display:grid; grid-template-columns:1fr 420px; gap:16px; }
+.analysis-row.panel-hoisted { grid-template-columns:1fr; }
 @media(max-width:1100px) { .analysis-row { grid-template-columns:1fr; } }
+
+/* ── Map row (map + optional side panel) ─────────── */
+.map-row { display:flex; gap:16px; align-items:stretch; width:100%; }
+.map-row > .map-card { flex:1 1 auto; min-width:0; transition:flex-basis .35s ease; }
+#side-panel-slot { display:none; flex:0 0 420px; min-width:0; }
+.map-row.state-mode #side-panel-slot { display:block; animation:slideInRight .35s ease; }
+.map-row.state-mode > .map-card { flex:1 1 0; }
+.map-row.state-mode #map-wrap svg { min-height:560px; max-height:78vh; }
+#side-panel-slot > #detail-panel { height:100% !important; max-height:none !important; }
+@media(max-width:1100px) {
+    .map-row { flex-direction:column; }
+    .map-row.state-mode > .map-card, #side-panel-slot { flex:1 1 auto; width:100%; }
+}
+@keyframes slideInRight { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
 
 /* Scatter */
 #scatter-wrap { position:relative; }
@@ -259,7 +274,8 @@
 </div>
 
 <!-- ══ MAP SECTION ══════════════════════════════════════════════════════ -->
-<div class="glass-card slide-up">
+<div class="map-row" id="map-row">
+<div class="glass-card slide-up map-card">
     <div class="layer-bar">
         <button class="lbtn active" data-layer="g"  onclick="setLayer(this,'g')">🎯 Golden Zone</button>
         <button class="lbtn" data-layer="biv" onclick="setLayer(this,'biv')">🎨 Buy × Exit</button>
@@ -314,9 +330,11 @@
         </div>
     </div>
 </div>
+<div id="side-panel-slot"></div>
+</div>
 
 <!-- ══ ANALYSIS ROW ═════════════════════════════════════════════════════ -->
-<div class="analysis-row">
+<div class="analysis-row" id="analysis-row">
 
     <!-- Scatter Plot -->
     <div class="glass-card slide-up">
@@ -785,11 +803,36 @@ function drawNationalView() {
         .call(zoomB.transform, d3.zoomIdentity);
 }
 
+function hoistPanel() {
+    const row  = document.getElementById('map-row');
+    const slot = document.getElementById('side-panel-slot');
+    const ar   = document.getElementById('analysis-row');
+    const panel = document.getElementById('detail-panel');
+    if (!row.classList.contains('state-mode')) {
+        row.classList.add('state-mode');
+        ar.classList.add('panel-hoisted');
+        if (panel && panel.parentNode !== slot) slot.appendChild(panel);
+        setTimeout(() => { if (scatterChart) scatterChart.resize(); }, 420);
+    }
+}
+function unhoistPanel() {
+    const row  = document.getElementById('map-row');
+    const ar   = document.getElementById('analysis-row');
+    const panel = document.getElementById('detail-panel');
+    if (row.classList.contains('state-mode')) {
+        row.classList.remove('state-mode');
+        ar.classList.remove('panel-hoisted');
+        if (panel && panel.parentNode !== ar) ar.appendChild(panel);
+        setTimeout(() => { if (scatterChart) scatterChart.resize(); }, 420);
+    }
+}
+
 function drillDownState(abbr) {
     mapMode = 'state';
     stateFilter = abbr;
     document.getElementById('state-filter').value = abbr;
     document.getElementById('back-btn').classList.add('show');
+    hoistPanel();
 
     const sfNum = parseInt(ASFIPS[abbr], 10);
     const sFeat = stateFeat.find(f => f.id === sfNum);
@@ -856,10 +899,10 @@ function drillDownState(abbr) {
             .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
     }
 
-    // Zoom to state
+    // Zoom to fill viewBox — tighter padding now that side panel absorbs UI chrome
     if (sFeat) {
         const [[x0,y0],[x1,y1]] = geoP.bounds(sFeat);
-        const k = Math.min(mapW/(x1-x0+50), mapH/(y1-y0+50)) * 0.88;
+        const k = Math.min(mapW/(x1-x0+10), mapH/(y1-y0+10)) * 0.98;
         const tx = mapW/2 - k*(x0+x1)/2, ty = mapH/2 - k*(y0+y1)/2;
         svgEl.transition().duration(700).ease(d3.easeCubicInOut)
             .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
@@ -868,6 +911,7 @@ function drillDownState(abbr) {
 
 function backToNational() {
     selFips = null;
+    unhoistPanel();
     document.getElementById('panel-default').style.display = '';
     document.getElementById('panel-sel').style.display = 'none';
     const tagEl = document.getElementById('page-tagline');
