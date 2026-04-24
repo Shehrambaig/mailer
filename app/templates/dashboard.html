@@ -34,7 +34,13 @@
 .state-base:hover { opacity:0.82 !important; filter:brightness(1.18); }
 .county-path { cursor:pointer; transition:opacity .15s; }
 .county-path:hover { opacity:1 !important; }
-.county-label { pointer-events:none; font-family:inherit; }
+.county-label {
+    pointer-events:none; font-family:inherit; font-weight:700; letter-spacing:.15px;
+    fill:rgba(255,255,255,0.96);
+    paint-order:stroke fill;
+    stroke:rgba(0,0,0,0.75);
+    stroke-linejoin:round;
+}
 .state-sel { background:rgba(12,12,28,.9); border:1px solid var(--border-glass); color:var(--text-secondary); border-radius:6px; padding:4px 10px; font-size:.72rem; font-weight:600; cursor:pointer; font-family:inherit; }
 
 /* Map tooltip */
@@ -571,6 +577,7 @@ function initMap() {
         gSt.attr('transform', e.transform);
         gCo.attr('transform', e.transform);
         gPulse.attr('transform', e.transform);
+        updateLabelsForZoom(e.transform.k);
     });
     svgEl.call(zoomB);
 
@@ -803,6 +810,25 @@ function drawNationalView() {
         .call(zoomB.transform, d3.zoomIdentity);
 }
 
+function updateLabelsForZoom(k) {
+    // Target ~13px screen font-size regardless of zoom level
+    const fs = Math.max(0.35, Math.min(10, 13 / k));
+    const strokeW = Math.max(0.08, fs * 0.22);
+    gCo.selectAll('.county-label').each(function(f) {
+        const el = this;
+        const label = d3.select(el);
+        label.attr('font-size', fs).attr('stroke-width', strokeW);
+        const [[x0,y0],[x1,y1]] = geoP.bounds(f);
+        const bboxW = x1 - x0;
+        const bboxH = y1 - y0;
+        let textW = el.getComputedTextLength();
+        if (!textW || !isFinite(textW)) textW = (el.textContent.length * fs * 0.55);
+        // Hide if label can't fit comfortably inside the county polygon
+        const hide = textW > bboxW * 0.92 || bboxH < fs * 1.4;
+        el.style.display = hide ? 'none' : '';
+    });
+}
+
 function hoistPanel() {
     const row  = document.getElementById('map-row');
     const slot = document.getElementById('side-panel-slot');
@@ -886,18 +912,15 @@ function drillDownState(abbr) {
 
     drawHuntPulses(counties);
 
-    // County name labels (only when ≤ 80 counties so text isn't cramped)
-    if (counties.length <= 80) {
-        gCo.selectAll('.county-label')
-            .data(counties.filter(f => countyData[String(f.id).padStart(5,'0')]))
-            .enter().append('text')
-            .attr('class','county-label')
-            .attr('x', f => { const c = geoP.centroid(f); return isNaN(c[0]) ? 0 : c[0]; })
-            .attr('y', f => { const c = geoP.centroid(f); return isNaN(c[1]) ? 0 : c[1]; })
-            .attr('text-anchor','middle').attr('dominant-baseline','middle')
-            .attr('font-size','7px').attr('fill','rgba(255,255,255,0.55)')
-            .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
-    }
+    // County name labels — font-size computed dynamically on zoom
+    gCo.selectAll('.county-label')
+        .data(counties.filter(f => countyData[String(f.id).padStart(5,'0')]))
+        .enter().append('text')
+        .attr('class','county-label')
+        .attr('x', f => { const c = geoP.centroid(f); return isNaN(c[0]) ? 0 : c[0]; })
+        .attr('y', f => { const c = geoP.centroid(f); return isNaN(c[1]) ? 0 : c[1]; })
+        .attr('text-anchor','middle').attr('dominant-baseline','middle')
+        .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
 
     // Zoom to fill viewBox — tighter padding now that side panel absorbs UI chrome
     if (sFeat) {
@@ -905,7 +928,10 @@ function drillDownState(abbr) {
         const k = Math.min(mapW/(x1-x0+10), mapH/(y1-y0+10)) * 0.98;
         const tx = mapW/2 - k*(x0+x1)/2, ty = mapH/2 - k*(y0+y1)/2;
         svgEl.transition().duration(700).ease(d3.easeCubicInOut)
-            .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+            .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k))
+            .on('end', () => updateLabelsForZoom(k));
+        // Also update immediately so labels don't flash at wrong size mid-transition
+        updateLabelsForZoom(k);
     }
 }
 
