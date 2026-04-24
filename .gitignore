@@ -11,3 +11,4 @@ migrations/
 /postcardmania/
 /dump_static.py
 /img*.png
+/*.xlsx
