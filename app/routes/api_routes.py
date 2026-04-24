@@ -40,6 +40,11 @@ def county_detail(fips):
     return jsonify(entry)
 
 
+@api_bp.route("/listings")
+def listings():
+    return jsonify(_load("listings.json"))
+
+
 @api_bp.route("/cache/clear", methods=["POST"])
 def clear_cache():
     _cache.clear()

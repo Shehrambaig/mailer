@@ -181,6 +181,29 @@
 /* Panel footer */
 .pfooter { padding:10px 16px; border-top:1px solid var(--border-glass); margin-top:auto; }
 
+/* Listings cards ─────────────────────────────── */
+.lsum-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.lsum-cell { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); border-radius:6px; padding:7px 9px; }
+.lsum-cell .lv { font-size:.95rem; font-weight:800; color:var(--text-primary); }
+.lsum-cell .ll { font-size:.58rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.7px; margin-top:2px; }
+.lcard { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:9px 11px; margin-bottom:7px; font-size:.75rem; transition:border-color .15s; }
+.lcard:hover { border-color:rgba(0,240,255,0.25); }
+.lcard-head { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
+.lcard-addr { font-weight:700; color:var(--text-primary); font-size:.82rem; }
+.lcard-meta { color:var(--text-muted); font-size:.68rem; margin-top:2px; }
+.lcard-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
+.lc-badge { font-size:.58rem; font-weight:700; padding:1px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:.5px; }
+.lc-fc { background:rgba(239,68,68,0.12); color:#ef4444; }
+.lc-auc { background:rgba(124,58,237,0.14); color:#a78bfa; }
+.lc-vacant { background:rgba(0,240,255,0.12); color:var(--accent-cyan); }
+.lcard-nums { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.04); }
+.lcard-num { display:flex; justify-content:space-between; font-size:.7rem; }
+.lcard-num .n-l { color:var(--text-muted); }
+.lcard-num .n-v { color:var(--text-primary); font-weight:700; }
+.lcard-footer { display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:.66rem; color:var(--text-muted); }
+.lcard-footer a { color:var(--accent-cyan); text-decoration:none; }
+.lcard-footer a:hover { text-decoration:underline; }
+
 /* Default panel (top opps) */
 .opp-item { padding:9px 16px; border-bottom:1px solid rgba(255,255,255,.025); cursor:pointer; transition:background .15s; }
 .opp-item:hover { background:rgba(0,240,255,.025); }
@@ -292,6 +315,10 @@
         <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">📉 Price Drops %</button>
         <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">💰 Income</button>
         <div class="lbtn-sep"></div>
+        <button class="lbtn" data-layer="fc_ct" onclick="setLayer(this,'fc_ct')">🧾 Pre-Foreclosures</button>
+        <button class="lbtn" data-layer="au_ct" onclick="setLayer(this,'au_ct')">🔨 Auctions</button>
+        <button class="lbtn" data-layer="tot_ct" onclick="setLayer(this,'tot_ct')">🏘 All Listings</button>
+        <div class="lbtn-sep"></div>
         <button class="lbtn hunt-btn" id="hunt-btn" onclick="toggleHunt()">🎯 HUNT MODE</button>
         <div class="lbtn-sep"></div>
         <select id="state-filter" class="state-sel" onchange="filterState(this.value)">
@@ -394,6 +421,7 @@
             </div>
             <div class="ptabs">
                 <button class="ptab active" onclick="showPTab('overview',this)">Overview</button>
+                <button class="ptab" onclick="showPTab('listings',this)">Listings <span id="p-list-badge" style="display:none;background:rgba(239,68,68,0.15);color:#ef4444;font-size:.6rem;padding:1px 5px;border-radius:8px;margin-left:3px;"></span></button>
                 <button class="ptab" onclick="showPTab('buy',this)">Buy Signals</button>
                 <button class="ptab" onclick="showPTab('exit',this)">Exit Signals</button>
                 <button class="ptab" onclick="showPTab('hist',this)">History</button>
@@ -406,6 +434,10 @@
             </div>
             <div class="ptab-content" id="pt-exit">
                 <div class="sig-list" id="p-exit-sigs"></div>
+            </div>
+            <div class="ptab-content" id="pt-listings">
+                <div id="p-list-summary" style="padding:12px 14px;border-bottom:1px solid var(--border-glass);"></div>
+                <div id="p-list-items" class="list-items" style="padding:8px 10px;overflow-y:auto;flex:1;"></div>
             </div>
             <div class="ptab-content" id="pt-hist">
                 <div class="hist-wrap">
@@ -480,6 +512,9 @@ const LAYERS = {
     d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d`, dir:'low' },
     pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
     inc: { label:'Median Income',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[20000,120000],fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'high' },
+    fc_ct:  { label:'Pre-Foreclosures (scraped)', colors:['#1a1a3e','#f59e0b','#ef4444'], domain:[0,200], fmt:v=>`${v|0}`, dir:'high' },
+    au_ct:  { label:'Active Auctions (scraped)',  colors:['#1a1a3e','#7c3aed','#ec4899'], domain:[0,10],  fmt:v=>`${v|0}`, dir:'high' },
+    tot_ct: { label:'All Scraped Listings',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,250], fmt:v=>`${v|0}`, dir:'high' },
 };
 
 // Bivariate palette — 3x3 Buy × Exit
@@ -499,6 +534,7 @@ function bivColor(buy, exit) {
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let countyData={}, incomeData={}, scatterRows=[], scatterMedX=50, scatterMedY=50;
+let listingsData={};
 let currentLayer='g', currentLevel='national', selState=null, selFips=null;
 let colorScale = d3.scaleLinear().domain([0,100]).range(['#ef4444','#f59e0b','#10b981']);
 let usGeo, stateFeat=[], countyFeat=[];
@@ -542,6 +578,11 @@ async function boot() {
         renderRankings();
         renderOppList();
     }).catch(()=>setDS('census','warn','Census unavailable'));
+
+    // Scraped listings (auctions + pre-foreclosures) in background
+    fetch('/api/listings').then(r=>r.json()).then(d=>{
+        listingsData = d;
+    }).catch(()=>console.warn('listings fetch failed'));
 }
 
 function setDS(key, status, label) {
@@ -1113,6 +1154,70 @@ function renderDetail(fips, data) {
     histEl.dataset.r  = JSON.stringify(data.redfin_trend||[]);
     histEl.dataset.rl = JSON.stringify(data.realtor_trend||[]);
     if (histEl.classList.contains('active')) renderHistory();
+
+    // Listings tab
+    renderListingsTab(fips);
+}
+
+function fmtMoney(n) {
+    if (!n || n <= 0) return '—';
+    if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
+    return '$' + Math.round(n / 1000) + 'K';
+}
+
+function renderListingsTab(fips) {
+    const L = listingsData[fips];
+    const badge = document.getElementById('p-list-badge');
+    const summary = document.getElementById('p-list-summary');
+    const items = document.getElementById('p-list-items');
+    if (!L || !L.total) {
+        if (badge) badge.style.display = 'none';
+        summary.innerHTML = '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:.82rem;">No scraped auction / pre-foreclosure records for this county yet.</div>';
+        items.innerHTML = '';
+        return;
+    }
+    if (badge) { badge.style.display = ''; badge.textContent = L.total; }
+    summary.innerHTML = `
+        <div class="lsum-grid">
+            <div class="lsum-cell"><div class="lv" style="color:#ef4444">${L.fc||0}</div><div class="ll">🧾 Pre-Foreclosures</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#a78bfa">${L.auc||0}</div><div class="ll">🔨 Active Auctions</div></div>
+            <div class="lsum-cell"><div class="lv">${fmtMoney(L.avg_val)}</div><div class="ll">Avg Valuation</div></div>
+            <div class="lsum-cell"><div class="lv">${fmtMoney(L.avg_price)}</div><div class="ll">Avg Price / Payoff</div></div>
+            <div class="lsum-cell"><div class="lv">${fmtMoney(L.total_val)}</div><div class="ll">Total Opportunity</div></div>
+            <div class="lsum-cell"><div class="lv">${L.next_date||'—'}</div><div class="ll">Next Foreclosure</div></div>
+        </div>
+    `;
+    items.innerHTML = L.listings.map(l => {
+        const specs = [
+            l.beds ? `${l.beds}bd` : null,
+            l.baths ? `${l.baths}ba` : null,
+            l.sqft ? `${l.sqft.toLocaleString()} sqft` : null,
+            l.yr ? `${l.yr}` : null,
+        ].filter(Boolean).join(' · ');
+        const badges = [
+            l.src === 'fc' ? `<span class="lc-badge lc-fc">Pre-FC</span>` : `<span class="lc-badge lc-auc">Auction</span>`,
+            l.vacant ? `<span class="lc-badge lc-vacant">Vacant</span>` : '',
+        ].filter(Boolean).join('');
+        return `
+        <div class="lcard">
+            <div class="lcard-head">
+                <div style="flex:1;min-width:0;">
+                    <div class="lcard-addr">${l.addr||'(no address)'}</div>
+                    <div class="lcard-meta">${(l.city||'')}${l.city && l.st ? ', '+l.st : (l.st||'')}${l.zip ? ' '+l.zip : ''}</div>
+                </div>
+                <div class="lcard-badges">${badges}</div>
+            </div>
+            ${specs ? `<div style="margin-top:3px;color:var(--text-muted);font-size:.68rem;">${specs}</div>` : ''}
+            <div class="lcard-nums">
+                <div class="lcard-num"><span class="n-l">Valuation</span><span class="n-v">${fmtMoney(l.val)}</span></div>
+                <div class="lcard-num"><span class="n-l">Price</span><span class="n-v">${fmtMoney(l.price)}</span></div>
+            </div>
+            <div class="lcard-footer">
+                <span>${l.date || '—'}${l.svc ? ' · ' + l.svc : ''}</span>
+                ${l.url ? `<a href="${l.url}" target="_blank" rel="noopener">Open →</a>` : ''}
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function renderSigs(id, sigs) {
