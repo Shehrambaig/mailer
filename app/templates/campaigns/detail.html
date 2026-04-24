@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }} - Mailer{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('campaigns.index') }}">Campaigns</a></li>
+        <li class="breadcrumb-item active">{{ campaign.name }}</li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3>{{ campaign.name }}</h3>
+        <span class="badge bg-primary me-2">{{ campaign.mail_type }}</span>
+        <span class="badge badge-{{ campaign.status }}">{{ campaign.status }}</span>
+    </div>
+    <div>
+        {% if campaign.status == 'draft' %}
+        <form method="POST" action="{{ url_for('campaigns.send', campaign_id=campaign.id) }}" class="d-inline"
+              onsubmit="return confirm('Send {{ campaign.total_pieces }} pieces via PostcardMania? This will charge your account.')">
+            <button class="btn btn-success">
+                <i class="bi bi-send"></i> Send Now
+            </button>
+        </form>
+        <form method="POST" action="{{ url_for('campaigns.cancel', campaign_id=campaign.id) }}" class="d-inline"
+              onsubmit="return confirm('Delete this draft campaign?')">
+            <button class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </form>
+        {% elif campaign.status == 'sent' %}
+        <form method="POST" action="{{ url_for('campaigns.cancel', campaign_id=campaign.id) }}" class="d-inline"
+              onsubmit="return confirm('Cancel this campaign? Only works before 11 PM EST cutoff.')">
+            <button class="btn btn-outline-danger">
+                <i class="bi bi-x-circle"></i> Cancel
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card shadow-sm">
+            <div class="card-body text-center">
+                <div class="stat-value">{{ campaign.total_pieces or 0 }}</div>
+                <div class="stat-label">Total Pieces</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card shadow-sm">
+            <div class="card-body text-center">
+                <div class="stat-value text-info">{{ campaign.pieces_sent or 0 }}</div>
+                <div class="stat-label">Sent</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card shadow-sm">
+            <div class="card-body text-center">
+                <div class="stat-value text-success">{{ campaign.pieces_delivered or 0 }}</div>
+                <div class="stat-label">Delivered</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card shadow-sm">
+            <div class="card-body text-center">
+                <div class="stat-value text-danger">{{ campaign.pieces_returned or 0 }}</div>
+                <div class="stat-label">Returned</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delivery Funnel -->
+{% if status_counts %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header"><h5 class="mb-0">Delivery Funnel</h5></div>
+    <div class="card-body">
+        {% set total = campaign.total_pieces or 1 %}
+        {% for status, count in status_counts.items() %}
+        <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+                <span class="text-capitalize">{{ status }}</span>
+                <span>{{ count }} ({{ "%.1f"|format(count / total * 100) }}%)</span>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div class="progress-bar {% if status == 'delivered' %}bg-success{% elif status == 'returned' %}bg-danger{% elif status == 'pending' %}bg-secondary{% else %}bg-info{% endif %}"
+                     style="width: {{ count / total * 100 }}%"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Target Criteria -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header"><h5 class="mb-0">Target Criteria</h5></div>
+    <div class="card-body">
+        {% if campaign.target_criteria %}
+        <div class="row">
+            {% if campaign.target_criteria.states %}
+            <div class="col-md-3"><strong>States:</strong> {{ campaign.target_criteria.states|join(', ') }}</div>
+            {% endif %}
+            {% if campaign.target_criteria.min_value %}
+            <div class="col-md-3"><strong>Min Value:</strong> ${{ "{:,}".format(campaign.target_criteria.min_value) }}</div>
+            {% endif %}
+            {% if campaign.target_criteria.max_value %}
+            <div class="col-md-3"><strong>Max Value:</strong> ${{ "{:,}".format(campaign.target_criteria.max_value) }}</div>
+            {% endif %}
+            {% if campaign.target_criteria.source %}
+            <div class="col-md-3"><strong>Source:</strong> {{ campaign.target_criteria.source }}</div>
+            {% endif %}
+        </div>
+        {% else %}
+        <span class="text-muted">No criteria set — all leads targeted</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Pieces Table -->
+<div class="card shadow-sm">
+    <div class="card-header"><h5 class="mb-0">Mail Pieces (showing first 100)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Address</th>
+                    <th>City</th>
+                    <th>State</th>
+                    <th>Order ID</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for piece in pieces %}
+                <tr>
+                    <td><a href="{{ url_for('leads.detail', lead_id=piece.lead_id) }}">{{ piece.lead.street }}</a></td>
+                    <td>{{ piece.lead.city }}</td>
+                    <td>{{ piece.lead.state }}</td>
+                    <td>{{ piece.pcm_order_id or '-' }}</td>
+                    <td><span class="badge badge-{{ piece.status }}">{{ piece.status }}</span></td>
+                    <td>{{ piece.status_updated_at.strftime('%b %d %H:%M') if piece.status_updated_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

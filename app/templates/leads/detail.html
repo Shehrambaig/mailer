@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ lead.street }} - Mailer{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('leads.index') }}">Leads</a></li>
+        <li class="breadcrumb-item active">{{ lead.street }}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <!-- Property Info -->
+    <div class="col-md-7">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{{ lead.street }}</h5>
+                <small class="text-muted">{{ lead.city }}, {{ lead.state }} {{ lead.zip_code }}</small>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr><th>Source</th><td><span class="badge bg-secondary">{{ lead.source }}</span></td></tr>
+                            <tr><th>Status</th><td><span class="badge badge-{{ lead.status }}">{{ lead.status }}</span></td></tr>
+                            <tr><th>County</th><td>{{ lead.county or '-' }}</td></tr>
+                            <tr><th>Property Type</th><td>{{ lead.property_type or '-' }}</td></tr>
+                            <tr><th>Beds/Baths</th><td>{{ lead.bedrooms or '-' }} / {{ lead.bathrooms or '-' }}</td></tr>
+                            <tr><th>Sq Ft</th><td>{{ "{:,}".format(lead.square_footage) if lead.square_footage else '-' }}</td></tr>
+                            <tr><th>Lot Size</th><td>{{ lead.lot_size_acres or '-' }} acres</td></tr>
+                            <tr><th>Year Built</th><td>{{ lead.year_built or '-' }}</td></tr>
+                            <tr><th>Address Verified</th><td>{{ 'Yes' if lead.address_verified else 'No' }} (DPV: {{ lead.dpv_match_code or '-' }})</td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr><th>Est. Value</th><td>{{ "${:,.0f}".format(lead.estimated_value) if lead.estimated_value else '-' }}</td></tr>
+                            <tr><th>Offer Value</th><td>{{ "${:,.0f}".format(lead.offer_value) if lead.offer_value else '-' }}</td></tr>
+                            <tr><th>Starting Bid</th><td>{{ "${:,.0f}".format(lead.starting_bid) if lead.starting_bid else '-' }}</td></tr>
+                            <tr><th>Auction Date</th><td>{{ lead.auction_date.strftime('%b %d, %Y %I:%M %p') if lead.auction_date else '-' }}</td></tr>
+                            <tr><th>Asset Type</th><td>{{ lead.asset_type or '-' }}</td></tr>
+                            <tr><th>Product Type</th><td>{{ lead.product_type or '-' }}</td></tr>
+                            <tr><th>Occupancy</th><td>{{ lead.occupancy_status or '-' }}</td></tr>
+                            <tr><th>Servicer</th><td>{{ lead.servicer_name or '-' }}</td></tr>
+                            <tr><th>Investor</th><td>{{ lead.investor_name or '-' }}</td></tr>
+                        </table>
+                    </div>
+                </div>
+                {% if lead.source_url %}
+                <a href="{{ lead.source_url }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-box-arrow-up-right"></i> View on Auction.com
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Mail History -->
+        <div class="card shadow-sm">
+            <div class="card-header"><h6 class="mb-0">Mail History</h6></div>
+            <div class="card-body">
+                {% set pieces = lead.mail_pieces.all() %}
+                {% if pieces %}
+                <table class="table table-sm">
+                    <thead><tr><th>Campaign</th><th>Sent</th><th>Status</th></tr></thead>
+                    <tbody>
+                        {% for piece in pieces %}
+                        <tr>
+                            <td>{{ piece.campaign.name }}</td>
+                            <td>{{ piece.created_at.strftime('%b %d, %Y') }}</td>
+                            <td><span class="badge badge-{{ piece.status }}">{{ piece.status }}</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted mb-0">No mail sent to this address yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div class="col-md-5">
+        {% if lead.latitude and lead.longitude %}
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div id="map" style="height: 400px; border-radius: 8px;"></div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card shadow-sm">
+            <div class="card-body text-center text-muted">
+                <i class="bi bi-geo-alt" style="font-size: 3rem;"></i>
+                <p>No coordinates available</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if lead.latitude and lead.longitude %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    var map = L.map('map').setView([{{ lead.latitude }}, {{ lead.longitude }}], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    L.marker([{{ lead.latitude }}, {{ lead.longitude }}]).addTo(map)
+        .bindPopup('<b>{{ lead.street }}</b><br>{{ lead.city }}, {{ lead.state }} {{ lead.zip_code }}')
+        .openPopup();
+</script>
+{% endif %}
+{% endblock %}

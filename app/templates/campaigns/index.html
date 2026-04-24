@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Campaigns - Mailer{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Campaigns</h3>
+    <a href="{{ url_for('campaigns.create') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i> New Campaign
+    </a>
+</div>
+
+{% if campaigns %}
+<div class="row">
+    {% for campaign in campaigns %}
+    <div class="col-md-4 mb-4">
+        <a href="{{ url_for('campaigns.detail', campaign_id=campaign.id) }}" class="card shadow-sm text-decoration-none text-body">
+            <div class="card-body">
+                <h5>{{ campaign.name }}</h5>
+                <p class="text-muted">{{ campaign.description or 'No description' }}</p>
+                <div class="d-flex justify-content-between">
+                    <span class="badge bg-primary">{{ campaign.mail_type }}</span>
+                    <span class="badge badge-{{ campaign.status }}">{{ campaign.status }}</span>
+                </div>
+                <hr>
+                <div class="row text-center">
+                    <div class="col"><small class="text-muted">Sent</small><br><strong>{{ campaign.pieces_sent }}</strong></div>
+                    <div class="col"><small class="text-muted">Delivered</small><br><strong>{{ campaign.pieces_delivered }}</strong></div>
+                    <div class="col"><small class="text-muted">Returned</small><br><strong>{{ campaign.pieces_returned }}</strong></div>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+    <i class="bi bi-send" style="font-size: 3rem;"></i>
+    <p class="mt-3">No campaigns yet. Create your first campaign to start sending mail.</p>
+</div>
+{% endif %}
+{% endblock %}

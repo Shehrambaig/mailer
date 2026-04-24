@@ -1,0 +1,1064 @@
+{% extends "base.html" %}
+{% block title %}Market Intel — Where to Hunt{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<style>
+/* ── Page layout ─────────────────────────────────── */
+.intel-page { display:flex; flex-direction:column; gap:16px; }
+
+/* ── Layer bar ───────────────────────────────────── */
+.layer-bar { display:flex; flex-wrap:wrap; gap:6px; padding:10px 16px; border-bottom:1px solid var(--border-glass); align-items:center; }
+.lbtn {
+    background:rgba(12,12,28,.8); border:1px solid var(--border-glass);
+    color:var(--text-secondary); padding:4px 12px; border-radius:6px;
+    font-size:.72rem; font-weight:600; cursor:pointer; transition:all .2s;
+    white-space:nowrap;
+}
+.lbtn:hover { color:var(--text-primary); border-color:rgba(0,240,255,.25); }
+.lbtn.active { background:rgba(0,240,255,.08); border-color:rgba(0,240,255,.4); color:var(--accent-cyan); }
+.lbtn-sep { width:1px; height:22px; background:var(--border-glass); margin:0 2px; }
+.bc { display:flex; align-items:center; gap:6px; font-size:.78rem; padding:8px 16px 4px; }
+.bc-link { color:var(--accent-cyan); cursor:pointer; }
+.bc-link:hover { text-decoration:underline; }
+.bc-sep { color:var(--text-muted); }
+.bc-cur { color:var(--text-primary); font-weight:600; }
+.back-btn { background:rgba(0,240,255,.07); border:1px solid rgba(0,240,255,.2); color:var(--accent-cyan); padding:3px 10px; border-radius:6px; font-size:.72rem; cursor:pointer; display:none; }
+.back-btn.show { display:inline-flex; align-items:center; gap:3px; }
+
+/* ── Map ─────────────────────────────────────────── */
+#map-wrap { position:relative; }
+.state-base { cursor:pointer; transition:fill .2s, opacity .2s; }
+.state-base:hover { opacity:0.82 !important; filter:brightness(1.18); }
+.county-path { cursor:pointer; transition:opacity .15s; }
+.county-path:hover { opacity:1 !important; }
+.county-label { pointer-events:none; font-family:inherit; }
+.state-sel { background:rgba(12,12,28,.9); border:1px solid var(--border-glass); color:var(--text-secondary); border-radius:6px; padding:4px 10px; font-size:.72rem; font-weight:600; cursor:pointer; font-family:inherit; }
+
+/* Map tooltip */
+.map-tip {
+    position:absolute; background:rgba(5,5,14,.97); backdrop-filter:blur(18px);
+    border:1px solid rgba(0,240,255,.25); border-radius:11px; padding:12px 15px;
+    pointer-events:none; opacity:0; transition:opacity .15s; z-index:200;
+    min-width:240px; max-width:300px; box-shadow:0 0 28px rgba(0,240,255,.1); font-size:.8rem;
+}
+.map-tip.show { opacity:1; }
+.tip-name { color:var(--accent-cyan); font-weight:700; font-size:.9rem; margin-bottom:7px; }
+.tip-scores { display:flex; gap:6px; margin-bottom:7px; }
+.tip-badge { font-size:.65rem; font-weight:700; padding:2px 8px; border-radius:5px; }
+.tip-g  { background:rgba(0,240,255,.12);  color:var(--accent-cyan); }
+.tip-b  { background:rgba(16,185,129,.12); color:var(--accent-green); }
+.tip-e  { background:rgba(124,58,237,.12); color:var(--accent-purple); }
+.tip-row { display:flex; justify-content:space-between; padding:2px 0; }
+.tip-row .l { color:var(--text-secondary); }
+.tip-row .v { color:var(--text-primary); font-weight:600; }
+.tip-sec { font-size:.6rem; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-muted); margin:6px 0 3px; }
+
+/* Map legend */
+.map-legend { display:flex; align-items:center; gap:8px; padding:6px 16px 10px; }
+.leg-bar { height:6px; border-radius:3px; width:120px; }
+.leg-lbl { font-size:.62rem; color:var(--text-muted); }
+.leg-metric { font-size:.7rem; color:var(--text-secondary); font-weight:600; margin-left:auto; }
+
+/* ── Analysis row ────────────────────────────────── */
+.analysis-row { display:grid; grid-template-columns:1fr 420px; gap:16px; }
+@media(max-width:1100px) { .analysis-row { grid-template-columns:1fr; } }
+
+/* Scatter */
+#scatter-wrap { position:relative; }
+.quadrant-label {
+    position:absolute; font-size:.68rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:.8px; opacity:.55; pointer-events:none;
+}
+
+/* Detail panel */
+#detail-panel { display:flex; flex-direction:column; height:560px; overflow:hidden; }
+.panel-header { padding:14px 18px; border-bottom:1px solid var(--border-glass); }
+.panel-name { font-size:1rem; font-weight:800; }
+.panel-sub  { font-size:.72rem; color:var(--text-muted); margin-top:2px; }
+.score-row  { display:flex; gap:7px; margin-top:9px; }
+.score-chip { flex:1; text-align:center; padding:7px 4px; border-radius:7px; border:1px solid; }
+.score-chip .sn { font-size:1.4rem; font-weight:900; line-height:1; }
+.score-chip .sl { font-size:.58rem; text-transform:uppercase; letter-spacing:.8px; font-weight:700; margin-top:2px; }
+.sc-g { border-color:rgba(0,240,255,.3); background:rgba(0,240,255,.05); }
+.sc-g .sn,.sc-g .sl { color:var(--accent-cyan); }
+.sc-b { border-color:rgba(16,185,129,.3); background:rgba(16,185,129,.05); }
+.sc-b .sn,.sc-b .sl { color:var(--accent-green); }
+.sc-e { border-color:rgba(124,58,237,.3); background:rgba(124,58,237,.05); }
+.sc-e .sn,.sc-e .sl { color:var(--accent-purple); }
+
+.ptabs { display:flex; border-bottom:1px solid var(--border-glass); }
+.ptab { flex:1; padding:9px 4px; font-size:.7rem; font-weight:700; text-align:center; border:none; background:transparent; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; transition:all .2s; text-transform:uppercase; letter-spacing:.4px; }
+.ptab:hover { color:var(--text-secondary); }
+.ptab.active { color:var(--accent-cyan); border-bottom-color:var(--accent-cyan); }
+
+.ptab-content { display:none; flex:1; min-height:0; overflow:hidden; }
+.ptab-content.active { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+
+/* Metric grid */
+.mgrid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; padding:12px; }
+.mcell { background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.04); border-radius:7px; padding:9px 7px; text-align:center; }
+.mcell .mv { font-size:.92rem; font-weight:800; color:var(--text-primary); }
+.mcell .ml { font-size:.58rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.7px; margin-top:2px; }
+.mcell.c-green .mv { color:var(--accent-green); }
+.mcell.c-red   .mv { color:var(--accent-red); }
+.mcell.c-amber .mv { color:var(--accent-amber); }
+.mcell.c-cyan  .mv { color:var(--accent-cyan); }
+.mcell.c-purple .mv { color:var(--accent-purple); }
+
+/* Signals */
+.sig-list { padding:10px 14px; overflow-y:auto; flex:1; }
+.sig-item { display:flex; align-items:flex-start; gap:7px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.025); }
+.sig-item:last-child { border-bottom:none; }
+.sig-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+.sig-opportunity .sig-dot,.sig-strong .sig-dot { background:var(--accent-green); }
+.sig-hot .sig-dot { background:var(--accent-red); }
+.sig-watch .sig-dot,.sig-warn .sig-dot { background:var(--accent-amber); }
+.sig-label { font-size:.6rem; text-transform:uppercase; letter-spacing:.8px; font-weight:700; }
+.sig-opportunity .sig-label,.sig-strong .sig-label { color:var(--accent-green); }
+.sig-hot .sig-label { color:var(--accent-red); }
+.sig-watch .sig-label,.sig-warn .sig-label { color:var(--accent-amber); }
+.sig-text { font-size:.78rem; color:var(--text-secondary); line-height:1.4; }
+.no-sig { padding:28px 14px; text-align:center; color:var(--text-muted); font-size:.82rem; }
+
+/* History */
+.hist-wrap { padding:10px 12px; overflow-y:auto; flex:1; min-height:0; }
+.ct { font-size:.62rem; text-transform:uppercase; letter-spacing:.9px; color:var(--text-muted); font-weight:600; margin-bottom:5px; }
+.csec { margin-bottom:14px; }
+
+/* Panel footer */
+.pfooter { padding:10px 16px; border-top:1px solid var(--border-glass); margin-top:auto; }
+
+/* Default panel (top opps) */
+.opp-item { padding:9px 16px; border-bottom:1px solid rgba(255,255,255,.025); cursor:pointer; transition:background .15s; }
+.opp-item:hover { background:rgba(0,240,255,.025); }
+.opp-rank { font-size:.62rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; }
+.opp-name { font-size:.88rem; font-weight:700; color:var(--text-primary); }
+.opp-meta { font-size:.7rem; color:var(--text-secondary); margin-top:1px; }
+
+/* ── Rankings ─────────────────────────────────────── */
+.rtabs { display:flex; gap:7px; }
+.rtab { background:var(--bg-card); border:1px solid var(--border-glass); color:var(--text-secondary); padding:5px 13px; border-radius:7px; font-size:.72rem; font-weight:600; cursor:pointer; transition:all .2s; }
+.rtab.active { background:rgba(0,240,255,.07); border-color:rgba(0,240,255,.3); color:var(--accent-cyan); }
+.rtab:hover { color:var(--text-primary); }
+.sortable { cursor:pointer; user-select:none; }
+.sortable:hover { color:var(--accent-cyan); }
+.sortable.sorted { color:var(--accent-cyan); }
+.sortable.sorted::after { content:' ▼'; font-size:.6rem; }
+.sortable.sorted.asc::after { content:' ▲'; }
+.sbar-wrap { width:44px; height:5px; background:rgba(255,255,255,.06); border-radius:3px; display:inline-block; vertical-align:middle; margin-right:5px; }
+.sbar-fill { height:100%; border-radius:3px; }
+
+/* Info tooltips */
+.info-icon { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:rgba(255,255,255,.08); color:var(--text-muted); font-size:.6rem; font-weight:700; cursor:help; margin-left:4px; vertical-align:middle; transition:background .15s; }
+.info-icon:hover { background:rgba(0,240,255,.15); color:var(--accent-cyan); }
+/* How-it-works banner */
+#hiw-body { border-top:1px solid var(--border-glass); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="intel-page">
+
+<!-- ══ HOW IT WORKS BANNER ══════════════════════════════════════════════ -->
+<div class="glass-card slide-up" id="how-it-works" style="border-color:rgba(0,240,255,.15);">
+    <div class="card-header d-flex justify-content-between align-items-center" style="cursor:pointer;" onclick="toggleHIW()">
+        <div class="d-flex align-items-center gap-2">
+            <span style="font-size:.85rem;font-weight:700;color:var(--accent-cyan)">ⓘ How It Works</span>
+            <span style="font-size:.72rem;color:var(--text-muted)">— what every score and metric means, and how they're calculated</span>
+        </div>
+        <span id="hiw-arrow" style="color:var(--text-muted);font-size:.85rem;">▼</span>
+    </div>
+    <div id="hiw-body" style="display:none;">
+    <div class="card-body" style="padding:16px 20px;">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+
+        <!-- Scores -->
+        <div>
+            <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);font-weight:700;margin-bottom:10px;">THE THREE SCORES (0–100)</div>
+            <div style="margin-bottom:10px;">
+                <div style="color:var(--accent-cyan);font-weight:700;font-size:.82rem;">🎯 Golden Zone Score</div>
+                <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">The main score. Geometric mean of Buy × Exit — both sides need to be good. A county scoring 90 on buying but 10 on selling still gets a low Golden score. Formula: √(Buy Score × Exit Score)</div>
+            </div>
+            <div style="margin-bottom:10px;">
+                <div style="color:var(--accent-green);font-weight:700;font-size:.82rem;">🏷 Buy Score</div>
+                <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How easy it is to acquire properties below market from motivated sellers. Driven by: <b>Price Reduction %</b> (primary — how many sellers are already cutting price), <b>YoY price trend</b> (falling = more desperation), and <b>stale inventory ratio</b> (active ÷ new listings — high = listings sitting unsold).</div>
+            </div>
+            <div>
+                <div style="color:var(--accent-purple);font-weight:700;font-size:.82rem;">⚡ Exit Speed</div>
+                <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How fast you can resell to a retail family buyer. Driven by: <b>DOM</b> (primary — lower is faster), <b>Pending Ratio</b> (more buyers under contract = strong demand), and <b>Sale-to-List ratio</b> (above 100% = bidding wars, below 97% = slow market).</div>
+            </div>
+        </div>
+
+        <!-- Metrics -->
+        <div>
+            <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);font-weight:700;margin-bottom:10px;">KEY METRICS EXPLAINED</div>
+            <div style="display:flex;flex-direction:column;gap:7px;">
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">DOM (Days on Market)</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median days a listing sits before going under contract. &lt;30 = fast (green). 30–60 = moderate. &gt;60 = slow (red). From Realtor.com March 2026.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Price Drops %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">% of active listings where the seller has cut the asking price at least once. 25%+ = meaningful distress signal. Source: Realtor.com.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Pending Ratio</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Pending listings ÷ total active listings. 30%+ = strong buyer demand. 10%- = few buyers. Source: Realtor.com.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">YoY %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Year-over-year change in median listing price. Negative = prices falling = buy opportunity. From Realtor.com (listing) and Zillow (ZHVI value index).</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Sale-to-List</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Actual sale price ÷ list price. &gt;100% = sold above asking (competitive). &lt;97% = buyer has leverage. Source: Redfin (when available).</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Affordability</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median income ÷ median home value. Higher = more buyers can afford the market = easier to sell. Census + Zillow data.</div></div>
+            </div>
+        </div>
+
+        <!-- Map & Scatter -->
+        <div>
+            <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);font-weight:700;margin-bottom:10px;">MAP &amp; SCATTER GUIDE</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">County Map</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Click a state to zoom into its counties. Click a county to see full detail. Layer buttons switch what the colors represent. Brighter = higher value for that metric.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Opportunity Matrix</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;"><b>X axis</b> = how fast you can sell (right = faster). <b>Y axis</b> = how easy to buy cheap (up = more motivated sellers). <b>Bubble size</b> = market volume (active listings). <b>Color</b> = Golden score (green = good, red = avoid).</div></div>
+                <div>
+                    <span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">The Four Quadrants</span>
+                    <div style="margin-top:4px;display:flex;flex-direction:column;gap:3px;">
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-green)">🎯 Top-right</span> <span style="color:var(--text-secondary)">Golden Zone — motivated sellers + fast resale. Target these.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-amber)">🐌 Top-left</span> <span style="color:var(--text-secondary)">Motivated sellers but slow to resell. Requires longer hold time.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-purple)">🔥 Bottom-right</span> <span style="color:var(--text-secondary)">Fast market but hard to buy cheap — prices aren't dropping yet.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--text-muted)">⚠ Bottom-left</span> <span style="color:var(--text-secondary)">Both slow and expensive to buy. Avoid.</span></div>
+                    </div>
+                </div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Data Sources</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Realtor.com (March 2026, 3,134 counties) · Zillow ZHVI (monthly, 2000–present) · Census ACS 5yr (2022) for income · Redfin (sale prices + volume, when available).</div></div>
+            </div>
+        </div>
+
+    </div>
+    </div>
+    </div>
+</div>
+
+<!-- ══ MAP SECTION ══════════════════════════════════════════════════════ -->
+<div class="glass-card slide-up">
+    <div class="layer-bar">
+        <button class="lbtn active" data-layer="g"  onclick="setLayer(this,'g')">🎯 Golden Zone</button>
+        <button class="lbtn" data-layer="es" onclick="setLayer(this,'es')">⚡ Exit Speed</button>
+        <button class="lbtn" data-layer="bs" onclick="setLayer(this,'bs')">🏷 Buy Opportunity</button>
+        <button class="lbtn" data-layer="v"  onclick="setLayer(this,'v')">🏠 Home Value</button>
+        <button class="lbtn" data-layer="d"  onclick="setLayer(this,'d')">📅 Days on Market</button>
+        <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">📉 Price Drops %</button>
+        <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">💰 Income</button>
+        <div class="lbtn-sep"></div>
+        <select id="state-filter" class="state-sel" onchange="filterState(this.value)">
+            <option value="">All States</option>
+        </select>
+        <button class="back-btn" id="back-btn" onclick="backToNational()">← US Map</button>
+        <div class="lbtn-sep"></div>
+        <small style="color:var(--text-muted);font-size:.67rem;">click state → drill into counties &nbsp;·&nbsp; click county → detail &nbsp;·&nbsp; scroll to zoom</small>
+    </div>
+    <div class="card-body p-2">
+        <div id="map-wrap">
+            <div id="map-tip" class="map-tip"></div>
+        </div>
+        <div class="map-legend">
+            <span class="leg-lbl" id="leg-lo">Low</span>
+            <div id="leg-bar" class="leg-bar" style="background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981)"></div>
+            <span class="leg-lbl" id="leg-hi">High</span>
+            <span class="leg-metric" id="leg-label">Golden Zone Score</span>
+        </div>
+    </div>
+</div>
+
+<!-- ══ ANALYSIS ROW ═════════════════════════════════════════════════════ -->
+<div class="analysis-row">
+
+    <!-- Scatter Plot -->
+    <div class="glass-card slide-up">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h6 class="mb-0" style="font-weight:700;">Opportunity Matrix</h6>
+                <small style="color:var(--text-muted);">X = how fast you can sell · Y = how easy to buy cheap · Size = market volume</small>
+            </div>
+            <small style="color:var(--text-muted);font-size:.68rem;" id="scatter-count"></small>
+        </div>
+        <div class="card-body" style="position:relative;padding:12px;">
+            <div id="scatter-wrap" style="position:relative;">
+                <canvas id="scatter-chart" height="380"></canvas>
+                <div class="quadrant-label" id="ql-tr" style="color:var(--accent-green)">🎯 Golden Zone</div>
+                <div class="quadrant-label" id="ql-tl" style="color:var(--accent-amber)">🐌 Motivated Sellers<br>Slow Exit</div>
+                <div class="quadrant-label" id="ql-br" style="color:var(--accent-purple)">🔥 Hot Market<br>Hard to Buy Cheap</div>
+                <div class="quadrant-label" id="ql-bl" style="color:var(--text-muted)">⚠ Avoid</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="glass-card slide-up" id="detail-panel">
+
+        <!-- Default: top opportunities -->
+        <div id="panel-default">
+            <div class="panel-header">
+                <div class="panel-name">Top Golden Zone Counties</div>
+                <div class="panel-sub">Click any county on the map or scatter plot</div>
+            </div>
+            <div id="opp-list" style="overflow-y:auto;max-height:430px;">
+                <div style="padding:28px;text-align:center;color:var(--text-muted)">Loading…</div>
+            </div>
+        </div>
+
+        <!-- Selected county -->
+        <div id="panel-sel" style="display:none;flex-direction:column;height:100%;">
+            <div class="panel-header">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <div class="panel-name" id="p-name">—</div>
+                        <div class="panel-sub"  id="p-sub">—</div>
+                    </div>
+                    <button onclick="clearSel()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem;line-height:1;">×</button>
+                </div>
+                <div class="score-row">
+                    <div class="score-chip sc-g" title="√(Buy × Exit). Both sides must be good. A county that's easy to buy but impossible to sell scores low." data-bs-toggle="tooltip"><div class="sn" id="p-gs">—</div><div class="sl">Golden ⓘ</div></div>
+                    <div class="score-chip sc-b" title="How easy to buy cheap: driven by price reduction %, YoY price decline, and stale inventory ratio." data-bs-toggle="tooltip"><div class="sn" id="p-bs">—</div><div class="sl">Buy ⓘ</div></div>
+                    <div class="score-chip sc-e" title="How fast to sell to retail buyers: driven by DOM (lower = faster), pending ratio, and sale-to-list ratio." data-bs-toggle="tooltip"><div class="sn" id="p-es">—</div><div class="sl">Exit ⓘ</div></div>
+                </div>
+            </div>
+            <div class="ptabs">
+                <button class="ptab active" onclick="showPTab('overview',this)">Overview</button>
+                <button class="ptab" onclick="showPTab('buy',this)">Buy Signals</button>
+                <button class="ptab" onclick="showPTab('exit',this)">Exit Signals</button>
+                <button class="ptab" onclick="showPTab('hist',this)">History</button>
+            </div>
+            <div class="ptab-content active" id="pt-overview">
+                <div class="mgrid" id="p-mgrid"></div>
+            </div>
+            <div class="ptab-content" id="pt-buy">
+                <div class="sig-list" id="p-buy-sigs"></div>
+            </div>
+            <div class="ptab-content" id="pt-exit">
+                <div class="sig-list" id="p-exit-sigs"></div>
+            </div>
+            <div class="ptab-content" id="pt-hist">
+                <div class="hist-wrap">
+                    <div class="csec"><div class="ct">Home Value — Zillow ZHVI (monthly median estimate)</div><div style="height:110px;position:relative;"><canvas id="hc-price"></canvas></div></div>
+                    <div class="csec"><div class="ct">Days on Market — median days before going under contract</div><div style="height:80px;position:relative;"><canvas id="hc-dom"></canvas></div></div>
+                    <div class="csec"><div class="ct">Price Reduction Rate — % of listings that cut their asking price</div><div style="height:80px;position:relative;"><canvas id="hc-pr"></canvas></div></div>
+                </div>
+            </div>
+            <div class="pfooter">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small id="p-income" style="color:var(--text-secondary)">—</small>
+                    <a href="/leads" class="btn btn-sm btn-outline-primary">View Leads</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══ RANKINGS TABLE ════════════════════════════════════════════════════ -->
+<div class="glass-card slide-up">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0" style="font-weight:700;">County Rankings</h6>
+        <div class="rtabs">
+            <button class="rtab active" onclick="setRTab(this,'g')">Golden Zone</button>
+            <button class="rtab" onclick="setRTab(this,'bs')">Best to Buy</button>
+            <button class="rtab" onclick="setRTab(this,'es')">Fastest Exit</button>
+            <button class="rtab" onclick="setRTab(this,'vol')">Most Active</button>
+        </div>
+    </div>
+    <div class="card-body p-0" style="overflow-x:auto;">
+        <table class="table mb-0">
+            <thead>
+                <tr>
+                    <th style="width:38px">#</th>
+                    <th class="sortable sorted" data-col="g" onclick="sortR('g')">Score <span class="info-icon" data-bs-toggle="tooltip" title="Golden Zone: √(Buy × Exit). Ranges 0–100. Both buying ease and exit speed must be strong.">i</span></th>
+                    <th class="sortable" data-col="name" onclick="sortR('name')">County</th>
+                    <th class="sortable" data-col="sc" onclick="sortR('sc')">State</th>
+                    <th class="sortable" data-col="inc" onclick="sortR('inc')">Med Income <span class="info-icon" data-bs-toggle="tooltip" title="Census ACS 2022 median household income. Higher income = more qualified retail buyers in the area.">i</span></th>
+                    <th class="sortable" data-col="v" onclick="sortR('v')">Home Value <span class="info-icon" data-bs-toggle="tooltip" title="Zillow Home Value Index (ZHVI) — smoothed monthly estimate of the median home value.">i</span></th>
+                    <th class="sortable" data-col="vy" onclick="sortR('vy')">YoY <span class="info-icon" data-bs-toggle="tooltip" title="Year-over-year % change in median listing price. Negative = prices falling = more seller motivation.">i</span></th>
+                    <th class="sortable" data-col="d" onclick="sortR('d')">DOM <span class="info-icon" data-bs-toggle="tooltip" title="Median Days on Market — days from listing to going under contract. <30 = fast exit. >60 = slow.">i</span></th>
+                    <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price. Higher = more motivated sellers.">i</span></th>
+                    <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count — how many properties are currently for sale. Higher = larger, more liquid market.">i</span></th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="rank-body">
+                <tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+</div><!-- intel-page -->
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════
+const SFIPS = {'01':'AL','02':'AK','04':'AZ','05':'AR','06':'CA','08':'CO','09':'CT','10':'DE','11':'DC','12':'FL','13':'GA','15':'HI','16':'ID','17':'IL','18':'IN','19':'IA','20':'KS','21':'KY','22':'LA','23':'ME','24':'MD','25':'MA','26':'MI','27':'MN','28':'MS','29':'MO','30':'MT','31':'NE','32':'NV','33':'NH','34':'NJ','35':'NM','36':'NY','37':'NC','38':'ND','39':'OH','40':'OK','41':'OR','42':'PA','44':'RI','45':'SC','46':'SD','47':'TN','48':'TX','49':'UT','50':'VT','51':'VA','53':'WA','54':'WV','55':'WI','56':'WY'};
+const ASFIPS = Object.fromEntries(Object.entries(SFIPS).map(([k,v])=>[v,k]));
+const SNAMES = {'AL':'Alabama','AK':'Alaska','AZ':'Arizona','AR':'Arkansas','CA':'California','CO':'Colorado','CT':'Connecticut','DE':'Delaware','DC':'D.C.','FL':'Florida','GA':'Georgia','HI':'Hawaii','ID':'Idaho','IL':'Illinois','IN':'Indiana','IA':'Iowa','KS':'Kansas','KY':'Kentucky','LA':'Louisiana','ME':'Maine','MD':'Maryland','MA':'Massachusetts','MI':'Michigan','MN':'Minnesota','MS':'Mississippi','MO':'Missouri','MT':'Montana','NE':'Nebraska','NV':'Nevada','NH':'N. Hampshire','NJ':'New Jersey','NM':'New Mexico','NY':'New York','NC':'N. Carolina','ND':'N. Dakota','OH':'Ohio','OK':'Oklahoma','OR':'Oregon','PA':'Pennsylvania','RI':'Rhode Island','SC':'S. Carolina','SD':'S. Dakota','TN':'Tennessee','TX':'Texas','UT':'Utah','VT':'Vermont','VA':'Virginia','WA':'Washington','WV':'W. Virginia','WI':'Wisconsin','WY':'Wyoming'};
+
+const LAYERS = {
+    g:   { label:'Golden Zone Score',   colors:['#ef4444','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100` },
+    bs:  { label:'Buy Opportunity',     colors:['#1a1a3e','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100` },
+    es:  { label:'Exit Speed',          colors:['#ef4444','#0a0a2e','#7c3aed'], domain:[0,100],       fmt:v=>`${v|0}/100` },
+    v:   { label:'Home Value (Zillow)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[50000,900000],fmt:v=>`$${(v/1000).toFixed(0)}K` },
+    d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d` },
+    pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%` },
+    inc: { label:'Median Income',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[20000,120000],fmt:v=>`$${(v/1000).toFixed(0)}K` },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let countyData={}, incomeData={}, scatterRows=[], scatterMedX=50, scatterMedY=50;
+let currentLayer='g', currentLevel='national', selState=null, selFips=null;
+let colorScale = d3.scaleLinear().domain([0,100]).range(['#ef4444','#f59e0b','#10b981']);
+let usGeo, stateFeat=[], countyFeat=[];
+let svgEl, gSt, gCo, geoP, zoomB;
+let mapW=0, mapH=0;
+let hCharts={};
+let rTab='g', rSortCol='g', rSortAsc=false;
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT — parallel data load
+// ═══════════════════════════════════════════════════════════════
+async function boot() {
+    const [geo, ch, sc] = await Promise.all([
+        d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json'),
+        fetch('/api/county-heatmap').then(r=>r.json()),
+        fetch('/api/scatter').then(r=>r.json()),
+    ]);
+    usGeo = geo;
+    countyData = ch;
+    scatterRows = sc.counties || [];
+    scatterMedX = sc.med_x || 50;
+    scatterMedY = sc.med_y || 50;
+
+    const n = Object.keys(ch).length;
+    setDS('realtor', n>0?'ok':'warn', n>0?`${n.toLocaleString()} counties`:'No county data');
+    setDS('zillow',  n>0?'ok':'warn', n>0?`Zillow merged`:'—');
+
+    initMap();
+    renderScatter();
+    renderRankings();
+    renderOppList();
+
+    // Census income in background
+    fetch('/api/census-income').then(r=>r.json()).then(d=>{
+        incomeData = d;
+        const ic = Object.keys(d).length;
+        setDS('census', ic>0?'ok':'warn', ic>0?`${ic.toLocaleString()} counties`:'Unavailable');
+        updateMapColors(); // income data arrived — refresh circle colors
+        renderRankings();
+        renderOppList();
+    }).catch(()=>setDS('census','warn','Census unavailable'));
+}
+
+function setDS(key, status, label) {
+    const el = document.getElementById(`ds-${key}`);
+    if (!el) return;
+    el.className = `ds-pill ds-${status}`;
+    el.textContent = label;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAP — choropleth drill-down: national (states) → state (counties)
+// ═══════════════════════════════════════════════════════════════
+let stateFilter = '';
+let mapMode = 'national'; // 'national' | 'state'
+
+function initMap() {
+    const wrap = document.getElementById('map-wrap');
+    mapW = wrap.clientWidth || 900;
+    mapH = Math.round(mapW * 0.54);
+    stateFeat  = topojson.feature(usGeo, usGeo.objects.states).features;
+    countyFeat = topojson.feature(usGeo, usGeo.objects.counties).features;
+
+    const proj = d3.geoAlbersUsa().fitSize([mapW, mapH], topojson.feature(usGeo, usGeo.objects.states));
+    geoP = d3.geoPath().projection(proj);
+
+    svgEl = d3.select('#map-wrap').append('svg')
+        .attr('viewBox', `0 0 ${mapW} ${mapH}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
+        .style('width', '100%').style('height', 'auto')
+        .style('background', '#080814');
+
+    zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
+        gSt.attr('transform', e.transform);
+        gCo.attr('transform', e.transform);
+    });
+    svgEl.call(zoomB);
+
+    gSt = svgEl.append('g');
+    gCo = svgEl.append('g');
+
+    rebuildScale();
+    drawNationalView();
+    populateStateFilter();
+}
+
+function rebuildScale() {
+    const cfg = LAYERS[currentLayer];
+    colorScale = d3.scaleLinear().domain(cfg.domain).range(cfg.colors).clamp(true);
+    document.getElementById('leg-bar').style.background = `linear-gradient(90deg,${cfg.colors.join(',')})`;
+    document.getElementById('leg-label').textContent = cfg.label;
+    document.getElementById('leg-lo').textContent = cfg.fmt(cfg.domain[0]);
+    document.getElementById('leg-hi').textContent = cfg.fmt(cfg.domain[cfg.domain.length-1]);
+}
+
+function countyVal(fips) {
+    const d = countyData[fips] || {};
+    return currentLayer === 'inc'
+        ? ((incomeData[fips] || {}).income || 0)
+        : (d[currentLayer] || 0);
+}
+
+
+function drawNationalView() {
+    mapMode = 'national';
+    stateFilter = '';
+    gSt.selectAll('*').remove();
+    gCo.selectAll('*').remove();
+
+    // All counties colored individually
+    gCo.selectAll('.county-path')
+        .data(countyFeat).enter().append('path')
+        .attr('class','county-path')
+        .attr('d', geoP)
+        .attr('fill', f => {
+            const fips = String(f.id).padStart(5,'0');
+            const val = countyVal(fips);
+            return val ? colorScale(val) : '#1a1c38';
+        })
+        .attr('stroke','rgba(0,0,0,0.18)').attr('stroke-width',0.25)
+        .attr('opacity', 0.93)
+        .on('mouseover', (ev, f) => {
+            d3.select(ev.currentTarget).attr('opacity',1).attr('stroke','rgba(255,255,255,0.5)').attr('stroke-width',0.8);
+            showCountyTip(ev, String(f.id).padStart(5,'0'));
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', (ev, f) => {
+            if (String(f.id).padStart(5,'0') !== selFips)
+                d3.select(ev.currentTarget).attr('opacity',0.93).attr('stroke','rgba(0,0,0,0.18)').attr('stroke-width',0.25);
+            hideTip();
+        })
+        .on('click', (ev, f) => {
+            ev.stopPropagation();
+            const fips = String(f.id).padStart(5,'0');
+            const d = countyData[fips]||{};
+            if (d.sc) {
+                drillDownState(d.sc);
+                setTimeout(() => selectCounty(fips), 800);
+            }
+        });
+
+    // State borders on top as crisp lines
+    gSt.append('path')
+        .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a !== b))
+        .attr('fill','none').attr('stroke','rgba(255,255,255,0.45)').attr('stroke-width',0.9)
+        .attr('d', geoP).attr('pointer-events','none');
+    gSt.append('path')
+        .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a === b))
+        .attr('fill','none').attr('stroke','rgba(255,255,255,0.3)').attr('stroke-width',0.7)
+        .attr('d', geoP).attr('pointer-events','none');
+
+    document.getElementById('back-btn').classList.remove('show');
+    document.getElementById('state-filter').value = '';
+
+    svgEl.transition().duration(550).ease(d3.easeCubicInOut)
+        .call(zoomB.transform, d3.zoomIdentity);
+}
+
+function drillDownState(abbr) {
+    mapMode = 'state';
+    stateFilter = abbr;
+    document.getElementById('state-filter').value = abbr;
+    document.getElementById('back-btn').classList.add('show');
+
+    const sfNum = parseInt(ASFIPS[abbr], 10);
+    const sFeat = stateFeat.find(f => f.id === sfNum);
+    const sfPad = String(ASFIPS[abbr]).padStart(2,'0');
+    const counties = countyFeat.filter(f => String(f.id).padStart(5,'0').startsWith(sfPad));
+
+    gSt.selectAll('*').remove();
+    gCo.selectAll('*').remove();
+
+    // Faint state background so borders are visible outside county data
+    if (sFeat) {
+        gSt.append('path').datum(sFeat)
+            .attr('fill','rgba(20,22,50,0.6)').attr('stroke','rgba(255,255,255,0.2)').attr('stroke-width',1.2)
+            .attr('d', geoP).attr('pointer-events','none');
+    }
+
+    // County choropleth fills
+    gCo.selectAll('.county-path')
+        .data(counties).enter().append('path')
+        .attr('class','county-path')
+        .attr('d', geoP)
+        .attr('fill', f => {
+            const fips = String(f.id).padStart(5,'0');
+            const val = countyVal(fips);
+            return val ? colorScale(val) : '#1a1c38';
+        })
+        .attr('stroke','rgba(255,255,255,0.13)').attr('stroke-width',0.5)
+        .attr('opacity', 0.92)
+        .on('mouseover', (ev, f) => {
+            d3.select(ev.currentTarget)
+                .attr('opacity',1).attr('stroke','rgba(0,240,255,0.65)').attr('stroke-width',1.8);
+            showCountyTip(ev, String(f.id).padStart(5,'0'));
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', (ev, f) => {
+            const fips = String(f.id).padStart(5,'0');
+            if (fips !== selFips)
+                d3.select(ev.currentTarget).attr('opacity',0.92).attr('stroke','rgba(255,255,255,0.13)').attr('stroke-width',0.5);
+            hideTip();
+        })
+        .on('click', (ev, f) => {
+            ev.stopPropagation();
+            selectCounty(String(f.id).padStart(5,'0'));
+        });
+
+    // County name labels (only when ≤ 80 counties so text isn't cramped)
+    if (counties.length <= 80) {
+        gCo.selectAll('.county-label')
+            .data(counties.filter(f => countyData[String(f.id).padStart(5,'0')]))
+            .enter().append('text')
+            .attr('class','county-label')
+            .attr('x', f => { const c = geoP.centroid(f); return isNaN(c[0]) ? 0 : c[0]; })
+            .attr('y', f => { const c = geoP.centroid(f); return isNaN(c[1]) ? 0 : c[1]; })
+            .attr('text-anchor','middle').attr('dominant-baseline','middle')
+            .attr('font-size','7px').attr('fill','rgba(255,255,255,0.55)')
+            .text(f => (countyData[String(f.id).padStart(5,'0')]||{}).name||'');
+    }
+
+    // Zoom to state
+    if (sFeat) {
+        const [[x0,y0],[x1,y1]] = geoP.bounds(sFeat);
+        const k = Math.min(mapW/(x1-x0+50), mapH/(y1-y0+50)) * 0.88;
+        const tx = mapW/2 - k*(x0+x1)/2, ty = mapH/2 - k*(y0+y1)/2;
+        svgEl.transition().duration(700).ease(d3.easeCubicInOut)
+            .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+    }
+}
+
+function backToNational() {
+    selFips = null;
+    document.getElementById('panel-default').style.display = '';
+    document.getElementById('panel-sel').style.display = 'none';
+    const tagEl = document.getElementById('page-tagline');
+    if (tagEl) tagEl.textContent = 'Where to Hunt — Retail Market Intelligence';
+    drawNationalView();
+}
+
+function updateMapColors() {
+    rebuildScale();
+    if (mapMode === 'national') drawNationalView();
+    else drillDownState(stateFilter);
+}
+
+function filterState(abbr) {
+    if (!abbr) { backToNational(); return; }
+    drillDownState(abbr);
+}
+
+function populateStateFilter() {
+    const sel = document.getElementById('state-filter');
+    const abbrs = [...new Set(Object.values(countyData).map(d => d.sc).filter(Boolean))].sort();
+    abbrs.forEach(abbr => {
+        const opt = document.createElement('option');
+        opt.value = abbr; opt.textContent = `${abbr} — ${SNAMES[abbr]||abbr}`;
+        sel.appendChild(opt);
+    });
+}
+
+// ── Tooltips ──────────────────────────────────────────────────
+const tipEl = document.getElementById('map-tip');
+function moveTip(ev) {
+    const r = document.getElementById('map-wrap').getBoundingClientRect();
+    let l = ev.clientX-r.left+14, t = ev.clientY-r.top-20;
+    if (l+310>r.width) l = ev.clientX-r.left-320;
+    tipEl.style.left=l+'px'; tipEl.style.top=t+'px';
+}
+function hideTip() { tipEl.classList.remove('show'); }
+
+function showStateTip(ev, f) {
+    const abbr = SFIPS[String(f.id).padStart(2,'0')]||'';
+    const sf = ASFIPS[abbr];
+    if (!sf) return;
+    const cfips = countyFeat.filter(c=>String(c.id).padStart(5,'0').startsWith(sf))
+        .map(c=>String(c.id).padStart(5,'0'));
+    const cdata = cfips.map(fp=>countyData[fp]).filter(Boolean);
+    const avg = (field,mult=1) => {
+        const vs = cdata.map(d=>d[field]||0).filter(Boolean);
+        return vs.length ? (vs.reduce((a,b)=>a+b,0)/vs.length*mult).toFixed(0) : '—';
+    };
+    const topG = cdata.filter(d=>d.g>0).sort((a,b)=>b.g-a.g).slice(0,3);
+    tipEl.innerHTML = `
+        <div class="tip-name">${SNAMES[abbr]||abbr}</div>
+        <div class="tip-scores">
+            <span class="tip-badge tip-g">Golden ${avg('g')}</span>
+            <span class="tip-badge tip-b">Buy ${avg('bs')}</span>
+            <span class="tip-badge tip-e">Exit ${avg('es')}</span>
+        </div>
+        <div class="tip-sec">State Averages</div>
+        <div class="tip-row"><span class="l">Avg Home Value</span><span class="v">$${(+avg('v')/1000).toFixed(0)}K</span></div>
+        <div class="tip-row"><span class="l">Avg DOM</span><span class="v">${avg('d')} days</span></div>
+        <div class="tip-row"><span class="l">Price Drops</span><span class="v">${avg('pr')}%</span></div>
+        ${topG.length?`<div class="tip-sec">Top Counties</div>`+topG.map(d=>`<div class="tip-row"><span class="l">${d.name},${d.sc}</span><span class="v" style="color:var(--accent-cyan)">${d.g}/100</span></div>`).join(''):''}
+    `;
+    tipEl.classList.add('show');
+}
+
+function showCountyTip(ev, fips) {
+    const d = countyData[fips]||{};
+    const inc = (incomeData[fips]||{}).income||0;
+    const dom = d.d||0;
+    const domColor = dom<=30?'var(--accent-green)':dom<=60?'var(--accent-amber)':'var(--accent-red)';
+    const yColor = (d.vy||0)<0?'var(--accent-green)':'var(--accent-amber)';
+    tipEl.innerHTML = `
+        <div class="tip-name">${d.name||fips}${d.sc?', '+d.sc:''}</div>
+        <div class="tip-scores">
+            <span class="tip-badge tip-g">Golden ${d.g||'—'}</span>
+            <span class="tip-badge tip-b">Buy ${d.bs||'—'}</span>
+            <span class="tip-badge tip-e">Exit ${d.es||'—'}</span>
+        </div>
+        ${inc?`<div class="tip-row"><span class="l">Median Income</span><span class="v" style="color:var(--accent-green)">$${(inc/1000).toFixed(0)}K</span></div>`:''}
+        <div class="tip-sec">Market</div>
+        <div class="tip-row"><span class="l">Home Value</span><span class="v">${d.v?'$'+(d.v/1000).toFixed(0)+'K':'—'}</span></div>
+        <div class="tip-row"><span class="l">YoY</span><span class="v" style="color:${yColor}">${d.vy?(d.vy>0?'+':'')+d.vy.toFixed(1)+'%':'—'}</span></div>
+        <div class="tip-row"><span class="l">Days on Market</span><span class="v" style="color:${domColor}">${dom||'—'}</span></div>
+        <div class="tip-row"><span class="l">Price Drops</span><span class="v">${d.pr?d.pr.toFixed(1)+'%':'—'}</span></div>
+        <div class="tip-row"><span class="l">Pending Ratio</span><span class="v">${d.ppr?d.ppr.toFixed(1)+'%':'—'}</span></div>
+        <div class="tip-row"><span class="l">List Price</span><span class="v">${d.lp?'$'+(d.lp/1000).toFixed(0)+'K':d.sp?'$'+(d.sp/1000).toFixed(0)+'K':'—'}</span></div>
+    `;
+    tipEl.classList.add('show');
+}
+
+// ── County selection ──────────────────────────────────────────
+function selectCounty(fips) {
+    selFips = fips;
+    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
+    const baseW      = mapMode === 'national' ? 0.25 : 0.5;
+    gCo.selectAll('.county-path')
+        .attr('stroke', f => String(f.id).padStart(5,'0') === fips ? 'var(--accent-cyan)' : baseStroke)
+        .attr('stroke-width', f => String(f.id).padStart(5,'0') === fips ? 2.5 : baseW)
+        .attr('opacity', f => String(f.id).padStart(5,'0') === fips ? 1 : 0.85);
+    const d = countyData[fips]||{};
+    const tagEl = document.getElementById('page-tagline');
+    if (tagEl) tagEl.textContent = `${d.name||fips}${d.sc?', '+d.sc:''} — County Detail`;
+    document.getElementById('panel-default').style.display='none';
+    document.getElementById('panel-sel').style.display='flex';
+    fetch(`/api/county/${fips}`).then(r=>r.json()).then(data=>renderDetail(fips,data));
+}
+
+function clearSel() {
+    selFips = null;
+    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
+    const baseW      = mapMode === 'national' ? 0.25 : 0.5;
+    gCo.selectAll('.county-path')
+        .attr('stroke', baseStroke).attr('stroke-width', baseW).attr('opacity',0.92);
+    const tagEl = document.getElementById('page-tagline');
+    if (tagEl) tagEl.textContent = 'Where to Hunt — Retail Market Intelligence';
+    document.getElementById('panel-default').style.display='';
+    document.getElementById('panel-sel').style.display='none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ═══════════════════════════════════════════════════════════════
+function renderDetail(fips, data) {
+    const cur = data.current||{};
+    const inc = (incomeData[fips]||{}).income || cur.median_income||0;
+    const cname = cur.census_name || (cur.county_name?(cur.county_name+' County'):'') || fips;
+    const state = data.state||'';
+    document.getElementById('p-name').textContent = cname.replace(', '+SNAMES[state],'');
+    document.getElementById('p-sub').textContent  = SNAMES[state]||state;
+    document.getElementById('p-gs').textContent   = cur.golden_score||'—';
+    document.getElementById('p-bs').textContent   = (cur.buy_signals||{}).score||'—';
+    document.getElementById('p-es').textContent   = (cur.exit_signals||{}).score||'—';
+
+    // Metric grid
+    const dom = cur.realtor_dom||cur.redfin_dom;
+    const domCls = dom?(dom<=30?'c-green':dom<=60?'c-amber':'c-red'):'';
+    const yoy = cur.realtor_list_price_yy||cur.zillow_yoy;
+    const yoyStr = yoy!=null?(yoy>0?'+':'')+((Math.abs(yoy)<2?yoy*100:yoy).toFixed(1))+'%':'—';
+    const yCls = yoy!=null?(yoy<0?'c-green':yoy>0.08?'c-red':''):'';
+    const pr = cur.realtor_price_reduced!=null?cur.realtor_price_reduced*100:cur.redfin_price_drops||null;
+    const prStr = pr!=null?pr.toFixed(1)+'%':'—';
+    const prCls = pr?(pr>30?'c-amber':pr>15?'c-cyan':''):'';
+    const stl = cur.redfin_sale_to_list;
+    const stlStr = stl?stl.toFixed(3).includes('.')?((stl*100).toFixed(1)+'%'):'—':'—';
+    const pending = cur.realtor_pending_ratio;
+    const pendStr = pending?(pending*100).toFixed(1)+'%':'—';
+    const val = cur.zillow_zhvi||cur.realtor_list_price||cur.redfin_sale_price;
+    const afford = val&&inc?((inc/val)*100).toFixed(1)+'%':'—';
+
+    const metrics = [
+        {v:inc?'$'+(inc/1000).toFixed(0)+'K':'—', l:'Med Income', cls:inc>70000?'c-green':inc?'c-cyan':''},
+        {v:val?'$'+(val/1000).toFixed(0)+'K':'—', l:'Home Value', cls:''},
+        {v:afford, l:'Affordability', cls:''},
+        {v:dom?dom+'d':'—', l:'Days on Mkt', cls:domCls},
+        {v:yoyStr, l:'YoY Price', cls:yCls},
+        {v:prStr,  l:'Price Drops', cls:prCls},
+        {v:pendStr,l:'Pending Ratio',cls:pending>0.3?'c-green':pending>0.1?'c-cyan':''},
+        {v:stlStr, l:'Sale/List',   cls:stl?stl>1.01?'c-red':stl<0.97?'c-green':'':''},
+        {v:cur.realtor_ppsf?'$'+cur.realtor_ppsf.toFixed(0):'—', l:'$/SqFt', cls:''},
+    ];
+    document.getElementById('p-mgrid').innerHTML = metrics.map(m=>
+        `<div class="mcell ${m.cls}"><div class="mv">${m.v}</div><div class="ml">${m.l}</div></div>`
+    ).join('');
+
+    // Income line in footer
+    document.getElementById('p-income').textContent = inc?`Median household income: $${(inc/1000).toFixed(0)}K`:'';
+
+    // Signals
+    renderSigs('p-buy-sigs',  (cur.buy_signals||{}).signals||[]);
+    renderSigs('p-exit-sigs', (cur.exit_signals||{}).signals||[]);
+
+    // Store trend data
+    const histEl = document.getElementById('pt-hist');
+    histEl.dataset.z  = JSON.stringify(data.zillow_trend||[]);
+    histEl.dataset.r  = JSON.stringify(data.redfin_trend||[]);
+    histEl.dataset.rl = JSON.stringify(data.realtor_trend||[]);
+    if (histEl.classList.contains('active')) renderHistory();
+}
+
+function renderSigs(id, sigs) {
+    const el = document.getElementById(id);
+    if (!sigs.length) { el.innerHTML=`<div class="no-sig">No signals for this area.</div>`; return; }
+    el.innerHTML = sigs.map(s=>`
+        <div class="sig-item sig-${s.type}">
+            <div class="sig-dot"></div>
+            <div><div class="sig-label">${s.type}</div><div class="sig-text">${s.text}</div></div>
+        </div>`).join('');
+}
+
+function showPTab(name, btn) {
+    document.querySelectorAll('.ptab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ptab-content').forEach(c=>c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pt-'+name).classList.add('active');
+    if (name==='hist') renderHistory();
+}
+
+function renderHistory() {
+    const el = document.getElementById('pt-hist');
+    const ztrend = JSON.parse(el.dataset.z||'[]');
+    const rltrend = JSON.parse(el.dataset.rl||'[]');
+    for (const k in hCharts) { if(hCharts[k]){hCharts[k].destroy();hCharts[k]=null;} }
+    const COPTS = {responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(5,5,14,.95)',borderColor:'rgba(0,240,255,.2)',borderWidth:1,cornerRadius:7,padding:9,titleFont:{family:'Inter'},bodyFont:{family:'Inter'}}},
+        scales:{x:{display:true,grid:{color:'rgba(255,255,255,.03)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9},maxTicksLimit:8}},y:{display:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9}}}},
+        elements:{point:{radius:0,hoverRadius:4},line:{tension:.4,borderWidth:2}},
+    };
+    if (ztrend.length) {
+        hCharts.p = new Chart(document.getElementById('hc-price'),{type:'line',data:{labels:ztrend.map(d=>d.month?.slice(5)||d.month||''),datasets:[{label:'Zillow ZHVI',data:ztrend.map(d=>d.zhvi/1000),borderColor:'#00f0ff',backgroundColor:'rgba(0,240,255,.05)',fill:true}]},options:COPTS});
+    }
+    if (rltrend.length) {
+        hCharts.d = new Chart(document.getElementById('hc-dom'),{type:'line',data:{labels:rltrend.map(d=>String(d.month).slice(-2)),datasets:[{label:'DOM',data:rltrend.map(d=>d.dom),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.05)',fill:true}]},options:COPTS});
+        hCharts.r = new Chart(document.getElementById('hc-pr'),{type:'line',data:{labels:rltrend.map(d=>String(d.month).slice(-2)),datasets:[{label:'Price Reductions %',data:rltrend.map(d=>d.price_reduced!=null?+(d.price_reduced*100).toFixed(1):null),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.05)',fill:true}]},options:COPTS});
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SCATTER CHART
+// ═══════════════════════════════════════════════════════════════
+let scatterChart = null;
+function renderScatter() {
+    if (scatterChart) { scatterChart.destroy(); scatterChart=null; }
+    const rows = scatterRows;
+    document.getElementById('scatter-count').textContent = rows.length+' counties';
+    const maxVol = Math.max(...rows.map(r=>r.vol),1);
+    const maxV   = Math.max(...rows.map(r=>r.v),1);
+
+    const datasets = [{
+        label:'Counties',
+        data: rows.map(r=>({ x:r.x, y:r.y, r:Math.max(3,Math.min(20,Math.sqrt(r.vol/maxVol)*22+3)) })),
+        backgroundColor: rows.map(r=>{
+            const g = r.g||50;
+            const h = g<40?0:g<60?30:g<75?80:140;
+            return `hsla(${h},70%,55%,0.6)`;
+        }),
+        borderColor:'rgba(255,255,255,.1)',
+        borderWidth:.5,
+    }];
+
+    const ctx = document.getElementById('scatter-chart').getContext('2d');
+    scatterChart = new Chart(ctx,{
+        type:'bubble',
+        data:{ datasets },
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            animation:{ duration:600 },
+            plugins:{
+                legend:{display:false},
+                tooltip:{
+                    backgroundColor:'rgba(5,5,14,.95)',
+                    borderColor:'rgba(0,240,255,.25)', borderWidth:1,
+                    cornerRadius:9, padding:11,
+                    titleFont:{family:'Inter',weight:'700'},
+                    bodyFont:{family:'Inter',size:12},
+                    callbacks:{
+                        title: (items)=>{
+                            const r = rows[items[0].dataIndex];
+                            return `${r.name}, ${r.sc}`;
+                        },
+                        label: (item)=>{
+                            const r = rows[item.dataIndex];
+                            return [
+                                `Golden: ${r.g}/100`,
+                                `Buy: ${r.y}/100  Exit: ${r.x}/100`,
+                                `DOM: ${r.d||'—'} days`,
+                                `Price drops: ${r.pr||0}%`,
+                                `Value: $${r.v?(r.v/1000).toFixed(0)+'K':'—'}`,
+                                r.inc?`Income: $${(r.inc/1000).toFixed(0)}K`:'',
+                            ].filter(Boolean);
+                        }
+                    }
+                }
+            },
+            scales:{
+                x:{ min:0, max:100, title:{display:true,text:'← Slow Exit   |   Exit Speed (Sell to Retail Buyers)   →',color:'rgba(255,255,255,.35)',font:{size:10,family:'Inter'}}, grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'rgba(255,255,255,.3)',font:{size:10}} },
+                y:{ min:0, max:100, title:{display:true,text:'Buy Opportunity ↑',color:'rgba(255,255,255,.35)',font:{size:10,family:'Inter'}}, grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'rgba(255,255,255,.3)',font:{size:10}} }
+            },
+            onClick:(ev, items)=>{
+                if (!items.length) return;
+                const r = rows[items[0].dataIndex];
+                if (r.fips && r.sc) {
+                    drillDownState(r.sc);
+                    setTimeout(()=>selectCounty(r.fips), 800);
+                }
+            }
+        }
+    });
+
+    // Position quadrant labels
+    requestAnimationFrame(()=>{
+        const canvas = document.getElementById('scatter-chart');
+        const W=canvas.offsetWidth, H=canvas.offsetHeight;
+        const lx=scatterMedX/100*W, ly=(1-scatterMedY/100)*H;
+        const labels={
+            'ql-tr':{ left:(lx+W)/2-40+'px', top:ly/2+10+'px' },
+            'ql-tl':{ left:lx/2-50+'px', top:ly/2+10+'px' },
+            'ql-br':{ left:(lx+W)/2-40+'px', top:(ly+H)/2+10+'px' },
+            'ql-bl':{ left:lx/2-30+'px', top:(ly+H)/2+10+'px' },
+        };
+        for(const [id,pos] of Object.entries(labels)){
+            const el=document.getElementById(id);
+            if(el){ el.style.left=pos.left; el.style.top=pos.top; }
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPPORTUNITY LIST (default panel)
+// ═══════════════════════════════════════════════════════════════
+function renderOppList() {
+    const el = document.getElementById('opp-list');
+    const items = [...scatterRows].sort((a,b)=>b.g-a.g).slice(0,10);
+    if (!items.length) { el.innerHTML='<div style="padding:28px;text-align:center;color:var(--text-muted)">No data yet</div>'; return; }
+    el.innerHTML = items.map((r,i)=>{
+        const inc = incomeData[r.fips];
+        const incStr = inc?`$${((inc.income||inc)/1000).toFixed(0)}K income · `:'';
+        const domStr = r.d?`${r.d}d DOM · `:'';
+        const prStr  = r.pr?`${r.pr.toFixed(0)}% drops`:'';
+        return `<div class="opp-item" onclick="drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800);">
+            <div class="opp-rank">#${i+1} &nbsp;·&nbsp; Buy ${r.y}/100 &nbsp;·&nbsp; Exit ${r.x}/100</div>
+            <div class="opp-name">${r.name}${r.sc?', '+r.sc:''}</div>
+            <div class="opp-meta">${incStr}${domStr}${prStr}</div>
+        </div>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RANKINGS TABLE
+// ═══════════════════════════════════════════════════════════════
+function buildRankList() {
+    return [...scatterRows].map(r=>({
+        ...r,
+        inc:(incomeData[r.fips]||{}).income||0,
+        vol:r.vol||0,
+    }));
+}
+
+function renderRankings() {
+    let rows = buildRankList();
+    if (rTab==='g')   rows.sort((a,b)=>b.g-a.g);
+    if (rTab==='bs')  rows.sort((a,b)=>b.y-a.y);
+    if (rTab==='es')  rows.sort((a,b)=>b.x-a.x);
+    if (rTab==='vol') rows.sort((a,b)=>b.vol-a.vol);
+    // Apply column sort
+    if (rSortCol==='name') rows.sort((a,b)=>rSortAsc?(a.name||'').localeCompare(b.name||''):(b.name||'').localeCompare(a.name||''));
+    else if(rSortCol==='sc') rows.sort((a,b)=>rSortAsc?(a.sc||'').localeCompare(b.sc||''):(b.sc||'').localeCompare(a.sc||''));
+    else { const c=rSortCol; rows.sort((a,b)=>rSortAsc?(a[c]||0)-(b[c]||0):(b[c]||0)-(a[c]||0)); }
+
+    const top = rows.slice(0,50);
+    const sc = s=>s>=70?'var(--accent-green)':s>=50?'var(--accent-amber)':'var(--accent-red)';
+    const body = document.getElementById('rank-body');
+    if (!top.length) { body.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">No data</td></tr>'; return; }
+    body.innerHTML = top.map((r,i)=>{
+        const sbar = `<div class="sbar-wrap"><div class="sbar-fill" style="width:${r.g}%;background:${sc(r.g)}"></div></div>`;
+        const domStr = r.d?`<span style="color:${r.d<=30?'var(--accent-green)':r.d<=60?'var(--accent-amber)':'var(--accent-red)'}">${r.d}d</span>`:'—';
+        const yoyStr = r.vy!=null?`<span style="color:${r.vy<0?'var(--accent-green)':'var(--accent-amber)'}">${r.vy>0?'+':''}${r.vy.toFixed(1)}%</span>`:'—';
+        const prStr  = r.pr?`<span style="color:var(--accent-amber)">${r.pr.toFixed(0)}%</span>`:'—';
+        const incStr = r.inc?`<span style="color:var(--accent-green);font-size:.75rem">$${(r.inc/1000).toFixed(0)}K</span>`:'—';
+        const fn = `drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800)`;
+        return `<tr onclick="${fn}">
+            <td style="color:var(--text-muted);font-weight:700">${i+1}</td>
+            <td>${sbar}<span style="font-size:.78rem;font-weight:700;color:${sc(r.g)}">${r.g}</span></td>
+            <td style="font-weight:600;color:var(--accent-cyan)">${r.name||'—'}</td>
+            <td style="font-weight:700;color:var(--text-secondary)">${r.sc}</td>
+            <td>${incStr}</td>
+            <td>${r.v?'$'+(r.v/1000).toFixed(0)+'K':'—'}</td>
+            <td>${yoyStr}</td>
+            <td>${domStr}</td>
+            <td>${prStr}</td>
+            <td style="color:var(--text-secondary)">${r.vol?r.vol.toLocaleString():'—'}</td>
+            <td><button class="lbtn" style="padding:2px 8px;font-size:.65rem" onclick="event.stopPropagation();${fn}">View ›</button></td>
+        </tr>`;
+    }).join('');
+}
+
+function setRTab(btn, tab) {
+    document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    rTab=tab; rSortCol=tab==='vol'?'vol':tab==='bs'?'y':tab==='es'?'x':'g'; rSortAsc=false;
+    renderRankings();
+}
+
+function sortR(col) {
+    rSortAsc = rSortCol===col?!rSortAsc:false;
+    rSortCol = col;
+    document.querySelectorAll('.sortable').forEach(th=>{
+        th.classList.remove('sorted','asc');
+        if(th.dataset.col===col){th.classList.add('sorted');if(rSortAsc)th.classList.add('asc');}
+    });
+    renderRankings();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER CONTROL
+// ═══════════════════════════════════════════════════════════════
+function setLayer(btn, layer) {
+    document.querySelectorAll('.lbtn[data-layer]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentLayer = layer;
+    updateMapColors();
+}
+
+// ── How It Works toggle ───────────────────────────────────────
+function toggleHIW() {
+    const body  = document.getElementById('hiw-body');
+    const arrow = document.getElementById('hiw-arrow');
+    const open  = body.style.display === 'block';
+    body.style.display  = open ? 'none' : 'block';
+    arrow.textContent   = open ? '▼' : '▲';
+}
+
+// ── Bootstrap tooltips ────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+        new bootstrap.Tooltip(el, { placement:'top', trigger:'hover', html:false });
+    });
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+boot();
+</script>
+{% endblock %}

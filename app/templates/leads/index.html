@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Leads - Mailer{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Leads <span class="text-muted fs-6">({{ leads.total }} total)</span></h3>
+    <a href="{{ url_for('leads.import_leads') }}" class="btn btn-primary">
+        <i class="bi bi-upload"></i> Import
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">State</label>
+                <select name="state" class="form-select">
+                    <option value="">All States</option>
+                    {% for s in states %}
+                    <option value="{{ s }}" {% if s == state_filter %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All</option>
+                    {% for st in ['new', 'qualified', 'mailed', 'responded', 'closed'] %}
+                    <option value="{{ st }}" {% if st == status_filter %}selected{% endif %}>{{ st|title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-outline-primary me-2">Filter</button>
+                <a href="{{ url_for('leads.index') }}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Leads Table -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Address</th>
+                    <th>City</th>
+                    <th>State</th>
+                    <th>Zip</th>
+                    <th>Source</th>
+                    <th>Auction Date</th>
+                    <th>Est. Value</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lead in leads.items %}
+                <tr>
+                    <td><a href="{{ url_for('leads.detail', lead_id=lead.id) }}">{{ lead.street }}</a></td>
+                    <td>{{ lead.city }}</td>
+                    <td>{{ lead.state }}</td>
+                    <td>{{ lead.zip_code }}</td>
+                    <td><span class="badge bg-secondary">{{ lead.source }}</span></td>
+                    <td>{{ lead.auction_date.strftime('%b %d, %Y') if lead.auction_date else '-' }}</td>
+                    <td>{{ "${:,.0f}".format(lead.estimated_value) if lead.estimated_value else '-' }}</td>
+                    <td><span class="badge badge-{{ lead.status }}">{{ lead.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if leads.pages > 1 %}
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination mb-0 justify-content-center">
+                {% if leads.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('leads.index', page=leads.prev_num, state=state_filter, status=status_filter) }}">Previous</a>
+                </li>
+                {% endif %}
+                {% for p in leads.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if p %}
+                    <li class="page-item {% if p == leads.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_for('leads.index', page=p, state=state_filter, status=status_filter) }}">{{ p }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+                {% if leads.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('leads.index', page=leads.next_num, state=state_filter, status=status_filter) }}">Next</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

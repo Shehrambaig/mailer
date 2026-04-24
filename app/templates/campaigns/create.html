@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}New Campaign - Mailer{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('campaigns.index') }}">Campaigns</a></li>
+        <li class="breadcrumb-item active">New Campaign</li>
+    </ol>
+</nav>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <form method="POST">
+            <!-- Step 1: Basics -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header"><h5 class="mb-0">1. Campaign Details</h5></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Campaign Name</label>
+                        <input type="text" name="name" class="form-control" required placeholder="e.g. TX Foreclosure April 2026">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Mail Type</label>
+                            <select name="mail_type" class="form-select" id="mailType">
+                                <option value="postcard">Postcard</option>
+                                <option value="letter">Letter</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Mail Class</label>
+                            <select name="mail_class" class="form-select">
+                                <option value="FirstClass">First Class</option>
+                                <option value="Standard">Standard</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Design -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header"><h5 class="mb-0">2. Select Design</h5></div>
+                <div class="card-body">
+                    {% if designs %}
+                    <div class="row">
+                        {% for design in designs %}
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <input type="radio" name="design_id" value="{{ design.designID }}" class="form-check-input" id="design_{{ design.designID }}"
+                                        {% if loop.first %}checked{% endif %}>
+                                    <label class="form-check-label d-block" for="design_{{ design.designID }}">
+                                        {% if design.proofFront %}
+                                        <img src="{{ design.proofFront }}" class="img-fluid mb-2" style="max-height: 120px;" alt="Design preview">
+                                        {% else %}
+                                        <i class="bi bi-image" style="font-size: 3rem; color: #ccc;"></i>
+                                        {% endif %}
+                                        <div class="mt-2">
+                                            <strong>{{ design.friendlyName }}</strong>
+                                            <br><small class="text-muted">{{ design.productType }} - {{ design.size.label }}</small>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info">
+                        No designs found. Create designs in the <a href="https://portal.pcmintegrations.com/" target="_blank">PostcardMania portal</a> first.
+                    </div>
+                    <input type="hidden" name="design_id" value="">
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Step 3: Targeting -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">3. Target Audience</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">States (comma-separated)</label>
+                            <input type="text" name="states" class="form-control" placeholder="e.g. TX, CA, NY"
+                                hx-get="{{ url_for('api.leads_count') }}" hx-trigger="keyup changed delay:500ms"
+                                hx-include="[name='min_value'],[name='max_value'],[name='status_filter'],[name='source']"
+                                hx-target="#lead-count" hx-swap="innerHTML"
+                                id="statesInput">
+                            <div class="form-text">Leave empty for all states</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Source</label>
+                            <select name="source" class="form-select"
+                                hx-get="{{ url_for('api.leads_count') }}" hx-trigger="change"
+                                hx-include="[name='states'],[name='min_value'],[name='max_value'],[name='status_filter']"
+                                hx-target="#lead-count" hx-swap="innerHTML">
+                                <option value="">All Sources</option>
+                                {% for s in sources %}
+                                <option value="{{ s }}">{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Min Est. Value ($)</label>
+                            <input type="number" name="min_value" class="form-control" placeholder="0"
+                                hx-get="{{ url_for('api.leads_count') }}" hx-trigger="keyup changed delay:500ms"
+                                hx-include="[name='states'],[name='max_value'],[name='status_filter'],[name='source']"
+                                hx-target="#lead-count" hx-swap="innerHTML">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Max Est. Value ($)</label>
+                            <input type="number" name="max_value" class="form-control" placeholder="No limit"
+                                hx-get="{{ url_for('api.leads_count') }}" hx-trigger="keyup changed delay:500ms"
+                                hx-include="[name='states'],[name='min_value'],[name='status_filter'],[name='source']"
+                                hx-target="#lead-count" hx-swap="innerHTML">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Lead Status</label>
+                            <select name="status_filter" class="form-select"
+                                hx-get="{{ url_for('api.leads_count') }}" hx-trigger="change"
+                                hx-include="[name='states'],[name='min_value'],[name='max_value'],[name='source']"
+                                hx-target="#lead-count" hx-swap="innerHTML">
+                                <option value="new" selected>New</option>
+                                <option value="">All Statuses</option>
+                                <option value="qualified">Qualified</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="alert alert-info" id="lead-count">
+                        <i class="bi bi-people"></i> Matching leads will be calculated when you set filters
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit -->
+            <div class="d-flex justify-content-between">
+                <a href="{{ url_for('campaigns.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="bi bi-plus-lg"></i> Create Campaign
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Update lead count on page load
+document.addEventListener('DOMContentLoaded', function() {
+    htmx.trigger(document.getElementById('statesInput'), 'keyup');
+});
+</script>
+{% endblock %}

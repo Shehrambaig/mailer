@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Scrapers - Mailer{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">Scrapers</h3>
+
+<!-- Available Scrapers -->
+<div class="row mb-4">
+    {% for scraper in scrapers %}
+    <div class="col-md-4 mb-3">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6>{{ scraper.name }}</h6>
+                        <p class="text-muted small mb-2">{{ scraper.description }}</p>
+                    </div>
+                    <form method="POST" action="{{ url_for('scrapers.run_scraper', name=scraper.name) }}">
+                        <button class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-play-fill"></i> Run
+                        </button>
+                    </form>
+                </div>
+                {% if scraper.last_run %}
+                <div class="small">
+                    <span class="badge {% if scraper.last_run.status == 'completed' %}bg-success{% elif scraper.last_run.status == 'running' %}bg-warning{% else %}bg-danger{% endif %}">
+                        {{ scraper.last_run.status }}
+                    </span>
+                    <span class="text-muted ms-1">{{ scraper.last_run.started_at.strftime('%b %d %H:%M') }}</span>
+                    {% if scraper.last_run.records_new %}
+                    <span class="text-muted ms-1">| {{ scraper.last_run.records_new }} new</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <small class="text-muted">Never run</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Recent Runs -->
+<div class="card shadow-sm">
+    <div class="card-header"><h5 class="mb-0">Recent Runs</h5></div>
+    <div class="card-body p-0">
+        {% if runs %}
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Scraper</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Found</th>
+                    <th>New</th>
+                    <th>Updated</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td>{{ run.scraper_name }}</td>
+                    <td>{{ run.started_at.strftime('%b %d, %Y %H:%M') }}</td>
+                    <td>
+                        {% if run.finished_at %}
+                            {{ (run.finished_at - run.started_at).total_seconds()|int }}s
+                        {% elif run.status == 'running' %}
+                            <span class="spinner-border spinner-border-sm"></span>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ run.records_found }}</td>
+                    <td>{{ run.records_new }}</td>
+                    <td>{{ run.records_updated }}</td>
+                    <td>
+                        <span class="badge {% if run.status == 'completed' %}bg-success{% elif run.status == 'running' %}bg-warning{% else %}bg-danger{% endif %}">
+                            {{ run.status }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if run.error_message %}
+                        <span class="text-danger small" title="{{ run.error_message }}">
+                            {{ run.error_message[:50] }}{% if run.error_message|length > 50 %}...{% endif %}
+                        </span>
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted text-center py-4 mb-0">No scraper runs yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
