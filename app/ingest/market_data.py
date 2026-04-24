@@ -9,6 +9,7 @@ Data sources:
 """
 import csv
 import gzip
+import math
 import os
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
@@ -272,111 +273,205 @@ def _build_name_fips_lookup():
     return lookup
 
 
-def compute_exit_score(d):
-    """Score 0-100: how fast/easy to sell to retail family buyers."""
-    score = 50
-    signals = []
+def _piecewise(val, points):
+    """Linear interpolation between (x, y) breakpoints. Flat extrapolation."""
+    if val is None:
+        return None
+    if val <= points[0][0]:
+        return points[0][1]
+    if val >= points[-1][0]:
+        return points[-1][1]
+    for i in range(len(points) - 1):
+        x0, y0 = points[i]
+        x1, y1 = points[i + 1]
+        if x0 <= val <= x1:
+            t = (val - x0) / (x1 - x0) if x1 > x0 else 0
+            return y0 + t * (y1 - y0)
+    return points[-1][1]
 
-    dom = d.get("realtor_dom") or d.get("redfin_dom")
+
+def _weighted(sigs, weights, min_coverage=0.4):
+    """Weighted sum with renormalization for missing signals."""
+    total_w = sum(weights[k] for k, v in sigs.items() if v is not None)
+    if total_w < min_coverage:
+        return None
+    return sum(weights[k] * sigs[k] for k, v in sigs.items() if v is not None) / total_w
+
+
+def compute_exit_score(d):
+    """
+    Exit Speed 0-100: how fast to resell to retail buyers.
+    Weighted sum of piecewise-normalized metrics + dual-threshold gate bonuses.
+    """
+    dom      = d.get("realtor_dom") or d.get("redfin_dom")
+    pending  = d.get("realtor_pending_ratio")
+    off2wk   = d.get("redfin_off_market_2wk")
+    stl      = d.get("redfin_sale_to_list")
+    supply   = d.get("redfin_supply")
+    yoy      = d.get("realtor_list_price_yy")
+    if yoy is None:
+        yoy = d.get("zillow_yoy")
+        if yoy is not None and abs(yoy) > 1:
+            yoy = yoy / 100  # zillow_yoy sometimes stored as percentage
+
+    sigs = {
+        "dom":     _piecewise(dom,     [(15, 100), (30, 70), (60, 30), (90, 10), (150, 0)]) if dom else None,
+        "pending": _piecewise(pending, [(0.03, 0), (0.10, 20), (0.25, 65), (0.40, 100)]) if pending is not None else None,
+        "off2wk":  _piecewise(off2wk,  [(0.05, 0), (0.10, 10), (0.30, 60), (0.50, 100)]) if off2wk is not None else None,
+        "stl":     _piecewise(stl,     [(0.93, 0), (0.97, 40), (1.00, 75), (1.02, 100)]) if stl else None,
+        "supply":  _piecewise(supply,  [(2, 100), (4, 60), (6, 25), (10, 0)]) if supply else None,
+        "yoy":     _piecewise(yoy,     [(-0.05, 0), (0, 50), (0.05, 85), (0.10, 100)]) if yoy is not None else None,
+    }
+    weights = {"dom": 0.40, "pending": 0.30, "off2wk": 0.12, "stl": 0.10, "supply": 0.05, "yoy": 0.03}
+
+    base = _weighted(sigs, weights)
+    if base is None:
+        return {"score": 50, "signals": [{"type": "watch", "text": "Insufficient exit-side data"}]}
+
+    # Dual-threshold gate bonuses
+    if dom and pending is not None:
+        if dom < 30 and pending > 0.40:
+            base *= 1.15
+        elif dom < 60 and pending > 0.25:
+            base *= 1.10
+    if dom and dom > 120:
+        base *= 0.60  # stagnant override
+
+    score = max(0, min(100, int(round(base))))
+
+    # Human-readable signals
+    signals = []
     if dom:
         if dom <= 20:
-            score = 90
-            signals.append({"type": "hot", "text": f"{dom} days on market — extremely fast exit"})
+            signals.append({"type": "hot",    "text": f"{dom} days on market — blazing fast exit"})
         elif dom <= 30:
-            score = 78
             signals.append({"type": "strong", "text": f"{dom} days on market — fast market"})
-        elif dom <= 45:
-            score = 62
         elif dom <= 60:
-            score = 48
+            signals.append({"type": "watch",  "text": f"{dom} days on market — moderate pace"})
         elif dom <= 90:
-            score = 30
-            signals.append({"type": "warn", "text": f"{dom} days on market — slow market"})
+            signals.append({"type": "warn",   "text": f"{dom} days on market — slow exit"})
         else:
-            score = 12
-            signals.append({"type": "warn", "text": f"{dom} days on market — very slow exit"})
-
-    pr = d.get("realtor_pending_ratio")
-    if pr is not None:
-        if pr > 0.5:
-            score = min(100, score + 15)
-            signals.append({"type": "hot", "text": f"Pending ratio {pr:.0%} — strong buyer demand"})
-        elif pr > 0.3:
-            score = min(100, score + 7)
-        elif pr < 0.1:
-            score = max(0, score - 8)
-
-    off2wk = d.get("redfin_off_market_2wk")
-    if off2wk and off2wk > 0.4:
-        score = min(100, score + 10)
+            signals.append({"type": "warn",   "text": f"{dom} days on market — stagnant"})
+    if pending is not None:
+        if pending > 0.40:
+            signals.append({"type": "hot",    "text": f"Pending ratio {pending:.0%} — heavy buyer demand"})
+        elif pending > 0.25:
+            signals.append({"type": "strong", "text": f"Pending ratio {pending:.0%} — solid demand"})
+        elif pending < 0.10:
+            signals.append({"type": "warn",   "text": f"Pending ratio {pending:.0%} — weak demand"})
+    if off2wk and off2wk > 0.30:
         signals.append({"type": "hot", "text": f"{off2wk:.0%} go off-market within 2 weeks"})
+    if stl:
+        if stl >= 1.01:
+            signals.append({"type": "strong", "text": f"{stl:.1%} sale-to-list — bidding above ask"})
+        elif stl < 0.97:
+            signals.append({"type": "warn",   "text": f"{stl:.1%} sale-to-list — buyer leverage"})
+    if supply and supply < 3:
+        signals.append({"type": "strong", "text": f"{supply:.1f} months of supply — tight inventory"})
+    if dom and pending is not None and dom < 60 and pending > 0.25:
+        signals.append({"type": "hot", "text": "Dual threshold met: DOM<60 + Pending>25%"})
 
-    stl = d.get("redfin_sale_to_list")
-    if stl and stl > 1.01:
-        score = min(100, score + 8)
-        signals.append({"type": "strong", "text": f"{stl:.1%} sale-to-list — selling above ask"})
-    elif stl and stl < 0.97:
-        score = max(0, score - 8)
-        signals.append({"type": "warn", "text": f"{stl:.1%} sale-to-list — below ask"})
-
-    price_yy = d.get("realtor_list_price_yy")
-    if price_yy and price_yy > 0.08:
-        score = min(100, score + 5)
-        signals.append({"type": "strong", "text": f"List prices +{price_yy:.0%} YoY — appreciating"})
-
-    return {"score": max(0, min(100, score)), "signals": signals}
+    return {"score": score, "signals": signals}
 
 
 def compute_buy_score(d):
-    """Score 0-100: how easy to acquire below market from motivated sellers."""
-    score = 50
+    """
+    Buy Opportunity 0-100: ease of acquiring below market from motivated sellers.
+    """
+    price_reduced = d.get("realtor_price_reduced")
+    if price_reduced is None:
+        price_reduced = d.get("redfin_price_drops")
+    if price_reduced is not None and price_reduced > 1:
+        price_reduced = price_reduced / 100  # fix if stored as percent
+
+    yoy     = d.get("realtor_list_price_yy")
+    if yoy is None:
+        yoy = d.get("zillow_yoy")
+        if yoy is not None and abs(yoy) > 1:
+            yoy = yoy / 100
+    supply  = d.get("redfin_supply")
+    active  = d.get("realtor_active")
+    new_l   = d.get("realtor_new_listings")
+    anr     = (active / new_l) if active and new_l and new_l > 0 else None
+    stl     = d.get("redfin_sale_to_list")
+    dom     = d.get("realtor_dom") or d.get("redfin_dom")
+
+    sigs = {
+        "pr":     _piecewise(price_reduced, [(0, 0), (0.05, 10), (0.15, 45), (0.25, 70), (0.40, 100)]) if price_reduced is not None else None,
+        "yoy":    _piecewise(yoy,    [(-0.08, 100), (-0.03, 70), (0, 40), (0.05, 15), (0.12, 0)]) if yoy is not None else None,
+        "supply": _piecewise(supply, [(2, 0), (4, 40), (6, 70), (10, 100)]) if supply else None,
+        "anr":    _piecewise(anr,    [(1, 0), (2.5, 40), (4, 70), (6, 100)]) if anr else None,
+        "stl":    _piecewise(stl,    [(0.93, 100), (0.97, 70), (1.00, 25), (1.02, 0)]) if stl else None,
+        "dom":    _piecewise(dom,    [(30, 0), (60, 30), (90, 70), (120, 100)]) if dom else None,
+    }
+    weights = {"pr": 0.45, "yoy": 0.20, "supply": 0.15, "anr": 0.10, "stl": 0.07, "dom": 0.03}
+
+    base = _weighted(sigs, weights)
+    if base is None:
+        return {"score": 50, "signals": [{"type": "watch", "text": "Insufficient buy-side data"}]}
+
+    # Gate bonuses / penalties
+    if price_reduced is not None and yoy is not None:
+        if price_reduced > 0.25 and yoy < -0.02:
+            base *= 1.12  # distressed market
+        elif price_reduced < 0.05 and yoy > 0.08:
+            base *= 0.70  # overheated — hard to find deals
+
+    score = max(0, min(100, int(round(base))))
+
     signals = []
-
-    prs = d.get("realtor_price_reduced") or d.get("redfin_price_drops")
-    if prs is not None:
-        pct = prs * 100 if prs <= 1 else prs
-        if pct >= 40:
-            score = 88
+    if price_reduced is not None:
+        pct = price_reduced * 100
+        if pct >= 30:
             signals.append({"type": "opportunity", "text": f"{pct:.0f}% of listings have price reductions"})
-        elif pct >= 25:
-            score = 72
-            signals.append({"type": "strong", "text": f"{pct:.0f}% price reduction rate"})
-        elif pct >= 15:
-            score = 55
-        elif pct >= 8:
-            score = 38
-        else:
-            score = 22
-            signals.append({"type": "watch", "text": f"Only {pct:.0f}% reductions — competitive market"})
+        elif pct >= 20:
+            signals.append({"type": "strong",      "text": f"{pct:.0f}% price reduction rate"})
+        elif pct < 8:
+            signals.append({"type": "watch",       "text": f"Only {pct:.0f}% reductions — competitive market"})
+    if yoy is not None:
+        if yoy < -0.05:
+            signals.append({"type": "opportunity", "text": f"List prices down {abs(yoy):.0%} YoY"})
+        elif yoy < -0.02:
+            signals.append({"type": "watch",       "text": f"Prices softening {abs(yoy):.0%} YoY"})
+        elif yoy > 0.10:
+            signals.append({"type": "hot",         "text": f"Prices +{yoy:.0%} YoY — harder to buy cheap"})
+    if supply and supply > 5:
+        signals.append({"type": "opportunity", "text": f"{supply:.1f} months of supply — buyer's market"})
+    if anr and anr > 4:
+        signals.append({"type": "opportunity", "text": f"Stale supply: {anr:.1f}× active vs new listings"})
+    if stl and stl < 0.97:
+        signals.append({"type": "strong", "text": f"{stl:.1%} sale-to-list — buyer leverage"})
+    if dom and dom > 75:
+        signals.append({"type": "opportunity", "text": f"{dom} days on market — sellers getting tired"})
+    if price_reduced is not None and yoy is not None and price_reduced > 0.25 and yoy < -0.02:
+        signals.append({"type": "opportunity", "text": "Distress signal: price cuts + falling prices"})
 
-    price_yy = d.get("realtor_list_price_yy")
-    if price_yy is not None:
-        if price_yy < -0.08:
-            score = min(100, score + 18)
-            signals.append({"type": "opportunity", "text": f"List prices down {abs(price_yy):.0%} YoY"})
-        elif price_yy < -0.03:
-            score = min(100, score + 9)
-            signals.append({"type": "watch", "text": f"Prices softening {abs(price_yy):.0%} YoY"})
-        elif price_yy > 0.12:
-            score = max(0, score - 12)
-            signals.append({"type": "hot", "text": f"Prices +{price_yy:.0%} YoY — harder to buy cheap"})
+    return {"score": score, "signals": signals}
 
-    active = d.get("realtor_active")
-    new_l = d.get("realtor_new_listings")
-    if active and new_l and new_l > 0:
-        supply_ratio = active / new_l
-        if supply_ratio > 4:
-            score = min(100, score + 10)
-            signals.append({"type": "opportunity", "text": f"Stale supply: {supply_ratio:.1f}× active vs new listings"})
-        elif supply_ratio > 2.5:
-            score = min(100, score + 5)
 
-    redfin_supply = d.get("redfin_supply")
-    if redfin_supply and redfin_supply > 5:
-        score = min(100, score + 8)
-        signals.append({"type": "opportunity", "text": f"{redfin_supply:.1f} months of supply — buyer's market"})
-
-    return {"score": max(0, min(100, score)), "signals": signals}
+def compute_golden_score(buy, exit_s, active):
+    """
+    Golden Zone 0-100: geometric mean of Buy × Exit with balance penalty + liquidity multiplier.
+    Both sides must be strong AND the market must have enough listings to work in.
+    """
+    if buy <= 0 or exit_s <= 0:
+        return 0
+    base = math.sqrt(buy * exit_s)
+    # Balance penalty — asymmetric markets are red flags
+    asymmetry = abs(buy - exit_s) / 100.0
+    balance_factor = 1 - (asymmetry * 0.3)
+    # Liquidity multiplier — need deal flow to work in the market
+    if not active or active < 15:
+        liq = 0.60
+    elif active < 50:
+        liq = 0.85
+    elif active < 150:
+        liq = 0.95
+    elif active < 500:
+        liq = 1.00
+    else:
+        liq = 1.05
+    return max(0, min(100, int(round(base * balance_factor * liq))))
 
 
 def get_county_data():
@@ -405,8 +500,8 @@ def get_county_data():
         d["exit_signals"] = compute_exit_score(d)
         bs = d["buy_signals"]["score"]
         es = d["exit_signals"]["score"]
-        import math
-        d["golden_score"] = int(math.sqrt(bs * es))
+        active = d.get("realtor_active") or d.get("redfin_inventory") or 0
+        d["golden_score"] = compute_golden_score(bs, es, active)
 
         combined[fips] = d
 
