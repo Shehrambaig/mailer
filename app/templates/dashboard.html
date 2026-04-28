@@ -5,6 +5,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js"></script>
 <style>
 /* ── Page layout ─────────────────────────────────── */
 .intel-page { display:flex; flex-direction:column; gap:16px; }
@@ -109,6 +110,20 @@
 }
 .hunt-ring       { pointer-events:none; fill:none; stroke:#00f0ff; stroke-width:1.8; animation: ringPulse1 2.2s ease-out infinite; }
 .hunt-ring.tier2 { stroke:#ffea70; stroke-width:1.4; animation: ringPulse2 2.6s ease-out infinite; }
+/* Scraped-dots overlay ────────────────────────── */
+.scraped-dot { cursor:pointer; mix-blend-mode:screen; transition:stroke-width .12s; }
+.scraped-dot:hover { stroke:#fff; stroke-width:1.6; }
+/* Filter chip rows above the layer buttons ───── */
+.fchip-row { display:flex; align-items:center; gap:5px; padding:6px 16px 0; flex-wrap:wrap; font-size:.7rem; }
+.fchip-row .fchip-label { color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; font-size:.6rem; margin-right:4px; }
+.fchip { background:transparent; color:var(--text-secondary); border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:3px 9px; cursor:pointer; transition:all .12s; font-size:.7rem; }
+.fchip:hover { color:var(--accent-cyan); border-color:rgba(0,240,255,.35); }
+.fchip.active { color:#000; background:var(--accent-cyan); border-color:var(--accent-cyan); font-weight:600; }
+.fchip.bk-auc.active { background:#a78bfa; border-color:#a78bfa; }
+.fchip.bk-fc.active  { background:#ef4444; border-color:#ef4444; color:#fff; }
+.fchip.bk-tl.active  { background:#f59e0b; border-color:#f59e0b; }
+.fchip.bk-bk.active  { background:#60a5fa; border-color:#60a5fa; }
+.fchip.bk-ss.active  { background:#34d399; border-color:#34d399; }
 
 /* Bivariate legend ────────────────────────── */
 .biv-legend { display:none; align-items:center; gap:14px; padding:6px 16px 10px; }
@@ -220,6 +235,9 @@
 .lc-badge { font-size:.58rem; font-weight:700; padding:1px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:.5px; }
 .lc-fc { background:rgba(239,68,68,0.12); color:#ef4444; }
 .lc-auc { background:rgba(124,58,237,0.14); color:#a78bfa; }
+.lc-tl { background:rgba(245,158,11,0.14); color:#f59e0b; }
+.lc-bk { background:rgba(96,165,250,0.14); color:#60a5fa; }
+.lc-ss { background:rgba(52,211,153,0.14); color:#34d399; }
 .lc-vacant { background:rgba(0,240,255,0.12); color:var(--accent-cyan); }
 .lcard-nums { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.04); }
 .lcard-num { display:flex; justify-content:space-between; font-size:.7rem; }
@@ -246,12 +264,22 @@
 .sortable.sorted { color:var(--accent-cyan); }
 .sortable.sorted::after { content:' ▼'; font-size:.6rem; }
 .sortable.sorted.asc::after { content:' ▲'; }
+.filter-row th { padding:4px 8px !important; background:rgba(0,0,0,0.18); border-top:1px solid rgba(255,255,255,0.04); }
+.tfilter { background:rgba(255,255,255,0.04); color:var(--text-primary); border:1px solid rgba(255,255,255,0.08); border-radius:5px; padding:3px 6px; font-size:.66rem; font-family:inherit; max-width:100%; width:100%; }
+.tfilter:focus { outline:none; border-color:var(--accent-cyan); }
+.tfilter[data-col="name"] { min-width:90px; }
+.tfilter.dirty { border-color:var(--accent-cyan); color:var(--accent-cyan); }
 .sbar-wrap { width:44px; height:5px; background:rgba(255,255,255,.06); border-radius:3px; display:inline-block; vertical-align:middle; margin-right:5px; }
 .sbar-fill { height:100%; border-radius:3px; }
 
 /* Info tooltips */
 .info-icon { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:rgba(255,255,255,.08); color:var(--text-muted); font-size:.6rem; font-weight:700; cursor:help; margin-left:4px; vertical-align:middle; transition:background .15s; }
 .info-icon:hover { background:rgba(0,240,255,.15); color:var(--accent-cyan); }
+/* Source-of-truth links */
+.src-lnk { color:var(--accent-cyan); text-decoration:underline dotted; text-underline-offset:2px; }
+.src-lnk:hover { color:#fff; text-decoration:underline; }
+.src-pill { display:inline-block; font-size:.55rem; font-weight:700; letter-spacing:.5px; text-transform:uppercase; padding:1px 5px; margin-left:4px; border-radius:3px; background:rgba(0,240,255,.10); color:var(--accent-cyan); border:1px solid rgba(0,240,255,.25); text-decoration:none; vertical-align:middle; }
+.src-pill:hover { background:rgba(0,240,255,.22); color:#fff; }
 /* How-it-works banner */
 #hiw-body { border-top:1px solid var(--border-glass); }
 </style>
@@ -277,15 +305,15 @@
         <div>
             <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);font-weight:700;margin-bottom:10px;">THE THREE SCORES (0–100)</div>
             <div style="margin-bottom:10px;">
-                <div style="color:var(--accent-cyan);font-weight:700;font-size:.82rem;">🎯 Golden Zone Score</div>
+                <div style="color:var(--accent-cyan);font-weight:700;font-size:.82rem;">Golden Zone Score</div>
                 <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">The main score. Geometric mean of Buy × Exit — both sides need to be good. A county scoring 90 on buying but 10 on selling still gets a low Golden score. Formula: √(Buy Score × Exit Score)</div>
             </div>
             <div style="margin-bottom:10px;">
-                <div style="color:var(--accent-green);font-weight:700;font-size:.82rem;">🏷 Buy Score</div>
+                <div style="color:var(--accent-green);font-weight:700;font-size:.82rem;">Buy Score</div>
                 <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How easy it is to acquire properties below market from motivated sellers. Driven by: <b>Price Reduction %</b> (primary — how many sellers are already cutting price), <b>YoY price trend</b> (falling = more desperation), and <b>stale inventory ratio</b> (active ÷ new listings — high = listings sitting unsold).</div>
             </div>
             <div>
-                <div style="color:var(--accent-purple);font-weight:700;font-size:.82rem;">⚡ Exit Speed</div>
+                <div style="color:var(--accent-purple);font-weight:700;font-size:.82rem;">Exit Speed</div>
                 <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How fast you can resell to a retail family buyer. Driven by: <b>DOM</b> (primary — lower is faster), <b>Pending Ratio</b> (more buyers under contract = strong demand), and <b>Sale-to-List ratio</b> (above 100% = bidding wars, below 97% = slow market).</div>
             </div>
         </div>
@@ -294,12 +322,13 @@
         <div>
             <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);font-weight:700;margin-bottom:10px;">KEY METRICS EXPLAINED</div>
             <div style="display:flex;flex-direction:column;gap:7px;">
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">DOM (Days on Market)</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median days a listing sits before going under contract. &lt;30 = fast (green). 30–60 = moderate. &gt;60 = slow (red). From Realtor.com March 2026.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Price Drops %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">% of active listings where the seller has cut the asking price at least once. 25%+ = meaningful distress signal. Source: Realtor.com.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Pending Ratio</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Pending listings ÷ total active listings. 30%+ = strong buyer demand. 10%- = few buyers. Source: Realtor.com.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">YoY %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Year-over-year change in median listing price. Negative = prices falling = buy opportunity. From Realtor.com (listing) and Zillow (ZHVI value index).</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Sale-to-List</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Actual sale price ÷ list price. &gt;100% = sold above asking (competitive). &lt;97% = buyer has leverage. Source: Redfin (when available).</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Affordability</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median income ÷ median home value. Higher = more buyers can afford the market = easier to sell. Census + Zillow data.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">DOM (Days on Market)</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median days a listing sits before going under contract. &lt;30 = fast (green). 30–60 = moderate. &gt;60 = slow (red). Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Price Drops %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">% of active listings where the seller has cut the asking price at least once. 25%+ = meaningful distress signal. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Pending Ratio</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Pending listings ÷ total active listings. 30%+ = strong buyer demand. 10%- = few buyers. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">YoY %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Year-over-year change in median listing price. Negative = prices falling = buy opportunity. Sources: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com</a> · <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Sale-to-List</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Actual sale price ÷ list price. &gt;100% = sold above asking (competitive). &lt;97% = buyer has leverage. Source: <a href="https://www.redfin.com/news/data-center/" target="_blank" rel="noopener" class="src-lnk">Redfin Data Center</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Market Heat</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Zillow Market Heat Index — 0 (strong buyer) to 100 (strong seller). Direct read on where selling is easy. Source: <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Affordability</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median income ÷ median home value. Higher = more buyers can afford the market = easier to sell. Sources: <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-lnk">Census ACS</a> · <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a>.</div></div>
             </div>
         </div>
 
@@ -312,13 +341,30 @@
                 <div>
                     <span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">The Four Quadrants</span>
                     <div style="margin-top:4px;display:flex;flex-direction:column;gap:3px;">
-                        <div style="font-size:.72rem;"><span style="color:var(--accent-green)">🎯 Top-right</span> <span style="color:var(--text-secondary)">Golden Zone — motivated sellers + fast resale. Target these.</span></div>
-                        <div style="font-size:.72rem;"><span style="color:var(--accent-amber)">🐌 Top-left</span> <span style="color:var(--text-secondary)">Motivated sellers but slow to resell. Requires longer hold time.</span></div>
-                        <div style="font-size:.72rem;"><span style="color:var(--accent-purple)">🔥 Bottom-right</span> <span style="color:var(--text-secondary)">Fast market but hard to buy cheap — prices aren't dropping yet.</span></div>
-                        <div style="font-size:.72rem;"><span style="color:var(--text-muted)">⚠ Bottom-left</span> <span style="color:var(--text-secondary)">Both slow and expensive to buy. Avoid.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-green)">Top-right</span> <span style="color:var(--text-secondary)">Golden Zone — motivated sellers + fast resale. Target these.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-amber)">Top-left</span> <span style="color:var(--text-secondary)">Motivated sellers but slow to resell. Requires longer hold time.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-purple)">Bottom-right</span> <span style="color:var(--text-secondary)">Fast market but hard to buy cheap — prices aren't dropping yet.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--text-muted)">Bottom-left</span> <span style="color:var(--text-secondary)">Both slow and expensive to buy. Avoid.</span></div>
                     </div>
                 </div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Data Sources</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Realtor.com (March 2026, 3,134 counties) · Zillow ZHVI (monthly, 2000–present) · Census ACS 5yr (2022) for income · Redfin (sale prices + volume, when available).</div></div>
+                <div>
+                    <span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Hunt Mode</span>
+                    <div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">A visual filter that strips the map down to just the counties worth looking at on the <b>currently selected layer</b>. Toggle it with the Hunt Mode button.</div>
+                    <div style="margin-top:4px;display:flex;flex-direction:column;gap:3px;">
+                        <div style="font-size:.72rem;"><span style="color:var(--accent-cyan);font-weight:600;">Top 3%</span> <span style="color:var(--text-secondary)">— cyan ring + animated radar pulse. Your best targets on this layer.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--text-primary);font-weight:600;">Top 10%</span> <span style="color:var(--text-secondary)">— white outline. Strong secondary options.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--text-secondary);font-weight:600;">Middle 65%</span> <span style="color:var(--text-secondary)">— normal color, 65% opacity.</span></div>
+                        <div style="font-size:.72rem;"><span style="color:var(--text-muted);font-weight:600;">Bottom 25%</span> <span style="color:var(--text-secondary)">— heavily dimmed so they fade into the background.</span></div>
+                    </div>
+                    <div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;margin-top:4px;">Percentile direction is layer-aware: for layers where <b>high is good</b> (Golden, Buy, Exit, Income) the top performers pulse; for layers where <b>low is good</b> (DOM), the lowest values pulse. Hunt Mode works on both the national view and inside a drilled-down state.</div>
+                </div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Data Sources</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">
+                    <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a> (county + ZIP inventory, monthly) ·
+                    <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow Research</a> (ZHVI + Market Heat Index, county + ZIP) ·
+                    <a href="https://www.redfin.com/news/data-center/" target="_blank" rel="noopener" class="src-lnk">Redfin Data Center</a> (sale prices, sale-to-list, county) ·
+                    <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-lnk">Census ACS 5-yr</a> (median household income) ·
+                    <a href="https://www.fhfa.gov/data/hpi" target="_blank" rel="noopener" class="src-lnk">FHFA HPI</a> (long-horizon appreciation).
+                </div></div>
             </div>
         </div>
 
@@ -330,21 +376,32 @@
 <!-- ══ MAP SECTION ══════════════════════════════════════════════════════ -->
 <div class="map-row" id="map-row">
 <div class="glass-card slide-up map-card">
+    <div class="fchip-row">
+        <span class="fchip-label">Source</span>
+        <button class="fchip active" data-src="realtor" onclick="setSource(this,'realtor')">Realtor</button>
+        <button class="fchip" data-src="zillow" onclick="setSource(this,'zillow')">Zillow</button>
+        <button class="fchip" data-src="redfin" onclick="setSource(this,'redfin')">Redfin</button>
+        <button class="fchip" data-src="overlap" onclick="setSource(this,'overlap')">Overlap</button>
+        <span style="flex:0 0 12px"></span>
+        <span class="fchip-label">Scraped</span>
+        <button class="fchip bk-auc active" data-bk="auc" onclick="toggleBucket(this,'auc')">Auctions</button>
+        <button class="fchip bk-fc active"  data-bk="fc"  onclick="toggleBucket(this,'fc')">Foreclosures</button>
+        <button class="fchip bk-tl active"  data-bk="tl"  onclick="toggleBucket(this,'tl')">Tax Liens</button>
+        <button class="fchip bk-bk active"  data-bk="bk"  onclick="toggleBucket(this,'bk')">Bankruptcies</button>
+        <button class="fchip bk-ss active"  data-bk="ss"  onclick="toggleBucket(this,'ss')">Short Sales</button>
+        <button class="fchip" id="dots-toggle" onclick="toggleDots(this)" style="margin-left:6px;">● Dots ON</button>
+    </div>
     <div class="layer-bar">
-        <button class="lbtn active" data-layer="g"  onclick="setLayer(this,'g')">🎯 Golden Zone</button>
-        <button class="lbtn" data-layer="biv" onclick="setLayer(this,'biv')">🎨 Buy × Exit</button>
-        <button class="lbtn" data-layer="es" onclick="setLayer(this,'es')">⚡ Exit Speed</button>
-        <button class="lbtn" data-layer="bs" onclick="setLayer(this,'bs')">🏷 Buy Opportunity</button>
-        <button class="lbtn" data-layer="v"  onclick="setLayer(this,'v')">🏠 Home Value</button>
-        <button class="lbtn" data-layer="d"  onclick="setLayer(this,'d')">📅 Days on Market</button>
-        <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">📉 Price Drops %</button>
-        <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">💰 Income</button>
+        <button class="lbtn active" data-layer="g"  onclick="setLayer(this,'g')">Golden Zone</button>
+        <button class="lbtn" data-layer="biv" onclick="setLayer(this,'biv')">Buy × Exit</button>
+        <button class="lbtn" data-layer="es" onclick="setLayer(this,'es')">Exit Speed</button>
+        <button class="lbtn" data-layer="bs" onclick="setLayer(this,'bs')">Buy Opportunity</button>
+        <button class="lbtn" data-layer="v"  onclick="setLayer(this,'v')">Home Value</button>
+        <button class="lbtn" data-layer="d"  onclick="setLayer(this,'d')">Days on Market</button>
+        <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">Price Drops %</button>
+        <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">Income</button>
         <div class="lbtn-sep"></div>
-        <button class="lbtn" data-layer="fc_ct" onclick="setLayer(this,'fc_ct')">🧾 Pre-Foreclosures</button>
-        <button class="lbtn" data-layer="au_ct" onclick="setLayer(this,'au_ct')">🔨 Auctions</button>
-        <button class="lbtn" data-layer="tot_ct" onclick="setLayer(this,'tot_ct')">🏘 All Listings</button>
-        <div class="lbtn-sep"></div>
-        <button class="lbtn hunt-btn" id="hunt-btn" onclick="toggleHunt()">🎯 HUNT MODE</button>
+        <button class="lbtn hunt-btn" id="hunt-btn" onclick="toggleHunt()">HUNT MODE</button>
         <div class="lbtn-sep"></div>
         <select id="state-filter" class="state-sel" onchange="filterState(this.value)">
             <option value="">All States</option>
@@ -365,7 +422,7 @@
         </div>
         <div class="biv-legend" id="biv-legend">
             <div class="biv-corner" style="text-align:right">
-                <span class="tag" style="color:#f59e0b">🐌 Buy-Hold</span>
+                <span class="tag" style="color:#f59e0b">Buy-Hold</span>
                 <span class="tagline">motivated sellers · slow flip</span>
             </div>
             <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
@@ -374,15 +431,15 @@
             </div>
             <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;">Buy ↑</div>
             <div class="biv-corner">
-                <span class="tag" style="color:#10b981">🎯 Golden Zone</span>
+                <span class="tag" style="color:#10b981">Golden Zone</span>
                 <span class="tagline">buy cheap · sell fast</span>
             </div>
             <div class="biv-corner" style="margin-left:24px">
-                <span class="tag" style="color:#7c3aed">🔥 Hot Retail</span>
+                <span class="tag" style="color:#7c3aed">Hot Retail</span>
                 <span class="tagline">fast market · hard to buy cheap</span>
             </div>
             <div class="biv-corner">
-                <span class="tag" style="color:var(--text-muted)">⚠ Avoid</span>
+                <span class="tag" style="color:var(--text-muted)">Avoid</span>
                 <span class="tagline">slow · overpriced</span>
             </div>
         </div>
@@ -406,10 +463,10 @@
         <div class="card-body" style="position:relative;padding:12px;">
             <div id="scatter-wrap" style="position:relative;">
                 <canvas id="scatter-chart" height="380"></canvas>
-                <div class="quadrant-label" id="ql-tr" style="color:var(--accent-green)">🎯 Golden Zone</div>
-                <div class="quadrant-label" id="ql-tl" style="color:var(--accent-amber)">🐌 Motivated Sellers<br>Slow Exit</div>
-                <div class="quadrant-label" id="ql-br" style="color:var(--accent-purple)">🔥 Hot Market<br>Hard to Buy Cheap</div>
-                <div class="quadrant-label" id="ql-bl" style="color:var(--text-muted)">⚠ Avoid</div>
+                <div class="quadrant-label" id="ql-tr" style="color:var(--accent-green)">Golden Zone</div>
+                <div class="quadrant-label" id="ql-tl" style="color:var(--accent-amber)">Motivated Sellers<br>Slow Exit</div>
+                <div class="quadrant-label" id="ql-br" style="color:var(--accent-purple)">Hot Market<br>Hard to Buy Cheap</div>
+                <div class="quadrant-label" id="ql-bl" style="color:var(--text-muted)">Avoid</div>
             </div>
         </div>
     </div>
@@ -466,9 +523,9 @@
             </div>
             <div class="ptab-content" id="pt-hist">
                 <div class="hist-wrap">
-                    <div class="csec"><div class="ct">Home Value — Zillow ZHVI (monthly median estimate)</div><div style="height:110px;position:relative;"><canvas id="hc-price"></canvas></div></div>
-                    <div class="csec"><div class="ct">Days on Market — median days before going under contract</div><div style="height:80px;position:relative;"><canvas id="hc-dom"></canvas></div></div>
-                    <div class="csec"><div class="ct">Price Reduction Rate — % of listings that cut their asking price</div><div style="height:80px;position:relative;"><canvas id="hc-pr"></canvas></div></div>
+                    <div class="csec"><div class="ct">Home Value — <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a> (monthly median estimate)</div><div style="height:110px;position:relative;"><canvas id="hc-price"></canvas></div></div>
+                    <div class="csec"><div class="ct">Days on Market — median days before going under contract <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></div><div style="height:80px;position:relative;"><canvas id="hc-dom"></canvas></div></div>
+                    <div class="csec"><div class="ct">Price Reduction Rate — % of listings that cut their asking price <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></div><div style="height:80px;position:relative;"><canvas id="hc-pr"></canvas></div></div>
                 </div>
             </div>
             <div class="pfooter">
@@ -490,6 +547,7 @@
             <button class="rtab" onclick="setRTab(this,'bs')">Best to Buy</button>
             <button class="rtab" onclick="setRTab(this,'es')">Fastest Exit</button>
             <button class="rtab" onclick="setRTab(this,'vol')">Most Active</button>
+            <button class="rtab" id="rtab-reset" onclick="resetTableFilters()" style="margin-left:6px;color:var(--text-muted);border-color:rgba(255,255,255,.10)">Reset</button>
         </div>
     </div>
     <div class="card-body p-0" style="overflow-x:auto;">
@@ -500,12 +558,64 @@
                     <th class="sortable sorted" data-col="g" onclick="sortR('g')">Score <span class="info-icon" data-bs-toggle="tooltip" title="Golden Zone: √(Buy × Exit). Ranges 0–100. Both buying ease and exit speed must be strong.">i</span></th>
                     <th class="sortable" data-col="name" onclick="sortR('name')">County</th>
                     <th class="sortable" data-col="sc" onclick="sortR('sc')">State</th>
-                    <th class="sortable" data-col="inc" onclick="sortR('inc')">Med Income <span class="info-icon" data-bs-toggle="tooltip" title="Census ACS 2022 median household income. Higher income = more qualified retail buyers in the area.">i</span></th>
-                    <th class="sortable" data-col="v" onclick="sortR('v')">Home Value <span class="info-icon" data-bs-toggle="tooltip" title="Zillow Home Value Index (ZHVI) — smoothed monthly estimate of the median home value.">i</span></th>
-                    <th class="sortable" data-col="vy" onclick="sortR('vy')">YoY <span class="info-icon" data-bs-toggle="tooltip" title="Year-over-year % change in median listing price. Negative = prices falling = more seller motivation.">i</span></th>
-                    <th class="sortable" data-col="d" onclick="sortR('d')">DOM <span class="info-icon" data-bs-toggle="tooltip" title="Median Days on Market — days from listing to going under contract. <30 = fast exit. >60 = slow.">i</span></th>
-                    <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price. Higher = more motivated sellers.">i</span></th>
-                    <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count — how many properties are currently for sale. Higher = larger, more liquid market.">i</span></th>
+                    <th class="sortable" data-col="inc" onclick="sortR('inc')">Med Income <span class="info-icon" data-bs-toggle="tooltip" title="Census ACS 2022 median household income. Higher income = more qualified retail buyers in the area.">i</span> <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-pill" title="Source: Census ACS">src</a></th>
+                    <th class="sortable" data-col="v" onclick="sortR('v')">Home Value <span class="info-icon" data-bs-toggle="tooltip" title="Zillow Home Value Index (ZHVI) — smoothed monthly estimate of the median home value.">i</span> <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Zillow Research">src</a></th>
+                    <th class="sortable" data-col="vy" onclick="sortR('vy')">YoY <span class="info-icon" data-bs-toggle="tooltip" title="Year-over-year % change in median listing price. Negative = prices falling = more seller motivation.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
+                    <th class="sortable" data-col="d" onclick="sortR('d')">DOM <span class="info-icon" data-bs-toggle="tooltip" title="Median Days on Market — days from listing to going under contract. <30 = fast exit. >60 = slow.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
+                    <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price. Higher = more motivated sellers.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
+                    <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count — how many properties are currently for sale. Higher = larger, more liquid market.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
+                    <th></th>
+                </tr>
+                <tr class="filter-row">
+                    <th></th>
+                    <th><select class="tfilter" data-col="g"   onchange="setTblFilter('g',this.value)">
+                        <option value="any">Any</option>
+                        <option value="t10">Top 10%</option>
+                        <option value="t25">Top 25%</option>
+                        <option value="b25">Bottom 25%</option>
+                        <option value="b10">Bottom 10%</option>
+                    </select></th>
+                    <th><input class="tfilter" type="search" placeholder="search…" data-col="name" oninput="setTblFilter('name',this.value)"></th>
+                    <th><select class="tfilter" data-col="sc" onchange="setTblFilter('sc',this.value)"><option value="">Any</option></select></th>
+                    <th><select class="tfilter" data-col="inc" onchange="setTblFilter('inc',this.value)">
+                        <option value="any">Any</option>
+                        <option value="t25">Top 25%</option>
+                        <option value="t50">Top 50%</option>
+                        <option value="b50">Bottom 50%</option>
+                        <option value="b25">Bottom 25%</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="v" onchange="setTblFilter('v',this.value)">
+                        <option value="any">Any</option>
+                        <option value="lt200">&lt; $200K</option>
+                        <option value="200to400">$200–400K</option>
+                        <option value="400to600">$400–600K</option>
+                        <option value="600to1m">$600K–1M</option>
+                        <option value="gt1m">&gt; $1M</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="vy" onchange="setTblFilter('vy',this.value)">
+                        <option value="any">Any</option>
+                        <option value="falling">Falling (&lt;0)</option>
+                        <option value="flat">Flat (0–5%)</option>
+                        <option value="rising">Rising (&gt;5%)</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="d" onchange="setTblFilter('d',this.value)">
+                        <option value="any">Any</option>
+                        <option value="lt30">&lt; 30d (Fast)</option>
+                        <option value="30to60">30–60d</option>
+                        <option value="gt60">&gt; 60d (Slow)</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="pr" onchange="setTblFilter('pr',this.value)">
+                        <option value="any">Any</option>
+                        <option value="gt30">&gt; 30% (Motivated)</option>
+                        <option value="15to30">15–30%</option>
+                        <option value="lt15">&lt; 15%</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="vol" onchange="setTblFilter('vol',this.value)">
+                        <option value="any">Any</option>
+                        <option value="gt10k">&gt; 10K</option>
+                        <option value="1kto10k">1K–10K</option>
+                        <option value="lt1k">&lt; 1K</option>
+                    </select></th>
                     <th></th>
                 </tr>
             </thead>
@@ -525,9 +635,13 @@
         <div class="state-modal-header">
             <div>
                 <span id="state-modal-title" style="color:var(--accent-cyan);font-weight:700;font-size:1rem;">—</span>
-                <span style="color:var(--text-muted);font-size:.72rem;margin-left:10px;">click a county for details · esc to close</span>
+                <span id="state-modal-hint" style="color:var(--text-muted);font-size:.72rem;margin-left:10px;">click a county for details · double-click to drill into ZIPs · esc to close</span>
             </div>
-            <button type="button" class="state-modal-close" onclick="closeStateModal()">✕ Close</button>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" id="zip-back-btn" class="lbtn" style="display:none;padding:4px 10px;font-size:.72rem;" onclick="backToStateView()">← Back to state</button>
+                <button type="button" id="zip-drill-btn" class="lbtn" style="display:none;padding:4px 10px;font-size:.72rem;color:var(--accent-cyan);border-color:var(--accent-cyan);" onclick="drillSelectedCountyZips()">ZIP View ›</button>
+                <button type="button" class="state-modal-close" onclick="closeStateModal()">✕ Close</button>
+            </div>
         </div>
         <div class="state-modal-body">
             <div id="state-modal-map"></div>
@@ -535,6 +649,327 @@
         </div>
     </div>
 </div>
+
+<!-- ══ AI CHAT WIDGET ══════════════════════════════════════════════════ -->
+<style>
+  #ai-chat-fab { position:fixed; bottom:20px; right:20px; z-index:9998; width:54px; height:54px; border-radius:50%; background:linear-gradient(135deg, #00f0ff, #7c3aed); color:#fff; border:none; cursor:pointer; box-shadow:0 8px 30px rgba(0,240,255,.35); display:flex; align-items:center; justify-content:center; font-size:22px; transition:transform .15s; }
+  #ai-chat-fab:hover { transform:scale(1.08); }
+  #ai-chat-fab.open { background:#1a1a3e; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  #ai-chat-panel { position:fixed; bottom:84px; right:20px; z-index:9998; width:400px; max-width:calc(100vw - 40px); height:560px; max-height:calc(100vh - 110px); display:none; flex-direction:column; background:rgba(10,10,30,.97); backdrop-filter:blur(12px); border:1px solid rgba(0,240,255,.25); border-radius:14px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.6); transition:width .25s ease, height .25s ease; }
+  #ai-chat-panel.open { display:flex; }
+  #ai-chat-panel.wide { width:760px; height:720px; }
+  #ai-chat-panel.xwide { width:920px; height:780px; }
+  .aic-header { padding:12px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:10px; }
+  .aic-title { color:var(--accent-cyan); font-weight:700; font-size:.9rem; letter-spacing:.3px; flex:1; }
+  .aic-sub { color:var(--text-muted); font-size:.7rem; }
+  .aic-body { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
+  .aic-msg { font-size:.82rem; line-height:1.5; padding:8px 12px; border-radius:10px; max-width:88%; word-wrap:break-word; }
+  .aic-msg.assistant.has-table, .aic-msg.assistant.wide-content { max-width:100%; }
+  .aic-msg.user { align-self:flex-end; background:rgba(0,240,255,.10); color:var(--text-primary); border:1px solid rgba(0,240,255,.18); }
+  .aic-msg.assistant { align-self:flex-start; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.08); }
+  .aic-msg.assistant strong { color:var(--accent-cyan); }
+  .aic-msg.assistant em { color:var(--text-secondary); }
+  .aic-msg.assistant code { background:rgba(0,0,0,.35); padding:1px 5px; border-radius:3px; font-size:.76rem; font-family:ui-monospace,monospace; }
+  .aic-msg.assistant pre { background:rgba(0,0,0,.45); padding:8px 10px; border-radius:6px; overflow-x:auto; margin:8px 0; }
+  .aic-msg.assistant pre code { background:transparent; padding:0; font-size:.72rem; }
+  .aic-msg.assistant p { margin:0 0 8px; }
+  .aic-msg.assistant p:last-child { margin-bottom:0; }
+  .aic-msg.assistant h1, .aic-msg.assistant h2, .aic-msg.assistant h3, .aic-msg.assistant h4 { color:var(--accent-cyan); font-weight:700; margin:10px 0 6px; line-height:1.3; }
+  .aic-msg.assistant h1 { font-size:.95rem; }
+  .aic-msg.assistant h2 { font-size:.88rem; }
+  .aic-msg.assistant h3 { font-size:.82rem; }
+  .aic-msg.assistant h4 { font-size:.78rem; color:var(--text-primary); }
+  .aic-msg.assistant ul, .aic-msg.assistant ol { padding-left:20px; margin:6px 0 8px; }
+  .aic-msg.assistant li { margin:2px 0; }
+  .aic-msg.assistant blockquote { border-left:3px solid var(--accent-cyan); padding-left:10px; color:var(--text-secondary); margin:6px 0; font-style:italic; }
+  .aic-msg.assistant a { color:var(--accent-cyan); text-decoration:underline dotted; }
+  .aic-msg.assistant hr { border:none; border-top:1px solid rgba(255,255,255,.10); margin:10px 0; }
+  .aic-msg.assistant table { border-collapse:collapse; margin:8px 0; font-size:.74rem; width:100%; }
+  .aic-msg.assistant th, .aic-msg.assistant td { padding:5px 8px; border:1px solid rgba(255,255,255,.10); text-align:left; vertical-align:top; }
+  .aic-msg.assistant th { background:rgba(0,240,255,.08); color:var(--accent-cyan); font-weight:700; }
+  .aic-msg.assistant tr:nth-child(even) td { background:rgba(255,255,255,.02); }
+  .aic-msg.error { align-self:center; background:rgba(239,68,68,.10); color:#fca5a5; border:1px solid rgba(239,68,68,.3); font-size:.74rem; }
+  .aic-tool { align-self:flex-start; background:rgba(124,58,237,.08); border:1px solid rgba(124,58,237,.25); border-radius:8px; padding:6px 10px; font-size:.72rem; color:#c4b5fd; max-width:88%; }
+  .aic-tool.ok    { border-color:rgba(16,185,129,.30); color:#86efac; background:rgba(16,185,129,.08); }
+  .aic-tool.error { border-color:rgba(239,68,68,.30); color:#fca5a5; background:rgba(239,68,68,.08); }
+  .aic-tool code  { background:rgba(0,0,0,.3); padding:1px 5px; border-radius:3px; font-size:.65rem; word-break:break-all; }
+  .aic-tool .lbl  { font-weight:700; letter-spacing:.4px; text-transform:uppercase; font-size:.62rem; opacity:.85; margin-right:6px; }
+  .aic-tool .meta { opacity:.7; font-size:.65rem; margin-top:3px; }
+  .aic-empty { color:var(--text-muted); font-size:.78rem; text-align:center; padding:28px 16px; line-height:1.5; }
+  .aic-empty .examples { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+  .aic-empty .examples button { background:rgba(255,255,255,.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:7px 10px; font-size:.72rem; text-align:left; cursor:pointer; transition:all .15s; }
+  .aic-empty .examples button:hover { background:rgba(0,240,255,.10); border-color:rgba(0,240,255,.30); color:var(--text-primary); }
+  .aic-input-row { padding:10px 12px; border-top:1px solid rgba(255,255,255,.08); display:flex; gap:8px; align-items:flex-end; }
+  .aic-input { flex:1; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:8px 10px; font-size:.82rem; resize:none; max-height:100px; font-family:inherit; }
+  .aic-input:focus { outline:none; border-color:var(--accent-cyan); }
+  .aic-send { background:var(--accent-cyan); color:#000; border:none; border-radius:8px; padding:0 14px; height:34px; font-weight:700; font-size:.78rem; cursor:pointer; }
+  .aic-send:disabled { opacity:.4; cursor:not-allowed; }
+  .aic-typing { display:inline-block; }
+  .aic-typing::after { content:'▍'; animation:aic-blink 1s steps(1) infinite; color:var(--accent-cyan); }
+  @keyframes aic-blink { 50% { opacity:0; } }
+</style>
+
+<button id="ai-chat-fab" type="button" title="Ask the AI assistant" onclick="toggleAIChat()">💬</button>
+
+<div id="ai-chat-panel" role="dialog" aria-label="AI Assistant">
+  <div class="aic-header">
+    <div style="flex:1">
+      <div class="aic-title">Market Intel Assistant</div>
+      <div class="aic-sub" id="aic-sub">Powered by Claude — knows your map, scores, and Mail Targets</div>
+    </div>
+    <button class="state-modal-close" onclick="toggleAIChat()" style="position:static;font-size:.85rem;padding:4px 8px">✕</button>
+  </div>
+  <div class="aic-body" id="aic-body">
+    <div class="aic-empty">
+      <div>Ask anything about what's on screen.</div>
+      <div class="examples">
+        <button onclick="aicAsk('What does the Golden Zone Score mean and how is it calculated?')">What does the Golden Zone Score mean?</button>
+        <button onclick="aicAsk('How does Mail Targets work? What makes a ZIP score high?')">How does Mail Targets work?</button>
+        <button onclick="aicAsk('Is the selected county worth the hassle? Cross-reference Realtor/Zillow/Redfin metrics with the live mail-target inventory.')">Is this county worth the hassle? (synthesis)</button>
+        <button onclick="aicAsk('Top 5 counties in NJ ranked by Mail Targets — give me the verdict on each.')">Best NJ counties to mail (synthesis)</button>
+        <button onclick="aicAsk('In the selected county, give me the bucket breakdown of active mailable records.')">Selected county: bucket breakdown (live SQL)</button>
+      </div>
+    </div>
+  </div>
+  <div class="aic-input-row">
+    <textarea id="aic-input" class="aic-input" rows="1" placeholder="Ask about scores, layers, or where to mail…" onkeydown="aicKey(event)"></textarea>
+    <button class="aic-send" id="aic-send" onclick="aicSend()">Send</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const history = [];   // [{role, content}]
+  let inflight = false;
+
+  // Configure marked once. `gfm:true` enables GitHub-flavored tables; `breaks:true`
+  // turns single newlines into <br> so the agent's prose flows naturally during streaming.
+  // marked sanitizes by escaping raw HTML by default — we do not pass HTML through.
+  if (window.marked && marked.setOptions) {
+    marked.setOptions({ gfm:true, breaks:true, headerIds:false, mangle:false });
+  }
+  function renderMd(s) {
+    if (!window.marked) return s; // graceful fallback if CDN failed
+    try { return marked.parse(s); } catch(_) { return s; }
+  }
+
+  function el(id) { return document.getElementById(id); }
+
+  window.toggleAIChat = function() {
+    const panel = el('ai-chat-panel');
+    const fab = el('ai-chat-fab');
+    const open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    fab.classList.toggle('open', open);
+    fab.textContent = open ? '✕' : '💬';
+    if (open) setTimeout(() => el('aic-input').focus(), 80);
+  };
+
+  window.aicAsk = function(text) {
+    el('aic-input').value = text;
+    aicSend();
+  };
+
+  window.aicKey = function(ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); aicSend(); }
+  };
+
+  function buildContext() {
+    const ctx = {};
+    try {
+      ctx.layer = (typeof currentLayer !== 'undefined') ? currentLayer : null;
+      ctx.view  = (typeof mapMode !== 'undefined') ? mapMode : null;
+      const fips = (typeof selFips !== 'undefined') ? selFips : null;
+      const drilled = (typeof drilledFips !== 'undefined') ? drilledFips : null;
+      const targetFips = drilled || fips;
+      if (targetFips && typeof countyData !== 'undefined' && countyData[targetFips]) {
+        const d = countyData[targetFips];
+        ctx.fips = targetFips;
+        ctx.county_name = d.name; ctx.state = d.sc;
+        ctx.metrics = {
+          golden:d.g, buy:d.bs, exit:d.es, dom:d.d, price_drops:d.pr,
+          pending_ratio:d.ppr, home_value:d.v, yoy:d.vy, heat:d.zh,
+          heat_class:d.zhc, mail_score:d.mail_score, mail_total:d.mail_total,
+          mail_auc:d.mail_auc, mail_fc:d.mail_fc, mail_tl:d.mail_tl,
+          mail_bk:d.mail_bk, listings_active:d.a,
+        };
+      }
+    } catch (e) {}
+    return ctx;
+  }
+
+  function appendMsg(role, text) {
+    const empty = el('aic-body').querySelector('.aic-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'aic-msg ' + role;
+    if (role === 'assistant') {
+      div.innerHTML = text ? renderMd(text) : '';
+      autosizePanel(div);
+    } else {
+      div.textContent = text;
+    }
+    el('aic-body').appendChild(div);
+    el('aic-body').scrollTop = el('aic-body').scrollHeight;
+    return div;
+  }
+
+  function autosizePanel(bubble) {
+    const panel = el('ai-chat-panel');
+    if (!panel) return;
+    let needsWide = false, needsXWide = false;
+    const tables = bubble.querySelectorAll('table');
+    if (tables.length) {
+      bubble.classList.add('has-table');
+      needsWide = true;
+      tables.forEach(t => {
+        const cols = (t.querySelector('tr') || {}).children?.length || 0;
+        if (cols >= 5) needsXWide = true;
+      });
+    }
+    if (bubble.querySelector('pre')) needsWide = true;
+    if (needsWide) panel.classList.add('wide');
+    if (needsXWide) panel.classList.add('xwide');
+    if (needsWide || needsXWide) {
+      requestAnimationFrame(() => {
+        tables.forEach(t => {
+          if (t.scrollWidth > t.clientWidth + 2) panel.classList.add('xwide');
+        });
+      });
+    }
+  }
+
+  function appendError(text) {
+    const div = document.createElement('div');
+    div.className = 'aic-msg error';
+    div.textContent = text;
+    el('aic-body').appendChild(div);
+    el('aic-body').scrollTop = el('aic-body').scrollHeight;
+  }
+
+  window.aicSend = async function() {
+    if (inflight) return;
+    const input = el('aic-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    inflight = true;
+    el('aic-send').disabled = true;
+
+    appendMsg('user', text);
+    history.push({role:'user', content:text});
+
+    let assistantEl = null, acc = '';
+    let activeToolEl = null;
+
+    function ensureAssistantBubble() {
+      if (!assistantEl || !assistantEl.isConnected) {
+        assistantEl = appendMsg('assistant', '');
+        assistantEl.classList.add('aic-typing');
+        acc = '';
+      }
+      return assistantEl;
+    }
+
+    function appendTool(text, status) {
+      const div = document.createElement('div');
+      div.className = 'aic-tool' + (status ? ' '+status : '');
+      div.innerHTML = text;
+      el('aic-body').appendChild(div);
+      el('aic-body').scrollTop = el('aic-body').scrollHeight;
+      return div;
+    }
+
+    function escHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
+
+    try {
+      const res = await fetch('/api/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ messages: history, context: buildContext() }),
+      });
+      if (!res.ok) {
+        let err = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j.error) err = j.error; } catch(_){}
+        throw new Error(err);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream:true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data) continue;
+          let parsed;
+          try { parsed = JSON.parse(data); } catch (_) { continue; }
+
+          if (parsed.delta) {
+            ensureAssistantBubble();
+            acc += parsed.delta;
+            assistantEl.innerHTML = renderMd(acc);
+            autosizePanel(assistantEl);
+            el('aic-body').scrollTop = el('aic-body').scrollHeight;
+          } else if (parsed.tool) {
+            // Finalize current assistant bubble (if any) so the next text creates a new one
+            if (assistantEl) {
+              assistantEl.classList.remove('aic-typing');
+              if (acc) history.push({role:'assistant', content:acc});
+              assistantEl = null; acc = '';
+            }
+            if (parsed.status === 'running') {
+              let label;
+              if (parsed.tool === 'zips_in_county')
+                label = `<span class="lbl">📍 zips_in_county</span><code>FIPS ${escHtml(parsed.fips || '')}</code>`;
+              else if (parsed.tool === 'get_county_metrics')
+                label = `<span class="lbl">📊 get_county_metrics</span><code>FIPS ${escHtml(parsed.fips || '')}</code>`;
+              else if (parsed.tool === 'get_zip_metrics')
+                label = `<span class="lbl">📊 get_zip_metrics</span><code>ZIP ${escHtml(parsed.zip || '')}</code>`;
+              else if (parsed.tool === 'state_top_counties')
+                label = `<span class="lbl">🏆 state_top_counties</span><code>${escHtml(parsed.state || '')} by ${escHtml(parsed.metric || 'g')}</code>`;
+              else
+                label = `<span class="lbl">🔎 query_database</span><code>${escHtml(parsed.sql || '')}</code>`;
+              activeToolEl = appendTool(label, '');
+            } else if (parsed.status === 'ok' && activeToolEl) {
+              activeToolEl.classList.add('ok');
+              activeToolEl.innerHTML += `<div class="meta">${parsed.row_count} row${parsed.row_count===1?'':'s'} · ${parsed.elapsed_ms} ms</div>`;
+              activeToolEl = null;
+            } else if (parsed.status === 'error' && activeToolEl) {
+              activeToolEl.classList.add('error');
+              activeToolEl.innerHTML += `<div class="meta">Error: ${escHtml(parsed.error || '')}</div>`;
+              activeToolEl = null;
+            }
+          } else if (parsed.error) {
+            throw new Error(parsed.error);
+          } else if (parsed.done) {
+            const u = parsed.usage || {};
+            const parts = [];
+            if (u.iterations > 1) parts.push(`${u.iterations} steps`);
+            if (u.cache_read)     parts.push(`${u.cache_read} cached`);
+            if (u.input)          parts.push(`${u.input} in / ${u.output||0} out`);
+            if (parts.length) el('aic-sub').textContent = parts.join(' · ');
+          }
+        }
+      }
+      if (assistantEl) {
+        assistantEl.classList.remove('aic-typing');
+        if (acc) history.push({role:'assistant', content:acc});
+      }
+    } catch (e) {
+      if (assistantEl) assistantEl.remove();
+      appendError(`Error: ${e.message}`);
+    } finally {
+      inflight = false;
+      el('aic-send').disabled = false;
+    }
+  };
+})();
+</script>
 
 {% endblock %}
 
@@ -559,6 +994,8 @@ const LAYERS = {
     fc_ct:  { label:'Pre-Foreclosures (scraped)', colors:['#1a1a3e','#f59e0b','#ef4444'], domain:[0,200], fmt:v=>`${v|0}`, dir:'high' },
     au_ct:  { label:'Active Auctions (scraped)',  colors:['#1a1a3e','#7c3aed','#ec4899'], domain:[0,10],  fmt:v=>`${v|0}`, dir:'high' },
     tot_ct: { label:'All Scraped Listings',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,250], fmt:v=>`${v|0}`, dir:'high' },
+    mail_score: { label:'Mail Targets (density × exit)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[0,100], fmt:v=>`${v|0}/100`, dir:'high' },
+    mail_total: { label:'Mailable Records',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,2000], fmt:v=>`${v|0}`, dir:'high' },
 };
 
 // Bivariate palette — 3x3 Buy × Exit
@@ -580,9 +1017,109 @@ function bivColor(buy, exit) {
 let countyData={}, incomeData={}, scatterRows=[], scatterMedX=50, scatterMedY=50;
 let listingsData={};
 let currentLayer='g', currentLevel='national', selState=null, selFips=null;
+// Source filter for choropleth tinting (Realtor / Zillow / Redfin / Overlap)
+let currentSource = 'realtor';
+// Presence sets — built when /api/stacked/county loads.
+let _srcPresent = { realtor: new Set(), zillow: new Set(), redfin: new Set(), overlap: new Set() };
+
+function loadStackedSourceSets() {
+    fetch('/api/stacked/county').then(r => r.ok ? r.json() : null).then(payload => {
+        if (!payload || !payload.data) return;
+        const r = new Set(), z = new Set(), rf = new Set(), o = new Set();
+        // Need metro→Redfin map: hit /api/stacked/metro once to know which CBSAs Redfin covers
+        fetch('/api/stacked/metro').then(rr => rr.ok ? rr.json() : null).then(mp => {
+            const rfCbsa = new Set();
+            if (mp && mp.data) {
+                for (const [cbsa, m] of Object.entries(mp.data)) {
+                    const metrics = m.metrics || {};
+                    if ((metrics.sale_price || metrics.sale_to_list || metrics.homes_sold || {}).src === 'redfin') {
+                        rfCbsa.add(cbsa);
+                    }
+                }
+            }
+            for (const [fips, c] of Object.entries(payload.data)) {
+                const m = c.metrics || {};
+                if (Object.values(m).some(v => !v.src)) r.add(fips);            // realtor (no src tag = realtor default)
+                if ('home_value_zhvi' in m)                z.add(fips);
+                const cbsa = (c.metro || {}).code;
+                if (cbsa && rfCbsa.has(cbsa))              rf.add(fips);
+                if (r.has(fips) && z.has(fips) && rf.has(fips)) o.add(fips);
+            }
+            _srcPresent = { realtor: r, zillow: z, redfin: rf, overlap: o };
+            applySourceFilter();
+        });
+    });
+}
+
+function applySourceFilter() {
+    if (!gCo) return;
+    const set = _srcPresent[currentSource];
+    if (!set) return;
+    if (currentSource === 'realtor') {
+        // Default — no dimming.
+        gCo.selectAll('.county-path').style('filter', null).attr('opacity', f => opacityFor(String(f.id).padStart(5,'0'), 0.93));
+    } else {
+        gCo.selectAll('.county-path')
+            .style('filter', f => set.has(String(f.id).padStart(5,'0')) ? null : 'saturate(0.15) brightness(0.45)')
+            .attr('opacity', f => set.has(String(f.id).padStart(5,'0')) ? 1 : 0.35);
+    }
+}
+// Bucket filter for scraped-dots overlay (default all on)
+let bucketFilter = { auc:true, fc:true, tl:true, bk:true, ss:true };
+// Whether the scraped-dots overlay is active.
+let dotsOn = true;
+// Computed once after listingsData loads — county-level dot scale ceiling.
+let _countyDotMax = 1, _zipDotMax = 1;
+
+function scrapedCountyTotal(L) {
+    if (!L) return 0;
+    let s = 0;
+    if (bucketFilter.auc) s += (L.auc||0);
+    if (bucketFilter.fc)  s += (L.fc||0);
+    if (bucketFilter.tl)  s += (L.tl||0);
+    if (bucketFilter.bk)  s += (L.bk||0);
+    if (bucketFilter.ss)  s += (L.ss||0);
+    return s;
+}
+
+function scrapedZipTotal(d) {
+    if (!d) return 0;
+    let s = 0;
+    if (bucketFilter.auc) s += (d.mail_auc||0);
+    if (bucketFilter.fc)  s += (d.mail_fc||0);
+    if (bucketFilter.tl)  s += (d.mail_tl||0);
+    if (bucketFilter.bk)  s += (d.mail_bk||0);
+    if (bucketFilter.ss)  s += (d.mail_ss||0);
+    return s;
+}
+
+function recomputeDotMax() {
+    let cmax = 1, zmax = 1;
+    for (const L of Object.values(listingsData||{})) {
+        const v = scrapedCountyTotal(L);
+        if (v > cmax) cmax = v;
+    }
+    for (const d of Object.values(zipData||{})) {
+        const v = scrapedZipTotal(d);
+        if (v > zmax) zmax = v;
+    }
+    _countyDotMax = cmax; _zipDotMax = zmax;
+}
+
+function dotColor(score) {
+    // mail_score 0–100 → cyan (low) → amber → red (high)
+    if (score == null) return '#888';
+    const t = Math.max(0, Math.min(1, score / 100));
+    if (t < 0.5) {
+        const u = t / 0.5;
+        return d3.interpolateRgb('#00f0ff', '#f59e0b')(u);
+    }
+    const u = (t - 0.5) / 0.5;
+    return d3.interpolateRgb('#f59e0b', '#ef4444')(u);
+}
 let colorScale = d3.scaleLinear().domain([0,100]).range(['#ef4444','#f59e0b','#10b981']);
 let usGeo, stateFeat=[], countyFeat=[];
-let svgEl, gSt, gCo, gPulse, geoP, zoomB;
+let svgEl, gSt, gCo, gDots, gPulse, geoP, zoomB;
 let mapW=0, mapH=0;
 let hCharts={};
 let rTab='g', rSortCol='g', rSortAsc=false;
@@ -610,6 +1147,7 @@ async function boot() {
 
     initMap();
     renderScatter();
+    loadStackedSourceSets();
     renderRankings();
     renderOppList();
 
@@ -626,6 +1164,8 @@ async function boot() {
     // Scraped listings (auctions + pre-foreclosures) in background
     fetch('/api/listings').then(r=>r.json()).then(d=>{
         listingsData = d;
+        recomputeDotMax();
+        if (typeof refreshDots === 'function') refreshDots();
     }).catch(()=>console.warn('listings fetch failed'));
 }
 
@@ -661,6 +1201,7 @@ function initMap() {
     zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
         gSt.attr('transform', e.transform);
         gCo.attr('transform', e.transform);
+        gDots.attr('transform', e.transform);
         gPulse.attr('transform', e.transform);
         updateLabelsForZoom(e.transform.k);
     });
@@ -668,6 +1209,7 @@ function initMap() {
 
     gSt = svgEl.append('g');
     gCo = svgEl.append('g');
+    gDots = svgEl.append('g').attr('class', 'scraped-dots');
     gPulse = svgEl.append('g').attr('class', 'hunt-pulses');
 
     computePercentiles();
@@ -830,11 +1372,187 @@ function drawHuntPulses(counties) {
 }
 
 
+// ── Scraped-dots overlay ────────────────────────────────────────
+function drawCountyDots(counties) {
+    if (!gDots) return;
+    gDots.selectAll('*').remove();
+    if (!dotsOn) return;
+    if (!_countyDotMax || _countyDotMax === 1) recomputeDotMax();
+    // Radius scale: √proportional to total, with sane floor/ceiling.
+    const rMax = mapMode === 'national' ? 8 : 14;
+    const rMin = 1.5;
+    const rows = counties.map(f => {
+        const fips = String(f.id).padStart(5,'0');
+        const L = listingsData[fips];
+        if (!L) return null;
+        const tot = scrapedCountyTotal(L);
+        if (!tot) return null;
+        const c = geoP.centroid(f);
+        if (isNaN(c[0])) return null;
+        const r = rMin + (rMax - rMin) * Math.sqrt(tot / Math.max(_countyDotMax, 1));
+        return { fips, name: L.name || (countyData[fips]||{}).name, tot, c, r,
+                 score: (countyData[fips]||{}).mail_score || 0 };
+    }).filter(Boolean);
+    // Bigger dots first so smaller ones stay clickable on top.
+    rows.sort((a,b) => b.r - a.r);
+    const sel = gDots.selectAll('.scraped-dot')
+        .data(rows, d => d.fips).enter().append('circle')
+        .attr('class', 'scraped-dot')
+        .attr('cx', d => d.c[0]).attr('cy', d => d.c[1])
+        .attr('r',  d => d.r)
+        .attr('fill', d => dotColor(d.score))
+        .attr('fill-opacity', 0.78)
+        .attr('stroke', 'rgba(255,255,255,0.55)')
+        .attr('stroke-width', 0.6)
+        .on('mouseover', (ev, d) => {
+            d3.select(ev.currentTarget).attr('stroke','#fff').attr('stroke-width', 1.6);
+            showCountyDotTip(ev, d);
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', (ev) => {
+            d3.select(ev.currentTarget).attr('stroke','rgba(255,255,255,0.55)').attr('stroke-width', 0.6);
+            hideTip();
+        })
+        .on('click', (ev, d) => {
+            ev.stopPropagation();
+            const cd = countyData[d.fips] || {};
+            if (cd.sc && mapMode === 'national') {
+                drillDownState(cd.sc);
+                setTimeout(() => selectCounty(d.fips), 800);
+            } else {
+                selectCounty(d.fips);
+            }
+        });
+}
+
+function drawZipDots(features) {
+    if (!gDots) return;
+    gDots.selectAll('*').remove();
+    if (!dotsOn) return;
+    if (!_zipDotMax || _zipDotMax === 1) recomputeDotMax();
+    const rMax = 12, rMin = 1.5;
+    const rows = features.map(f => {
+        const z = (f.properties||{}).zip;
+        const d = zipData[z];
+        if (!d) return null;
+        const tot = scrapedZipTotal(d);
+        if (!tot) return null;
+        const c = geoP.centroid(f);
+        if (isNaN(c[0])) return null;
+        const r = rMin + (rMax - rMin) * Math.sqrt(tot / Math.max(_zipDotMax, 1));
+        return { zip: z, tot, c, r, score: d.mail_score || 0 };
+    }).filter(Boolean);
+    rows.sort((a,b) => b.r - a.r);
+    gDots.selectAll('.scraped-dot')
+        .data(rows, d => d.zip).enter().append('circle')
+        .attr('class', 'scraped-dot')
+        .attr('cx', d => d.c[0]).attr('cy', d => d.c[1])
+        .attr('r',  d => d.r)
+        .attr('fill', d => dotColor(d.score))
+        .attr('fill-opacity', 0.82)
+        .attr('stroke', 'rgba(255,255,255,0.55)')
+        .attr('stroke-width', 0.6)
+        .on('mouseover', (ev, d) => {
+            d3.select(ev.currentTarget).attr('stroke','#fff').attr('stroke-width', 1.6);
+            showZipDotTip(ev, d);
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', (ev) => {
+            d3.select(ev.currentTarget).attr('stroke','rgba(255,255,255,0.55)').attr('stroke-width', 0.6);
+            hideTip();
+        })
+        .on('click', (ev, d) => { ev.stopPropagation(); selectZip(d.zip); });
+}
+
+function showCountyDotTip(ev, d) {
+    const tipEl = document.getElementById('tip');
+    const L = listingsData[d.fips] || {};
+    const cd = countyData[d.fips] || {};
+    const buckets = [
+        bucketFilter.auc ? `<span class="tip-row"><span class="l">Auctions</span><span class="v" style="color:#a78bfa">${L.auc||0}</span></span>` : '',
+        bucketFilter.fc  ? `<span class="tip-row"><span class="l">Foreclosures</span><span class="v" style="color:#ef4444">${L.fc||0}</span></span>` : '',
+        bucketFilter.tl  ? `<span class="tip-row"><span class="l">Tax Liens</span><span class="v" style="color:#f59e0b">${L.tl||0}</span></span>` : '',
+        bucketFilter.bk  ? `<span class="tip-row"><span class="l">Bankruptcies</span><span class="v" style="color:#60a5fa">${L.bk||0}</span></span>` : '',
+        bucketFilter.ss  ? `<span class="tip-row"><span class="l">Short Sales</span><span class="v" style="color:#34d399">${L.ss||0}</span></span>` : '',
+    ].join('');
+    tipEl.innerHTML = `
+        <div class="tip-name">${cd.name||d.fips}, ${cd.sc||''}</div>
+        <div class="tip-row"><span class="l">Filtered Total</span><span class="v" style="color:var(--accent-cyan);font-weight:700">${d.tot.toLocaleString()}</span></div>
+        ${buckets}
+        ${cd.mail_score ? `<div class="tip-row"><span class="l">Mail Score</span><span class="v">${cd.mail_score}</span></div>` : ''}
+        <div class="tip-row" style="color:var(--text-muted);font-size:.7rem;margin-top:4px">click to open county</div>
+    `;
+    tipEl.classList.add('show');
+    moveTip(ev);
+}
+
+function showZipDotTip(ev, d) {
+    const tipEl = document.getElementById('tip');
+    const zd = zipData[d.zip] || {};
+    const buckets = [
+        bucketFilter.auc ? `<span class="tip-row"><span class="l">Auctions</span><span class="v" style="color:#a78bfa">${zd.mail_auc||0}</span></span>` : '',
+        bucketFilter.fc  ? `<span class="tip-row"><span class="l">Foreclosures</span><span class="v" style="color:#ef4444">${zd.mail_fc||0}</span></span>` : '',
+        bucketFilter.tl  ? `<span class="tip-row"><span class="l">Tax Liens</span><span class="v" style="color:#f59e0b">${zd.mail_tl||0}</span></span>` : '',
+        bucketFilter.bk  ? `<span class="tip-row"><span class="l">Bankruptcies</span><span class="v" style="color:#60a5fa">${zd.mail_bk||0}</span></span>` : '',
+        bucketFilter.ss  ? `<span class="tip-row"><span class="l">Short Sales</span><span class="v" style="color:#34d399">${zd.mail_ss||0}</span></span>` : '',
+    ].join('');
+    tipEl.innerHTML = `
+        <div class="tip-name">ZIP ${d.zip}</div>
+        <div class="tip-row"><span class="l">Filtered Total</span><span class="v" style="color:var(--accent-cyan);font-weight:700">${d.tot.toLocaleString()}</span></div>
+        ${buckets}
+        ${zd.mail_score ? `<div class="tip-row"><span class="l">Mail Score</span><span class="v">${zd.mail_score}</span></div>` : ''}
+    `;
+    tipEl.classList.add('show');
+    moveTip(ev);
+}
+
+// Re-render the dots overlay using the currently-rendered features.
+function refreshDots() {
+    if (!gDots) return;
+    if (mapMode === 'county-zip') {
+        const features = gCo.selectAll('.zip-path').data();
+        drawZipDots(features);
+    } else if (mapMode === 'state') {
+        const features = gCo.selectAll('.county-path').data();
+        drawCountyDots(features);
+    } else {
+        drawCountyDots(countyFeat);
+    }
+}
+
+window.toggleBucket = function(btn, key) {
+    bucketFilter[key] = !bucketFilter[key];
+    btn.classList.toggle('active', bucketFilter[key]);
+    recomputeDotMax();
+    refreshDots();
+    if (selFips) renderListingsTab(selFips);
+};
+
+window.toggleDots = function(btn) {
+    dotsOn = !dotsOn;
+    btn.classList.toggle('active', dotsOn);
+    btn.textContent = dotsOn ? '● Dots ON' : '○ Dots OFF';
+    refreshDots();
+};
+
+window.setSource = function(btn, src) {
+    document.querySelectorAll('.fchip[data-src]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSource = src;
+    applySourceFilter();
+    // If a county is open, re-render its detail panel from the cached stacked
+    // data so the metric grid reflects the new source.
+    if (selFips && _lastDetail && _lastDetail.fips === selFips) {
+        ensureStackedCounty(selFips).then(() => renderDetail(selFips, _lastDetail.legacy));
+    }
+};
+
 function drawNationalView() {
     mapMode = 'national';
     stateFilter = '';
     gSt.selectAll('*').remove();
     gCo.selectAll('*').remove();
+    gDots.selectAll('*').remove();
     gPulse.selectAll('*').remove();
 
     const baseStroke = { stroke:'rgba(0,0,0,0.18)', width: 0.25 };
@@ -887,6 +1605,7 @@ function drawNationalView() {
         .attr('d', geoP).attr('pointer-events','none');
 
     drawHuntPulses(countyFeat);
+    drawCountyDots(countyFeat);
 
     document.getElementById('back-btn').classList.remove('show');
     document.getElementById('state-filter').value = '';
@@ -958,7 +1677,7 @@ function _renderStateInModal(abbr, sFeat) {
 
     // Save national-view context so we can restore it on close.
     if (!_natCtx) {
-        _natCtx = { svgEl, gSt, gCo, gPulse, geoP, zoomB, mapW, mapH };
+        _natCtx = { svgEl, gSt, gCo, gDots, gPulse, geoP, zoomB, mapW, mapH };
     }
 
     // Fresh SVG inside the modal — no shared state with the national map.
@@ -973,6 +1692,7 @@ function _renderStateInModal(abbr, sFeat) {
     zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
         gSt.attr('transform', e.transform);
         gCo.attr('transform', e.transform);
+        gDots.attr('transform', e.transform);
         gPulse.attr('transform', e.transform);
         updateLabelsForZoom(e.transform.k);
     });
@@ -980,6 +1700,7 @@ function _renderStateInModal(abbr, sFeat) {
 
     gSt = svgEl.append('g');
     gCo = svgEl.append('g');
+    gDots = svgEl.append('g').attr('class', 'scraped-dots');
     gPulse = svgEl.append('g').attr('class', 'hunt-pulses');
 
     // Fit projection to JUST this state — state fills the modal with slight padding.
@@ -1041,9 +1762,15 @@ function _doDrillDown(abbr) {
         .on('click', (ev, f) => {
             ev.stopPropagation();
             selectCounty(String(f.id).padStart(5,'0'));
+        })
+        .on('dblclick', (ev, f) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            drillIntoCountyZips(String(f.id).padStart(5,'0'));
         });
 
     drawHuntPulses(counties);
+    drawCountyDots(counties);
 
     gCo.selectAll('.county-label')
         .data(counties.filter(f => countyData[String(f.id).padStart(5,'0')]))
@@ -1067,6 +1794,9 @@ function closeStateModal() {
     document.getElementById('panel-default').style.display = '';
     document.getElementById('panel-sel').style.display = 'none';
     selFips = null;
+    drilledFips = null;
+    document.getElementById('zip-drill-btn').style.display = 'none';
+    document.getElementById('zip-back-btn').style.display = 'none';
 
     // Tear down the modal SVG so we don't keep listeners or DOM lingering.
     d3.select('#state-modal-map').selectAll('svg').remove();
@@ -1074,6 +1804,7 @@ function closeStateModal() {
     // Restore national-view globals.
     if (_natCtx) {
         svgEl = _natCtx.svgEl; gSt = _natCtx.gSt; gCo = _natCtx.gCo;
+        gDots = _natCtx.gDots;
         gPulse = _natCtx.gPulse; geoP = _natCtx.geoP; zoomB = _natCtx.zoomB;
         mapW = _natCtx.mapW; mapH = _natCtx.mapH;
         _natCtx = null;
@@ -1194,6 +1925,17 @@ function showCountyTip(ev, fips) {
 }
 
 // ── County selection ──────────────────────────────────────────
+const _stackedCountyCache = {};
+let _lastDetail = null;     // {fips, legacy} so setSource() can re-render
+
+function ensureStackedCounty(fips) {
+    if (_stackedCountyCache[fips]) return Promise.resolve(_stackedCountyCache[fips]);
+    return fetch(`/api/stacked/county/${fips}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { _stackedCountyCache[fips] = d || {}; return _stackedCountyCache[fips]; })
+        .catch(() => ({}));
+}
+
 function selectCounty(fips) {
     selFips = fips;
     const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
@@ -1207,7 +1949,42 @@ function selectCounty(fips) {
     if (tagEl) tagEl.textContent = `${d.name||fips}${d.sc?', '+d.sc:''} — County Detail`;
     document.getElementById('panel-default').style.display='none';
     document.getElementById('panel-sel').style.display='flex';
-    fetch(`/api/county/${fips}`).then(r=>r.json()).then(data=>renderDetail(fips,data));
+    Promise.all([
+        fetch(`/api/county/${fips}`).then(r=>r.json()),
+        ensureStackedCounty(fips),
+    ]).then(([legacy, _stacked]) => {
+        _lastDetail = { fips, legacy };
+        renderDetail(fips, legacy);
+    });
+    // Show ZIP-drill affordance when we're inside the state modal.
+    const inModal = document.getElementById('state-modal').classList.contains('open');
+    const drillBtn = document.getElementById('zip-drill-btn');
+    if (drillBtn) drillBtn.style.display = inModal ? '' : 'none';
+}
+
+// Pull a metric value from the stacked entry under the active source.
+// Stacked metric shape: {v, src?: 'zillow'|'redfin', alt?: {zillow: N, redfin: N}}.
+// Default src = 'realtor' when key absent.
+function metricForSource(stackedMetrics, key, source) {
+    const m = stackedMetrics && stackedMetrics[key];
+    if (!m) return null;
+    const src = m.src || 'realtor';
+    if (source === 'realtor') return src === 'realtor' ? m.v : null;
+    if (source === 'zillow') {
+        if (src === 'zillow') return m.v;
+        return (m.alt && m.alt.zillow != null) ? m.alt.zillow : null;
+    }
+    if (source === 'redfin') {
+        if (src === 'redfin') return m.v;
+        return (m.alt && m.alt.redfin != null) ? m.alt.redfin : null;
+    }
+    if (source === 'overlap') {
+        const has_r  = src === 'realtor' || (m.alt && m.alt.realtor != null);
+        const has_z  = src === 'zillow'  || (m.alt && m.alt.zillow  != null);
+        const has_rf = src === 'redfin'  || (m.alt && m.alt.redfin  != null);
+        return (has_r && has_z && has_rf) ? m.v : null;
+    }
+    return null;
 }
 
 function clearSel() {
@@ -1236,36 +2013,69 @@ function renderDetail(fips, data) {
     document.getElementById('p-bs').textContent   = (cur.buy_signals||{}).score||'—';
     document.getElementById('p-es').textContent   = (cur.exit_signals||{}).score||'—';
 
-    // Metric grid
-    const dom = cur.realtor_dom||cur.redfin_dom;
-    const domCls = dom?(dom<=30?'c-green':dom<=60?'c-amber':'c-red'):'';
-    const yoy = cur.realtor_list_price_yy||cur.zillow_yoy;
-    const yoyStr = yoy!=null?(yoy>0?'+':'')+((Math.abs(yoy)<2?yoy*100:yoy).toFixed(1))+'%':'—';
-    const yCls = yoy!=null?(yoy<0?'c-green':yoy>0.08?'c-red':''):'';
-    const pr = cur.realtor_price_reduced!=null?cur.realtor_price_reduced*100:cur.redfin_price_drops||null;
-    const prStr = pr!=null?pr.toFixed(1)+'%':'—';
-    const prCls = pr?(pr>30?'c-amber':pr>15?'c-cyan':''):'';
-    const stl = cur.redfin_sale_to_list;
-    const stlStr = stl?stl.toFixed(3).includes('.')?((stl*100).toFixed(1)+'%'):'—':'—';
-    const pending = cur.realtor_pending_ratio;
-    const pendStr = pending?(pending*100).toFixed(1)+'%':'—';
-    const val = cur.zillow_zhvi||cur.realtor_list_price||cur.redfin_sale_price;
-    const afford = val&&inc?((inc/val)*100).toFixed(1)+'%':'—';
+    // Per-source metric grid — pulls from cached stacked data when source != realtor
+    const stacked = (_stackedCountyCache[fips] || {}).metrics || {};
+    const src = currentSource;
+
+    // Helpers — return formatted string + class, given a numeric value (or null).
+    const fmtK   = v => v != null ? '$' + (v/1000).toFixed(0) + 'K' : '—';
+    const fmtPct = v => v != null ? (v*100).toFixed(1) + '%' : '—';
+    const fmtPctRaw = v => v != null ? v.toFixed(1) + '%' : '—';
+    const fmtDays = v => v != null ? Math.round(v) + 'd' : '—';
+    const fmtPpsf = v => v != null ? '$' + Math.round(v) : '—';
+    const fmtYoy = v => {
+        if (v == null) return '—';
+        const pct = Math.abs(v) < 2 ? v * 100 : v;
+        return (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
+    };
+
+    let dom, yoy, pr, pending, stl, val, ppsf;
+    if (src === 'realtor') {
+        // Fast path — use the legacy merged endpoint.
+        dom     = cur.realtor_dom != null ? cur.realtor_dom : null;
+        yoy     = cur.realtor_list_price_yy != null ? cur.realtor_list_price_yy : null;
+        pr      = cur.realtor_price_reduced != null ? cur.realtor_price_reduced : null;
+        pending = cur.realtor_pending_ratio != null ? cur.realtor_pending_ratio : null;
+        stl     = null;
+        val     = cur.realtor_list_price != null ? cur.realtor_list_price : null;
+        ppsf    = cur.realtor_ppsf != null ? cur.realtor_ppsf : null;
+    } else {
+        dom     = metricForSource(stacked, 'dom_days',         src);
+        yoy     = metricForSource(stacked, 'list_price_yoy',   src);
+        pr      = metricForSource(stacked, 'price_drops_share',src);
+        pending = metricForSource(stacked, 'pending_ratio',    src);
+        stl     = metricForSource(stacked, 'sale_to_list',     src);
+        val     = metricForSource(stacked, src === 'zillow' ? 'home_value_zhvi' :
+                                  src === 'redfin' ? 'sale_price' : 'list_price', src);
+        ppsf    = metricForSource(stacked, 'ppsf',             src);
+    }
+    const afford = (val && inc) ? ((inc/val)*100).toFixed(1) + '%' : '—';
+    const domCls = dom != null ? (dom<=30?'c-green':dom<=60?'c-amber':'c-red') : '';
+    const yCls   = yoy != null ? (yoy<0?'c-green':yoy>0.08?'c-red':'') : '';
+    const prCls  = pr  != null ? (pr*100>30?'c-amber':pr*100>15?'c-cyan':'') : '';
 
     const metrics = [
         {v:inc?'$'+(inc/1000).toFixed(0)+'K':'—', l:'Med Income', cls:inc>70000?'c-green':inc?'c-cyan':''},
-        {v:val?'$'+(val/1000).toFixed(0)+'K':'—', l:'Home Value', cls:''},
+        {v:fmtK(val), l:'Home Value', cls:''},
         {v:afford, l:'Affordability', cls:''},
-        {v:dom?dom+'d':'—', l:'Days on Mkt', cls:domCls},
-        {v:yoyStr, l:'YoY Price', cls:yCls},
-        {v:prStr,  l:'Price Drops', cls:prCls},
-        {v:pendStr,l:'Pending Ratio',cls:pending>0.3?'c-green':pending>0.1?'c-cyan':''},
-        {v:stlStr, l:'Sale/List',   cls:stl?stl>1.01?'c-red':stl<0.97?'c-green':'':''},
-        {v:cur.realtor_ppsf?'$'+cur.realtor_ppsf.toFixed(0):'—', l:'$/SqFt', cls:''},
+        {v:fmtDays(dom), l:'Days on Mkt', cls:domCls},
+        {v:fmtYoy(yoy), l:'YoY Price', cls:yCls},
+        {v:fmtPct(pr),  l:'Price Drops', cls:prCls},
+        {v:fmtPct(pending), l:'Pending Ratio', cls:pending>0.3?'c-green':pending>0.1?'c-cyan':''},
+        {v:stl != null ? fmtPct(stl > 5 ? stl/100 : stl) : '—', l:'Sale/List', cls:''},
+        {v:fmtPpsf(ppsf), l:'$/SqFt', cls:''},
     ];
     document.getElementById('p-mgrid').innerHTML = metrics.map(m=>
         `<div class="mcell ${m.cls}"><div class="mv">${m.v}</div><div class="ml">${m.l}</div></div>`
     ).join('');
+
+    // Source banner under the panel name so user knows what the metric grid represents.
+    const SRC_LABELS = { realtor:'Realtor', zillow:'Zillow', redfin:'Redfin', overlap:'Overlap (R + Z + Rf)' };
+    const subEl = document.getElementById('p-sub');
+    if (subEl) {
+        const baseSub = SNAMES[state] || state || '';
+        subEl.innerHTML = `${baseSub} <span style="opacity:.6;margin-left:6px;font-size:.7em">· source: <b style="color:var(--accent-cyan)">${SRC_LABELS[src]||src}</b></span>`;
+    }
 
     // Income line in footer
     document.getElementById('p-income').textContent = inc?`Median household income: $${(inc/1000).toFixed(0)}K`:'';
@@ -1291,6 +2101,7 @@ function fmtMoney(n) {
     return '$' + Math.round(n / 1000) + 'K';
 }
 
+const _listingDetailCache = {};
 function renderListingsTab(fips) {
     const L = listingsData[fips];
     const badge = document.getElementById('p-list-badge');
@@ -1303,28 +2114,51 @@ function renderListingsTab(fips) {
         return;
     }
     if (badge) { badge.style.display = ''; badge.textContent = L.total; }
+    items.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">Loading…</div>';
+    const renderItems = (listings) => {
+        items.innerHTML = (listings && listings.length)
+            ? listings.map(_listingCard).join('')
+            : '<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">No samples available.</div>';
+    };
+    if (_listingDetailCache[fips]) {
+        renderItems(_listingDetailCache[fips].listings || []);
+    } else {
+        fetch(`/api/listings/${fips}`).then(r => r.ok ? r.json() : {listings:[]}).then(d => {
+            _listingDetailCache[fips] = d;
+            // Only render if user is still on this county
+            if (selFips === fips) renderItems(d.listings || []);
+        }).catch(() => {
+            if (selFips === fips) renderItems([]);
+        });
+    }
     summary.innerHTML = `
         <div class="lsum-grid">
-            <div class="lsum-cell"><div class="lv" style="color:#ef4444">${L.fc||0}</div><div class="ll">🧾 Pre-Foreclosures</div></div>
-            <div class="lsum-cell"><div class="lv" style="color:#a78bfa">${L.auc||0}</div><div class="ll">🔨 Active Auctions</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#a78bfa">${L.auc||0}</div><div class="ll">Auctions</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#ef4444">${L.fc||0}</div><div class="ll">Foreclosures</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#f59e0b">${L.tl||0}</div><div class="ll">Tax Liens</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#60a5fa">${L.bk||0}</div><div class="ll">Bankruptcies</div></div>
+            <div class="lsum-cell"><div class="lv" style="color:#34d399">${L.ss||0}</div><div class="ll">Short Sales</div></div>
+            <div class="lsum-cell"><div class="lv">${L.next_date||'—'}</div><div class="ll">Next Auction</div></div>
             <div class="lsum-cell"><div class="lv">${fmtMoney(L.avg_val)}</div><div class="ll">Avg Valuation</div></div>
-            <div class="lsum-cell"><div class="lv">${fmtMoney(L.avg_price)}</div><div class="ll">Avg Price / Payoff</div></div>
+            <div class="lsum-cell"><div class="lv">${fmtMoney(L.avg_price)}</div><div class="ll">Avg Bid / Payoff</div></div>
             <div class="lsum-cell"><div class="lv">${fmtMoney(L.total_val)}</div><div class="ll">Total Opportunity</div></div>
-            <div class="lsum-cell"><div class="lv">${L.next_date||'—'}</div><div class="ll">Next Foreclosure</div></div>
         </div>
     `;
-    items.innerHTML = L.listings.map(l => {
-        const specs = [
-            l.beds ? `${l.beds}bd` : null,
-            l.baths ? `${l.baths}ba` : null,
-            l.sqft ? `${l.sqft.toLocaleString()} sqft` : null,
-            l.yr ? `${l.yr}` : null,
-        ].filter(Boolean).join(' · ');
-        const badges = [
-            l.src === 'fc' ? `<span class="lc-badge lc-fc">Pre-FC</span>` : `<span class="lc-badge lc-auc">Auction</span>`,
-            l.vacant ? `<span class="lc-badge lc-vacant">Vacant</span>` : '',
-        ].filter(Boolean).join('');
-        return `
+}
+
+const _SRC_LABELS = {auc:'Auction', fc:'Foreclosure', tl:'Tax Lien', bk:'Bankruptcy', ss:'Short Sale'};
+function _listingCard(l) {
+    const specs = [
+        l.beds ? `${l.beds}bd` : null,
+        l.baths ? `${l.baths}ba` : null,
+        l.sqft ? `${l.sqft.toLocaleString()} sqft` : null,
+        l.yr ? `${l.yr}` : null,
+    ].filter(Boolean).join(' · ');
+    const badges = [
+        `<span class="lc-badge lc-${l.src||'auc'}">${_SRC_LABELS[l.src]||(l.src||'').toUpperCase()||'Listing'}</span>`,
+        l.vacant ? `<span class="lc-badge lc-vacant">Vacant</span>` : '',
+    ].filter(Boolean).join('');
+    return `
         <div class="lcard">
             <div class="lcard-head">
                 <div style="flex:1;min-width:0;">
@@ -1343,7 +2177,6 @@ function renderListingsTab(fips) {
                 ${l.url ? `<a href="${l.url}" target="_blank" rel="noopener">Open →</a>` : ''}
             </div>
         </div>`;
-    }).join('');
 }
 
 function renderSigs(id, sigs) {
@@ -1504,8 +2337,123 @@ function buildRankList() {
     }));
 }
 
+// Per-column filters for the rankings table.
+let tableFilters = { g:'any', name:'', sc:'', inc:'any', v:'any', vy:'any', d:'any', pr:'any', vol:'any' };
+let _filterPctCache = null;  // {col: {p10,p25,p50,p75,p90}}
+
+function _filterPercentile(rows, col, p) {
+    const a = rows.map(r => +(r[col]||0)).filter(v => v > 0).sort((x,y)=>x-y);
+    if (!a.length) return 0;
+    return a[Math.floor(a.length * p)];
+}
+
+function _ensureFilterPcts() {
+    if (_filterPctCache) return;
+    const all = buildRankList();
+    _filterPctCache = {};
+    for (const col of ['g','inc']) {
+        _filterPctCache[col] = {
+            p10: _filterPercentile(all, col, 0.10),
+            p25: _filterPercentile(all, col, 0.25),
+            p50: _filterPercentile(all, col, 0.50),
+            p75: _filterPercentile(all, col, 0.75),
+            p90: _filterPercentile(all, col, 0.90),
+        };
+    }
+}
+
+function _filterPredicate(r) {
+    const f = tableFilters;
+    if (f.name && !((r.name||'').toLowerCase().includes(f.name.toLowerCase()))) return false;
+    if (f.sc && r.sc !== f.sc) return false;
+
+    if (f.g !== 'any') {
+        const p = _filterPctCache.g;
+        if (f.g === 't10' && r.g < p.p90) return false;
+        if (f.g === 't25' && r.g < p.p75) return false;
+        if (f.g === 'b25' && r.g > p.p25) return false;
+        if (f.g === 'b10' && r.g > p.p10) return false;
+    }
+    if (f.inc !== 'any') {
+        const p = _filterPctCache.inc;
+        if (f.inc === 't25' && r.inc < p.p75) return false;
+        if (f.inc === 't50' && r.inc < p.p50) return false;
+        if (f.inc === 'b50' && r.inc > p.p50) return false;
+        if (f.inc === 'b25' && r.inc > p.p25) return false;
+    }
+    if (f.v !== 'any') {
+        const v = r.v || 0;
+        if (f.v === 'lt200'    && !(v > 0 && v < 200_000)) return false;
+        if (f.v === '200to400' && !(v >= 200_000 && v < 400_000)) return false;
+        if (f.v === '400to600' && !(v >= 400_000 && v < 600_000)) return false;
+        if (f.v === '600to1m'  && !(v >= 600_000 && v < 1_000_000)) return false;
+        if (f.v === 'gt1m'     && !(v >= 1_000_000)) return false;
+    }
+    if (f.vy !== 'any') {
+        const vy = r.vy;
+        if (vy == null) return false;
+        if (f.vy === 'falling' && !(vy < 0)) return false;
+        if (f.vy === 'flat'    && !(vy >= 0 && vy <= 5)) return false;
+        if (f.vy === 'rising'  && !(vy > 5)) return false;
+    }
+    if (f.d !== 'any') {
+        const d = r.d || 0;
+        if (!d) return false;
+        if (f.d === 'lt30'   && !(d < 30)) return false;
+        if (f.d === '30to60' && !(d >= 30 && d <= 60)) return false;
+        if (f.d === 'gt60'   && !(d > 60)) return false;
+    }
+    if (f.pr !== 'any') {
+        const pr = r.pr || 0;
+        if (!pr) return false;
+        if (f.pr === 'gt30'   && !(pr > 30)) return false;
+        if (f.pr === '15to30' && !(pr >= 15 && pr <= 30)) return false;
+        if (f.pr === 'lt15'   && !(pr < 15)) return false;
+    }
+    if (f.vol !== 'any') {
+        const v = r.vol || 0;
+        if (f.vol === 'gt10k'   && !(v > 10000)) return false;
+        if (f.vol === '1kto10k' && !(v >= 1000 && v <= 10000)) return false;
+        if (f.vol === 'lt1k'    && !(v > 0 && v < 1000)) return false;
+    }
+    return true;
+}
+
+window.setTblFilter = function(col, val) {
+    tableFilters[col] = val;
+    // Mark the input as dirty for visual feedback.
+    document.querySelectorAll(`.tfilter[data-col="${col}"]`).forEach(el => {
+        const isDefault = (col === 'name' || col === 'sc') ? !val : (val === 'any');
+        el.classList.toggle('dirty', !isDefault);
+    });
+    renderRankings();
+};
+
+window.resetTableFilters = function() {
+    tableFilters = { g:'any', name:'', sc:'', inc:'any', v:'any', vy:'any', d:'any', pr:'any', vol:'any' };
+    document.querySelectorAll('.tfilter').forEach(el => {
+        el.classList.remove('dirty');
+        if (el.tagName === 'INPUT') el.value = '';
+        else el.value = el.dataset.col === 'sc' ? '' : 'any';
+    });
+    renderRankings();
+};
+
+function _populateStateFilterOptions() {
+    const sel = document.querySelector('.tfilter[data-col="sc"]');
+    if (!sel || sel.options.length > 1) return;
+    const states = Array.from(new Set(scatterRows.map(r => r.sc).filter(Boolean))).sort();
+    for (const s of states) {
+        const o = document.createElement('option');
+        o.value = s; o.textContent = s;
+        sel.appendChild(o);
+    }
+}
+
 function renderRankings() {
-    let rows = buildRankList();
+    _ensureFilterPcts();
+    _populateStateFilterOptions();
+    let rows = buildRankList().filter(_filterPredicate);
     if (rTab==='g')   rows.sort((a,b)=>b.g-a.g);
     if (rTab==='bs')  rows.sort((a,b)=>b.y-a.y);
     if (rTab==='es')  rows.sort((a,b)=>b.x-a.x);
@@ -1518,7 +2466,11 @@ function renderRankings() {
     const top = rows.slice(0,50);
     const sc = s=>s>=70?'var(--accent-green)':s>=50?'var(--accent-amber)':'var(--accent-red)';
     const body = document.getElementById('rank-body');
-    if (!top.length) { body.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">No data</td></tr>'; return; }
+    if (!top.length) {
+        const allCount = scatterRows.length;
+        body.innerHTML=`<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">No counties match your filters. <a href="javascript:resetTableFilters()" style="color:var(--accent-cyan)">Reset filters</a> (${allCount.toLocaleString()} total)</td></tr>`;
+        return;
+    }
     body.innerHTML = top.map((r,i)=>{
         const sbar = `<div class="sbar-wrap"><div class="sbar-fill" style="width:${r.g}%;background:${sc(r.g)}"></div></div>`;
         const domStr = r.d?`<span style="color:${r.d<=30?'var(--accent-green)':r.d<=60?'var(--accent-amber)':'var(--accent-red)'}">${r.d}d</span>`:'—';
@@ -1590,6 +2542,208 @@ document.addEventListener('DOMContentLoaded', () => {
         new bootstrap.Tooltip(el, { placement:'top', trigger:'hover', html:false });
     });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ZIP-LEVEL DRILL-DOWN (state modal → county → ZIPs)
+// ═══════════════════════════════════════════════════════════════
+let zipData = {};         // {zip5: {g,bs,es,v,vy,d,pr,ppr,a,zh,zhc}}
+let zipByCounty = {};     // {fips: [zip5,...]}
+let zctaCache = {};       // {state_abbr: GeoJSON}
+let drilledFips = null;   // FIPS currently in ZIP view
+let _zipLoadPromise = null;
+
+function ensureZipData() {
+    if (_zipLoadPromise) return _zipLoadPromise;
+    _zipLoadPromise = Promise.all([
+        fetch('/api/zip-heatmap').then(r => r.ok ? r.json() : {}),
+        fetch('/static/data/zip-by-county.json').then(r => r.ok ? r.json() : {}),
+    ]).then(([zh, zbc]) => { zipData = zh; zipByCounty = zbc; recomputeDotMax(); });
+    return _zipLoadPromise;
+}
+
+function ensureStateZcta(abbr) {
+    if (zctaCache[abbr]) return Promise.resolve(zctaCache[abbr]);
+    return fetch(`/static/data/zcta/${abbr}.json`).then(r => {
+        if (!r.ok) throw new Error('No ZCTA polygons for ' + abbr + ' yet — run scripts/build_zcta.py --states ' + abbr);
+        return r.json();
+    }).then(fc => { zctaCache[abbr] = fc; return fc; });
+}
+
+function fillForZip(z) {
+    const d = zipData[z] || {};
+    if (LAYERS[currentLayer] && LAYERS[currentLayer].biv) {
+        const buy = d.bs || 0, exit = d.es || 0;
+        if (!buy && !exit) return '#1a1c38';
+        return bivColor(buy, exit);
+    }
+    let val = 0;
+    if (currentLayer === 'inc') val = 0; // ZIP-level income not loaded yet
+    else val = d[currentLayer] || 0;
+    return val ? colorScale(val) : '#1a1c38';
+}
+
+function showZipTip(ev, z) {
+    const d = zipData[z] || {};
+    const tipEl = document.getElementById('tip');
+    const fmtMoney = v => '$' + (v/1000).toFixed(0) + 'K';
+    const heatLine = (d.zh != null)
+        ? `<div class="tip-row"><span class="l">Market Heat</span><span class="v">${d.zh.toFixed(0)} <span style="color:var(--text-muted);font-size:.7rem">(${d.zhc||''})</span></span></div>`
+        : '';
+    tipEl.innerHTML = `
+        <div class="tip-name">ZIP ${z}</div>
+        <div class="tip-scores">
+            <span class="tip-badge tip-g">Golden ${d.g||'—'}</span>
+            <span class="tip-badge tip-b">Buy ${d.bs||'—'}</span>
+            <span class="tip-badge tip-e">Exit ${d.es||'—'}</span>
+        </div>
+        ${heatLine}
+        ${d.v ? `<div class="tip-row"><span class="l">Home Value</span><span class="v">${fmtMoney(d.v)}</span></div>` : ''}
+        ${d.vy ? `<div class="tip-row"><span class="l">YoY</span><span class="v" style="color:${d.vy<0?'var(--accent-green)':'var(--accent-amber)'}">${d.vy>0?'+':''}${d.vy.toFixed(1)}%</span></div>` : ''}
+        ${d.d ? `<div class="tip-row"><span class="l">Days on Market</span><span class="v">${d.d}d</span></div>` : ''}
+        ${d.pr ? `<div class="tip-row"><span class="l">Price Drops</span><span class="v">${d.pr.toFixed(1)}%</span></div>` : ''}
+        ${d.ppr ? `<div class="tip-row"><span class="l">Pending Ratio</span><span class="v">${d.ppr.toFixed(1)}%</span></div>` : ''}
+        ${d.a ? `<div class="tip-row"><span class="l">Active Listings</span><span class="v">${d.a}</span></div>` : ''}
+    `;
+    tipEl.classList.add('show');
+    moveTip(ev);
+}
+
+function drillSelectedCountyZips() {
+    if (selFips) drillIntoCountyZips(selFips);
+}
+
+async function drillIntoCountyZips(fips) {
+    const cd = countyData[fips] || {};
+    const stateAbbr = cd.sc;
+    if (!stateAbbr) return;
+
+    try {
+        await ensureZipData();
+        const fc = await ensureStateZcta(stateAbbr);
+        // Filter directly by the fips embedded in each feature — the per-state
+        // GeoJSON already carries it, so we don't depend on zip-by-county.json
+        // (which is written incrementally and may not yet include this state).
+        let features = fc.features.filter(f => (f.properties || {}).fips === fips);
+        // Fallback: use the membership map if features lack the fips property.
+        if (!features.length) {
+            const zips = zipByCounty[fips] || [];
+            const set = new Set(zips);
+            features = fc.features.filter(f => set.has((f.properties || {}).zip));
+        }
+
+        if (!features.length) {
+            alert(`No ZIP polygons found for ${cd.name||fips}, ${stateAbbr}.\n\nIf this is a state we haven't processed yet, run:\n  python scripts/build_zcta.py --states ${stateAbbr}`);
+            return;
+        }
+
+        drilledFips = fips;
+        mapMode = 'county-zip';
+
+        const mapArea = document.getElementById('state-modal-map');
+        const W = mapArea.clientWidth, H = mapArea.clientHeight;
+
+        // Reset SVG layers, swap projection to fit just the county.
+        gSt.selectAll('*').remove();
+        gCo.selectAll('*').remove();
+        gPulse.selectAll('*').remove();
+
+        const cFc = { type: 'FeatureCollection', features };
+        const proj = d3.geoMercator().fitExtent([[W*0.05, H*0.05], [W*0.95, H*0.95]], cFc);
+        const path = d3.geoPath().projection(proj);
+        // Replace global path so wheel-zoom transforms still apply visually.
+        geoP = path;
+
+        // County outline behind the ZIPs.
+        const cFeat = countyFeat.find(f => String(f.id).padStart(5,'0') === fips);
+        if (cFeat) {
+            gSt.append('path').datum(cFeat).attr('d', path)
+                .attr('fill','rgba(20,22,50,0.55)')
+                .attr('stroke','rgba(255,255,255,0.28)').attr('stroke-width',1.4)
+                .attr('pointer-events','none');
+        }
+
+        gCo.selectAll('.zip-path')
+            .data(features).enter().append('path')
+            .attr('class', 'zip-path county-path')
+            .attr('d', path)
+            .attr('fill', f => fillForZip((f.properties||{}).zip))
+            .attr('stroke', 'rgba(255,255,255,0.18)').attr('stroke-width', 0.6)
+            .attr('opacity', 0.92)
+            .on('mouseover', (ev, f) => {
+                d3.select(ev.currentTarget)
+                    .attr('stroke', 'rgba(0,240,255,0.7)').attr('stroke-width', 1.8).attr('opacity', 1);
+                showZipTip(ev, (f.properties||{}).zip);
+            })
+            .on('mousemove', moveTip)
+            .on('mouseout', (ev) => {
+                d3.select(ev.currentTarget)
+                    .attr('stroke', 'rgba(255,255,255,0.18)').attr('stroke-width', 0.6).attr('opacity', 0.92);
+                hideTip();
+            })
+            .on('click', (ev, f) => {
+                ev.stopPropagation();
+                const z = (f.properties||{}).zip;
+                if (z) selectZip(z);
+            });
+
+        // ZIP labels (only show at higher zoom — handled by updateLabelsForZoom).
+        gCo.selectAll('.zip-label')
+            .data(features).enter().append('text')
+            .attr('class', 'county-label')
+            .attr('x', f => { const c = path.centroid(f); return isNaN(c[0]) ? 0 : c[0]; })
+            .attr('y', f => { const c = path.centroid(f); return isNaN(c[1]) ? 0 : c[1]; })
+            .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+            .text(f => (f.properties||{}).zip);
+        updateLabelsForZoom(1);
+
+        // Scraped-dot overlay at ZIP centroids
+        drawZipDots(features);
+
+        // Update header chrome.
+        document.getElementById('state-modal-title').textContent =
+            `${cd.name||fips}, ${stateAbbr} — ${features.length} ZIPs`;
+        document.getElementById('state-modal-hint').textContent =
+            'hover a ZIP for metrics · click for detail · ← Back to state';
+        document.getElementById('zip-drill-btn').style.display = 'none';
+        document.getElementById('zip-back-btn').style.display = '';
+    } catch (e) {
+        console.warn(e);
+        alert(e.message || 'Failed to load ZIP polygons.');
+    }
+}
+
+function backToStateView() {
+    if (!stateFilter) return;
+    drilledFips = null;
+    mapMode = 'state';
+    document.getElementById('zip-back-btn').style.display = 'none';
+    document.getElementById('state-modal-hint').textContent =
+        'click a county for details · double-click to drill into ZIPs · esc to close';
+    document.getElementById('state-modal-title').textContent = (SNAMES[stateFilter] || stateFilter);
+    const sFeat = stateFeat.find(f => Number(f.id) === parseInt(ASFIPS[stateFilter], 10));
+    if (sFeat) _renderStateInModal(stateFilter, sFeat);
+    // Re-show the drill affordance if a county is still selected.
+    if (selFips) document.getElementById('zip-drill-btn').style.display = '';
+}
+
+function selectZip(z) {
+    const d = zipData[z] || {};
+    const tagEl = document.getElementById('page-tagline');
+    if (tagEl) tagEl.textContent = `ZIP ${z} — Liquidity ${d.g || '—'}`;
+    // For now, keep the county detail panel open and just flash the selected ZIP.
+    gCo.selectAll('.zip-path')
+        .attr('stroke', f => (f.properties||{}).zip === z ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.18)')
+        .attr('stroke-width', f => (f.properties||{}).zip === z ? 2.4 : 0.6);
+}
+
+// Keep ZIP fills in sync when the user changes the layer while drilled in.
+const _origSetLayer = setLayer;
+setLayer = function(btn, layer) {
+    _origSetLayer(btn, layer);
+    if (mapMode === 'county-zip') {
+        gCo.selectAll('.zip-path').attr('fill', f => fillForZip((f.properties||{}).zip));
+    }
+};
 
 // ── Boot ──────────────────────────────────────────────────────
 boot();

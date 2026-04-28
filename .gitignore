@@ -13,3 +13,14 @@ migrations/
 /img*.png
 /*.xlsx
 /DASHBOARD_DOCS.md
+.vercel
+.env*.local
+
+# Large data — hosted on Vercel Blob (see app/static/data/blob-urls.json)
+/app/static/data/county-detail.json
+/app/static/data/listings-detail.json
+/app/static/data/zip-detail.json
+# Build-only artifacts (not loaded at runtime)
+/app/static/data/listings-zip.json
+/app/static/data/stacked/zip.json
+/Mailer_Data_set/

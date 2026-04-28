@@ -247,6 +247,170 @@ def load_redfin_county():
     return {}, {}
 
 
+def load_zillow_heat_county():
+    """
+    Zillow Market Heat Index — county. Higher = stronger seller's market.
+    Returns {fips: {zillow_heat: float, zillow_heat_class: str, zillow_heat_date: yyyy-mm}}
+    """
+    path = os.path.join(DATA_DIR, "zillow_heat_county.csv")
+    if not os.path.exists(path):
+        return {}
+    result = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        date_cols = [c for c in headers if c.startswith("20")]
+        for row in reader:
+            sf = str(row.get("StateCodeFIPS", "")).strip().zfill(2)
+            cf = str(row.get("MunicipalCodeFIPS", "")).strip().zfill(3)
+            fips = sf + cf
+            if len(fips) != 5:
+                continue
+            vals = [(d, _f(row.get(d))) for d in date_cols if _f(row.get(d)) is not None]
+            if not vals:
+                continue
+            latest_d, latest_v = vals[-1]
+            # Zillow's convention: 0–25 strong buyer, 25–50 buyer, 50–75 seller, 75+ strong seller
+            if latest_v >= 75:
+                cls = "Strong Seller"
+            elif latest_v >= 50:
+                cls = "Seller"
+            elif latest_v >= 25:
+                cls = "Buyer"
+            else:
+                cls = "Strong Buyer"
+            result[fips] = {
+                "zillow_heat": round(latest_v, 1),
+                "zillow_heat_class": cls,
+                "zillow_heat_date": latest_d[:7],
+            }
+    return result
+
+
+def load_realtor_zip():
+    """
+    Realtor.com ZIP-level current month inventory metrics.
+    Returns {zip5: {...}}.
+    """
+    path = os.path.join(DATA_DIR, "realtor_zip.csv")
+    if not os.path.exists(path):
+        return {}
+    latest_by_zip = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            z = str(row.get("postal_code") or row.get("zip_code") or "").strip().zfill(5)
+            if not z or len(z) != 5 or z == "00000":
+                continue
+            month = str(row.get("month_date_yyyymm") or "")
+            prev = latest_by_zip.get(z)
+            if prev and prev[0] >= month:
+                continue
+            latest_by_zip[z] = (month, row)
+
+    result = {}
+    for z, (month, row) in latest_by_zip.items():
+        result[z] = {
+            "data_month":            month,
+            "realtor_list_price":    _i(row.get("median_listing_price")),
+            "realtor_list_price_yy": _f(row.get("median_listing_price_yy")),
+            "realtor_active":        _i(row.get("active_listing_count")),
+            "realtor_new_listings":  _i(row.get("new_listing_count")),
+            "realtor_dom":           _i(row.get("median_days_on_market")),
+            "realtor_price_reduced": _f(row.get("price_reduced_share")),
+            "realtor_pending":       _i(row.get("pending_listing_count")),
+            "realtor_pending_ratio": _f(row.get("pending_ratio")),
+            "realtor_ppsf":          _f(row.get("median_listing_price_per_square_foot")),
+        }
+    return result
+
+
+def load_zillow_zhvi_zip():
+    """
+    Zillow ZHVI — ZIP. Returns {zip5: {zillow_zhvi, zillow_yoy, zillow_5yr, zillow_date}}.
+    """
+    path = os.path.join(DATA_DIR, "zillow_zhvi_zip.csv")
+    if not os.path.exists(path):
+        return {}
+    result = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        date_cols = [c for c in headers if c.startswith("20")]
+        for row in reader:
+            z = str(row.get("RegionName") or "").strip().zfill(5)
+            if len(z) != 5:
+                continue
+            vals = [(d, _f(row.get(d))) for d in date_cols if _f(row.get(d)) is not None]
+            if not vals:
+                continue
+            latest_d, latest_v = vals[-1]
+            yoy = round((latest_v - vals[-13][1]) / vals[-13][1] * 100, 2) if len(vals) > 12 else None
+            five = round((latest_v - vals[-61][1]) / vals[-61][1] * 100, 1) if len(vals) > 60 else None
+            result[z] = {
+                "zillow_zhvi": int(latest_v),
+                "zillow_yoy": yoy,
+                "zillow_5yr": five,
+                "zillow_date": latest_d[:7],
+            }
+    return result
+
+
+def load_zillow_heat_zip():
+    """Zillow Market Heat Index — ZIP. Returns {zip5: {zillow_heat, zillow_heat_class, zillow_heat_date}}."""
+    path = os.path.join(DATA_DIR, "zillow_heat_zip.csv")
+    if not os.path.exists(path):
+        return {}
+    result = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        date_cols = [c for c in headers if c.startswith("20")]
+        for row in reader:
+            z = str(row.get("RegionName") or "").strip().zfill(5)
+            if len(z) != 5:
+                continue
+            vals = [(d, _f(row.get(d))) for d in date_cols if _f(row.get(d)) is not None]
+            if not vals:
+                continue
+            latest_d, latest_v = vals[-1]
+            if latest_v >= 75: cls = "Strong Seller"
+            elif latest_v >= 50: cls = "Seller"
+            elif latest_v >= 25: cls = "Buyer"
+            else: cls = "Strong Buyer"
+            result[z] = {
+                "zillow_heat": round(latest_v, 1),
+                "zillow_heat_class": cls,
+                "zillow_heat_date": latest_d[:7],
+            }
+    return result
+
+
+def get_zip_data():
+    """Unified ZIP-level merge. Returns {zip5: {...}}. Empty if no ZIP files present."""
+    if _cache.get("zip"):
+        return _cache["zip"]
+    realtor_zip = load_realtor_zip()
+    zhvi_zip    = load_zillow_zhvi_zip()
+    heat_zip    = load_zillow_heat_zip()
+    all_zips = set(realtor_zip) | set(zhvi_zip) | set(heat_zip)
+    out = {}
+    for z in all_zips:
+        d = {}
+        d.update(zhvi_zip.get(z, {}))
+        d.update(realtor_zip.get(z, {}))
+        d.update(heat_zip.get(z, {}))
+        d["buy_signals"]  = compute_buy_score(d)
+        d["exit_signals"] = compute_exit_score(d)
+        bs = d["buy_signals"]["score"]
+        es = d["exit_signals"]["score"]
+        active = d.get("realtor_active") or 0
+        d["golden_score"] = compute_golden_score(bs, es, active)
+        out[z] = d
+    _cache["zip"] = out
+    return out
+
+
 def _build_name_fips_lookup():
     """Build {state_code|county_short_name: fips} from Realtor.com data."""
     if _cache.get("name_fips"):
@@ -483,6 +647,7 @@ def get_county_data():
     zillow_cur, zillow_trends = load_zillow_county()
     redfin_cur, redfin_trends = load_redfin_county()
     realtor_trends = load_realtor_trends()
+    zillow_heat = load_zillow_heat_county()
 
     all_fips = set(realtor.keys()) | set(zillow_cur.keys())
 
@@ -492,6 +657,7 @@ def get_county_data():
         d.update(zillow_cur.get(fips, {}))
         d.update(realtor.get(fips, {}))
         d.update(redfin_cur.get(fips, {}))
+        d.update(zillow_heat.get(fips, {}))
 
         if not d.get("state_code"):
             d["state_code"] = FIPS_TO_ABBR.get(fips[:2], "")
@@ -518,6 +684,7 @@ def get_county_data():
 def clear_county_cache():
     _cache.pop("county", None)
     _cache.pop("name_fips", None)
+    _cache.pop("zip", None)
 
 
 # ── Legacy state-level functions (kept for reference) ──────────────────────

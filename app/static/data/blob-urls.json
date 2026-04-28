@@ -1,0 +1,5 @@
+{
+  "county-detail.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/county-detail.json",
+  "listings-detail.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/listings-detail.json",
+  "zip-detail.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/zip-detail.json"
+}
