@@ -220,7 +220,7 @@ Drill chain: USA → State → County → ZIP grid (double-click a county or cli
 
 ## "Is this county/state worth the hassle?" — synthesis rubric
 
-When the user asks whether a region is worth pursuing, **don't just look at one metric**. Pull both the market stack (`get_county_metrics` / `get_zip_metrics` / `state_top_counties`) AND the live distress data (`query_database` after `zips_in_county` if needed). Then judge against this rubric:
+When the user asks whether a region is worth pursuing, **don't just look at one metric**. Pull both the market stack (`get_county_metrics` / `get_zip_metrics` / `state_top_counties`) AND the live distress data (`query_database` after `zips_in_county` if needed). For trend questions ("is the market heating up?", "has DOM been improving?", "price trajectory"), use `get_county_trends` — it returns multi-month Zillow / Redfin / Realtor series. Then judge against this rubric:
 
 | Factor | Strong (✅) | Marginal | Avoid (❌) |
 |---|---|---|---|
@@ -319,6 +319,38 @@ TOOLS = [
         },
     },
     {
+        "name": "get_county_trends",
+        "description": (
+            "Return month-by-month time series for a county: Zillow ZHVI (up to 36mo), "
+            "Redfin sale price / DOM / supply / homes_sold (up to 24mo), Realtor list price / "
+            "pending_ratio / price_reduced (up to 23mo). Use this for 'is this county heating up?', "
+            "'has DOM been improving?', 'price trend over the last year' — anything time-series. "
+            "get_county_metrics gives the snapshot; this gives the history."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fips":   {"type": "string", "description": "5-digit county FIPS code"},
+                "months": {"type": "integer", "description": "How many trailing months to return (default 12, max 36)", "default": 12},
+            },
+            "required": ["fips"],
+        },
+    },
+    {
+        "name": "get_zip_trends",
+        "description": (
+            "Return ZIP-level detail (current heat history, buy/exit signal breakdowns, golden score). "
+            "Less rich than county trends — most ZIPs only have a current snapshot, not full series."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "zip": {"type": "string", "description": "5-digit ZIP code"},
+            },
+            "required": ["zip"],
+        },
+    },
+    {
         "name": "state_top_counties",
         "description": (
             "Return the top N counties in a state ranked by a chosen metric. Useful for "
@@ -341,8 +373,28 @@ TOOLS = [
 
 _static_cache = {}
 
+# Optional Blob URL map (populated for files too big to bundle in the function).
+_BLOB_URLS = {}
+try:
+    _blob_urls_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "data", "blob-urls.json")
+    with open(_blob_urls_path) as _f:
+        _BLOB_URLS = json.load(_f)
+except Exception:
+    pass
+
+
 def _load_static(name):
-    if name not in _static_cache:
+    if name in _static_cache:
+        return _static_cache[name]
+    blob_url = _BLOB_URLS.get(name)
+    if blob_url:
+        try:
+            from urllib.request import urlopen
+            with urlopen(blob_url, timeout=30) as r:
+                _static_cache[name] = json.loads(r.read().decode("utf-8"))
+        except Exception:
+            _static_cache[name] = {}
+    else:
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "data", name)
         try:
             with open(path) as f:
@@ -412,6 +464,34 @@ _STATE_FIPS = {
     "SC":"45","SD":"46","TN":"47","TX":"48","UT":"49","VT":"50","VA":"51","WA":"53",
     "WV":"54","WI":"55","WY":"56",
 }
+
+def _get_county_trends(fips, months=12):
+    """Return per-month time series (Zillow ZHVI, Redfin sale/DOM/supply, Realtor list/pending)
+    for the last `months` months. Source: county-detail.json (Vercel Blob)."""
+    fips = str(fips).zfill(5)
+    if not isinstance(months, int) or months < 1: months = 12
+    if months > 36: months = 36
+    d = _load_static("county-detail.json").get(fips)
+    if not d:
+        return {"error": f"No trend data for FIPS {fips}"}
+    return {
+        "fips": fips, "state": d.get("state"), "months_returned": months,
+        "current": d.get("current", {}),
+        "zillow_trend":  (d.get("zillow_trend")  or [])[-months:],
+        "redfin_trend":  (d.get("redfin_trend")  or [])[-months:],
+        "realtor_trend": (d.get("realtor_trend") or [])[-months:],
+    }
+
+
+def _get_zip_trends(zip5):
+    """Return current-state ZIP detail (heat history, buy/exit signals, golden score).
+    Source: zip-detail.json (Vercel Blob). Less rich than county trends — most ZIPs only carry the snapshot."""
+    z = str(zip5).zfill(5)
+    d = _load_static("zip-detail.json").get(z)
+    if not d:
+        return {"error": f"No detail data for ZIP {z}"}
+    return {"zip": z, "current": d.get("current", {})}
+
 
 def _state_top_counties(state, metric="g", limit=20):
     state = (state or "").upper()
@@ -580,6 +660,30 @@ def chat():
                         yield _sse({"tool": "get_zip_metrics", "status": "error" if result.get("error") else "ok",
                                     "row_count": 0 if result.get("error") else 1,
                                     "error": result.get("error")})
+                        tool_results.append({
+                            "type": "tool_result", "tool_use_id": block.id,
+                            "content": json.dumps(result),
+                            **({"is_error": True} if result.get("error") else {}),
+                        })
+                    elif block.name == "get_county_trends":
+                        args = block.input or {}
+                        fips = args.get("fips", "")
+                        months = args.get("months", 12)
+                        yield _sse({"tool": "get_county_trends", "fips": fips, "status": "running"})
+                        result = _get_county_trends(fips, months)
+                        yield _sse({"tool": "get_county_trends", "status": "error" if result.get("error") else "ok",
+                                    "row_count": 0 if result.get("error") else 1, "error": result.get("error")})
+                        tool_results.append({
+                            "type": "tool_result", "tool_use_id": block.id,
+                            "content": json.dumps(result),
+                            **({"is_error": True} if result.get("error") else {}),
+                        })
+                    elif block.name == "get_zip_trends":
+                        z = (block.input or {}).get("zip", "")
+                        yield _sse({"tool": "get_zip_trends", "zip": z, "status": "running"})
+                        result = _get_zip_trends(z)
+                        yield _sse({"tool": "get_zip_trends", "status": "error" if result.get("error") else "ok",
+                                    "row_count": 0 if result.get("error") else 1, "error": result.get("error")})
                         tool_results.append({
                             "type": "tool_result", "tool_use_id": block.id,
                             "content": json.dumps(result),
