@@ -545,7 +545,6 @@
             <thead>
                 <tr>
                     <th style="width:38px">#</th>
-                    <th class="sortable sorted" data-col="g" onclick="sortR('g')">Score <span class="info-icon" data-bs-toggle="tooltip" title="Golden Zone: √(Buy × Exit). Ranges 0–100. Both buying ease and exit speed must be strong.">i</span></th>
                     <th class="sortable" data-col="name" onclick="sortR('name')">County</th>
                     <th class="sortable" data-col="sc" onclick="sortR('sc')">State</th>
                     <th class="sortable" data-col="lp" onclick="sortR('lp')">Med List Price <span class="info-icon" data-bs-toggle="tooltip" title="Realtor.com median listing price for the county (active-listing-weighted across ZIPs).">i</span></th>
@@ -559,13 +558,6 @@
                 </tr>
                 <tr class="filter-row">
                     <th></th>
-                    <th><select class="tfilter" data-col="g"   onchange="setTblFilter('g',this.value)">
-                        <option value="any">Any</option>
-                        <option value="t10">Top 10%</option>
-                        <option value="t25">Top 25%</option>
-                        <option value="b25">Bottom 25%</option>
-                        <option value="b10">Bottom 10%</option>
-                    </select></th>
                     <th><input class="tfilter" type="search" placeholder="search…" data-col="name" oninput="setTblFilter('name',this.value)"></th>
                     <th><select class="tfilter" data-col="sc" onchange="setTblFilter('sc',this.value)"><option value="">Any</option></select></th>
                     <th><select class="tfilter" data-col="lp" onchange="setTblFilter('lp',this.value)">
@@ -619,7 +611,7 @@
                 </tr>
             </thead>
             <tbody id="rank-body">
-                <tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
+                <tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
             </tbody>
         </table>
     </div>
@@ -2354,11 +2346,10 @@ function renderRankings() {
     const body = document.getElementById('rank-body');
     if (!top.length) {
         const allCount = scatterRows.length;
-        body.innerHTML=`<tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px">No counties match your filters. <a href="javascript:resetTableFilters()" style="color:var(--accent-cyan)">Reset filters</a> (${allCount.toLocaleString()} total)</td></tr>`;
+        body.innerHTML=`<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">No counties match your filters. <a href="javascript:resetTableFilters()" style="color:var(--accent-cyan)">Reset filters</a> (${allCount.toLocaleString()} total)</td></tr>`;
         return;
     }
     body.innerHTML = top.map((r,i)=>{
-        const sbar = `<div class="sbar-wrap"><div class="sbar-fill" style="width:${r.g}%;background:${sc(r.g)}"></div></div>`;
         const domStr = r.d?`<span style="color:${r.d<=30?'var(--accent-green)':r.d<=60?'var(--accent-amber)':'var(--accent-red)'}">${r.d}d</span>`:'—';
         const yoyStr = r.vy!=null?`<span style="color:${r.vy<0?'var(--accent-green)':'var(--accent-amber)'}">${r.vy>0?'+':''}${r.vy.toFixed(1)}%</span>`:'—';
         const prStr  = r.pr?`<span style="color:var(--accent-amber)">${r.pr.toFixed(0)}%</span>`:'—';
@@ -2382,7 +2373,6 @@ function renderRankings() {
         const fn = `drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800)`;
         return `<tr onclick="${fn}">
             <td style="color:var(--text-muted);font-weight:700">${i+1}</td>
-            <td>${sbar}<span style="font-size:.78rem;font-weight:700;color:${sc(r.g)}">${r.g}</span></td>
             <td style="font-weight:600;color:var(--accent-cyan)">${r.name||'—'}</td>
             <td style="font-weight:700;color:var(--text-secondary)">${r.sc||''}</td>
             <td>${lpStr}</td>
