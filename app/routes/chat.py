@@ -131,9 +131,11 @@ Do NOT use it for:
 - Conceptual questions ("what is the Golden Score?") — you already know these from below.
 - Map metrics (Buy/Exit/Golden, ZHVI, DOM, Heat) — those come from Realtor/Zillow/Redfin static feeds, not the DB.
 
-## Database schema — Postgres `foreclosure_records`
+## Database schema
 
-The connection is already pointed at the right database. **Refer to the table as just `foreclosure_records` (unqualified) — do NOT prefix it with `probate.`** (schema is `public`).
+The connection is already pointed at the right database. Refer to all tables unqualified (schema is `public`).
+
+### Table: `foreclosure_records`
 
 
 ```
@@ -192,6 +194,75 @@ OR
 (source='auction_com' AND classification IN ('TRUSTEE','DAY_1_REO','REO','PRIVATE_SELLER','PRIVATE_SELLER_INSPECTION'))
 OR (source='foreclosure_com' AND classification = 'Auction')
 ```
+
+### Table: `realtor_inventory_zip` (~28k rows; current-month snapshot only, March 2026)
+
+Realtor.com Monthly Housing Inventory at the ZIP level. **One row per ZIP for the current month only** — no history here. Use this for "right now" lookups: median price, active listings, days on market, price drops, pending ratio, etc.
+
+```
+realtor_inventory_zip
+  month_date_yyyymm                       INTEGER     -- e.g., 202603 = March 2026
+  postal_code                             VARCHAR(5)  -- 5-digit ZIP, zero-padded
+  zip_name                                TEXT        -- "indianapolis, in"
+  median_listing_price                    NUMERIC
+  median_listing_price_mm / _yy           NUMERIC     -- MoM / YoY ratio (e.g., 0.0848 = +8.48%)
+  active_listing_count                    INTEGER
+  active_listing_count_mm / _yy           NUMERIC
+  median_days_on_market                   NUMERIC
+  median_days_on_market_mm / _yy          NUMERIC
+  new_listing_count                       INTEGER
+  new_listing_count_mm / _yy              NUMERIC
+  price_increased_count                   INTEGER
+  price_increased_share                   NUMERIC     -- 0..1
+  price_increased_share_mm / _yy          NUMERIC
+  price_reduced_count                     INTEGER
+  price_reduced_share                     NUMERIC     -- 0..1
+  price_reduced_share_mm / _yy            NUMERIC
+  pending_listing_count                   INTEGER
+  pending_listing_count_mm / _yy          NUMERIC
+  median_listing_price_per_square_foot    NUMERIC
+  median_square_feet                      NUMERIC
+  average_listing_price                   NUMERIC
+  total_listing_count                     INTEGER
+  pending_ratio                           NUMERIC     -- 0..1
+  quality_flag                            SMALLINT    -- 0 = good, 1 = sparse data
+  PRIMARY KEY (month_date_yyyymm, postal_code)
+```
+
+### Table: `realtor_hotness_zip` (~435k rows; 36-month history, 202304–202603)
+
+Realtor.com Monthly Market Hotness at the ZIP level. **3 years of monthly history** — use this for trends, "is this ZIP heating up?", DOM trajectory, hotness rank changes, etc.
+
+```
+realtor_hotness_zip
+  month_date_yyyymm                  INTEGER     -- e.g., 202508
+  postal_code                        VARCHAR(5)
+  zip_name                           TEXT
+  hh_rank                            INTEGER     -- household rank (population-ish)
+  hotness_rank                       INTEGER     -- 1 = hottest ZIP nationally that month
+  hotness_rank_mm / _yy              INTEGER     -- prior period rank for comparison
+  hotness_score                      NUMERIC     -- composite 0..100ish
+  supply_score / demand_score        NUMERIC     -- components of hotness
+  median_days_on_market              NUMERIC
+  median_days_on_market_mm / _yy     NUMERIC     -- ratio
+  median_dom_mm_day / _yy_day        NUMERIC     -- absolute day delta
+  median_dom_vs_us                   NUMERIC     -- delta vs national median
+  page_view_count_per_property_mm    NUMERIC
+  page_view_count_per_property_yy    NUMERIC
+  page_view_count_per_property_vs_us NUMERIC
+  median_listing_price               NUMERIC
+  median_listing_price_mm / _yy      NUMERIC     -- ratio
+  median_listing_price_vs_us         NUMERIC
+  quality_flag                       SMALLINT
+  PRIMARY KEY (month_date_yyyymm, postal_code)
+```
+
+**When to query which:**
+- "What's the median price in 90210 right now?" → `realtor_inventory_zip`
+- "How has DOM in 46201 trended over the last year?" → `realtor_hotness_zip` ORDER BY month_date_yyyymm
+- "Which ZIPs in Camden NJ are hottest?" → first `zips_in_county('34007')`, then `realtor_hotness_zip` filtered to the latest month and `postal_code IN (...)`
+
+Always filter by `postal_code IN (...)` (not by county/state — those columns don't exist on these tables). For county-scoped questions, look up ZIPs first via `zips_in_county`.
 
 ## SQL constraints
 
@@ -254,10 +325,12 @@ TOOLS = [
     {
         "name": "query_database",
         "description": (
-            "Execute a read-only SELECT against the probate Postgres database "
-            "(table `foreclosure_records`). Returns the result rows as JSON. "
-            "Single statement only; LIMIT is enforced (max 1000); 10s timeout. "
-            "Use specific WHERE predicates — do not scan the whole 882k-row table."
+            "Execute a read-only SELECT against the Postgres database. Available tables: "
+            "`foreclosure_records` (mail-target distress data, 882k rows), "
+            "`realtor_inventory_zip` (Realtor monthly inventory, current-month snapshot, ~28k ZIPs), "
+            "`realtor_hotness_zip` (Realtor monthly market hotness, 36-month ZIP-level history, ~435k rows). "
+            "Returns rows as JSON. Single statement only; LIMIT enforced (max 1000); 10s timeout. "
+            "Use specific WHERE predicates — do not scan whole tables."
         ),
         "input_schema": {
             "type": "object",
