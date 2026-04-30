@@ -118,7 +118,7 @@ Use `query_database` when the user asks anything that requires current, specific
 
 Do NOT use it for:
 - Conceptual questions ("what is the Golden Score?") — you already know these from below.
-- Map metrics (Buy/Exit/Golden, ZHVI, DOM, Heat) — those come from Realtor/Zillow/Redfin static feeds, not the DB.
+- Map metrics (Buy / Exit / Golden / DOM / List Price / Hotness Score / etc.) when you can get them from `get_county_metrics` / `get_zip_metrics`. These are pre-aggregated from the same DB tables but cached in JSON for fast lookups.
 
 ## Database schema
 
@@ -268,33 +268,102 @@ For ranking questions ("top N hottest", "5 worst DOM", "biggest price drops"), *
 - Quote case-sensitive classification strings exactly: `classification = 'Tax Lien'` (not `'tax lien'`).
 - After running a query, summarize the result for the user in 2-4 sentences. Don't dump every row — pick highlights and reason about them.
 
-## The dashboard (for conceptual answers)
+## The dashboard architecture (Realtor-only, since 2026-04-30 refactor)
 
-Drill chain: USA → State → County → ZIP grid (double-click a county or click "ZIP View ›").
+The dashboard is a Flask + static-JSON app. Drill chain: USA → State → County → ZIP grid (double-click a county or click "ZIP View ›").
 
-**Three composite scores (0–100, all in `county-heatmap.json` and `zip-heatmap.json`):**
-- Golden Zone = √(Buy × Exit). Both must be strong — asymmetric markets get punished.
-- Buy Opportunity — Price Reduction % (primary), YoY price trend, stale inventory ratio.
-- Exit Speed — DOM (primary, lower=faster), Pending Ratio, Sale-to-List ratio.
+**Single data source: Realtor.com.** Two Postgres tables (Neon) feed everything:
+- `realtor_inventory_zip` — current-month ZIP snapshot. Driver of all "right now" metrics.
+- `realtor_hotness_zip` — 36-month ZIP history. Driver of all trend metrics.
 
-**Mail Targets layer (★)** — `mail_score = log10(weighted_mailable_count + 1) × (exit_score/100)^0.6 × 100`. Weights: auctions 1.0, foreclosures 1.2, tax liens 0.5, bankruptcies 0.4, short sales 0.6.
+Static JSONs (`county-heatmap.json`, `zip-heatmap.json`, `state-heatmap.json`, `county-detail.json`, `zip-detail.json`, `scatter.json`) are baked from these two tables by `scripts/build_realtor_only.py`, with mail-target counts merged in from the scraped `foreclosure_records` table via `listings.json`. There is **no Zillow, no Redfin, no Census, no FHFA data**.
 
-**Layers**: Golden, Buy×Exit Matrix, Exit Speed, Buy Opportunity, Home Value (Zillow ZHVI), Days on Market, Price Drops %, Income (Census), Pre-Foreclosures, Auctions (count), All Listings, **Mail Targets ★**.
+### Compact key set in `county-heatmap.json` / `zip-heatmap.json`
 
-**Sources**: Realtor.com Research, Zillow Research (ZHVI + Heat Index), Redfin Data Center, Census ACS, FHFA HPI. The internal `probate.foreclosure_records` is the source for Mail Targets and the only thing your tool can query.
+Every county or ZIP record uses these short keys:
+| Key | Meaning | Source / formula |
+|---|---|---|
+| `g`   | Golden Zone score 0–100 | √(bs × es) × balance_factor × liquidity_mult |
+| `bs`  | Buy Opportunity 0–100 | weighted blend of price-drops %, YoY, active/new ratio, DOM |
+| `es`  | Exit Speed 0–100 | weighted blend of DOM, pending ratio, hotness, YoY |
+| `lp`  | Median list price ($, current month) | Realtor inventory; weighted across ZIPs for county/state |
+| `vy`  | YoY % change in list price | Realtor `median_listing_price_yy` × 100 |
+| `d`   | Median Days on Market (current) | Realtor `median_days_on_market` |
+| `pr`  | Price Drops % (current) | Realtor `price_reduced_share` × 100 |
+| `ppr` | Pending Ratio % (current) | Realtor `pending_ratio` × 100 |
+| `a`   | Active listing count | Realtor `active_listing_count` |
+| `hs`  | Hotness Score 0–100 (current) | Realtor `hotness_score` (composite of supply + demand subscores) |
+| `name`/`sc` | County name / 2-letter state | Lookup |
+| `mail_score`, `mail_total`, `mail_auc`, `mail_fc`, `mail_tl`, `mail_bk`, `mail_ss` | Mail-target aggregates from `foreclosure_records` | Bucket counts + weighted score |
+| `fc_ct`, `au_ct`, `tot_ct` | Pre-foreclosure / auction / total scraped listings | From scraped pipeline |
+
+### Score formulas (exact — re-derived for Realtor-only inputs)
+
+**Buy Opportunity** (0–100):
+```
+sigs = piecewise-normalize each:
+  pr  (price_reduced_share)  →  [0→0, 0.05→10, 0.15→45, 0.25→70, 0.40→100]
+  yoy (list_price_yoy)       →  [-0.08→100, -0.03→70, 0→40, 0.05→15, 0.12→0]
+  anr (active/new ratio)     →  [1→0, 2.5→40, 4→70, 6→100]
+  dom (days on market)       →  [30→0, 60→30, 90→70, 120→100]   # high DOM = sellers tired
+weights = {pr:0.55, yoy:0.25, anr:0.15, dom:0.05}
+gates:
+  if pr>0.25 AND yoy<-0.02   →  base ×= 1.12   (distress signal)
+  if pr<0.05 AND yoy>0.08    →  base ×= 0.70   (overheated, hard to find deals)
+```
+
+**Exit Speed** (0–100):
+```
+sigs = piecewise-normalize each:
+  dom     (median DOM)       →  [15→100, 30→70, 60→30, 90→10, 150→0]
+  pending (pending_ratio)    →  [0.03→0, 0.10→20, 0.25→65, 0.40→100]
+  hot     (hotness_score)    →  [0→0, 25→25, 50→50, 75→80, 100→100]
+  yoy     (list_price_yoy)   →  [-0.05→0, 0→50, 0.05→85, 0.10→100]
+weights = {dom:0.45, pending:0.30, hot:0.20, yoy:0.05}
+gates:
+  if dom<30  AND pending>0.40  →  base ×= 1.15   (red-hot)
+  if dom<60  AND pending>0.25  →  base ×= 1.10   (hot)
+  if dom>120                    →  base ×= 0.60   (stagnant override)
+```
+
+**Golden Zone** (0–100):
+```
+g = √(bs × es) × balance_factor × liquidity_multiplier
+balance_factor   = 1 - 0.3 × |bs - es| / 100      # asymmetric markets penalized
+liquidity_mult   = 0.60 if active < 15
+                   0.85 if active < 50
+                   0.95 if active < 150
+                   1.00 if active < 500
+                   1.05 otherwise
+```
+
+**Mail Targets layer (★)**:
+```
+mail_score = log10(weighted_mailable_count + 1) × (es/100)^0.6 × 100
+weights: auctions 1.0, foreclosures 1.2, tax liens 0.5, bankruptcies 0.4, short sales 0.6
+```
+
+### County / state aggregation
+County metrics are an active-listing-weighted mean of the Realtor metrics across all ZIPs in the county (using the FIPS→ZIPs map in `zip-by-county.json`). State metrics are the same weighted mean across counties in the state. So a county's `lp` is the active-weighted average of its ZIPs' `median_listing_price`, etc.
+
+### Map layers (UI button → underlying key)
+Golden (`g`), Buy×Exit Matrix (bivariate `bs`×`es`), Exit Speed (`es`), Buy Opportunity (`bs`), Days on Market (`d`), Price Drops % (`pr`), Hotness Score (`hs`), Pending Ratio (`ppr`), Pre-Foreclosures (`fc_ct`), Auctions (`au_ct`), All Listings (`tot_ct`), **Mail Targets ★** (`mail_score`).
+
+(There is no Home Value layer, no Income layer, no Heat Index layer — those came from sources we no longer use.)
 
 ## "Is this county/state worth the hassle?" — synthesis rubric
 
-When the user asks whether a region is worth pursuing, **don't just look at one metric**. Pull both the market stack (`get_county_metrics` / `get_zip_metrics` / `state_top_counties`) AND the live distress data (`query_database` after `zips_in_county` if needed). For trend questions ("is the market heating up?", "has DOM been improving?", "price trajectory"), use `get_county_trends` — it returns multi-month Zillow / Redfin / Realtor series. Then judge against this rubric:
+When the user asks whether a region is worth pursuing, **don't just look at one metric**. Pull both the market snapshot (`get_county_metrics` / `get_zip_metrics` / `state_top_counties`) AND the live distress data (`query_database` after `zips_in_county` if needed). For trend questions ("is the market heating up?", "has DOM been improving?", "price trajectory"), use `get_county_trends` — it returns a single Realtor 36-month series with `{m, lp (list price), d (DOM), hs (hotness score)}` per month. Then judge against this rubric:
 
 | Factor | Strong (✅) | Marginal | Avoid (❌) |
 |---|---|---|---|
-| Exit Speed | ≥ 65 | 50–65 | < 45 |
-| Market Heat (Zillow) | ≥ 60 (Seller market) | 35–60 | < 35 (Strong Buyer) |
+| Exit Speed (`es`) | ≥ 65 | 50–65 | < 45 |
+| Hotness Score (`hs`) | ≥ 70 | 40–70 | < 30 |
+| Pending Ratio (`ppr`) | ≥ 30% | 15–30% | < 10% |
 | Mail Targets total (active mailable) | ≥ 1,000 | 200–1,000 | < 100 (no scale) |
 | Auction count (next 60 days) | ≥ 50 | 10–50 | < 5 |
 | DOM | ≤ 45 days | 45–75 | > 90 (slow exit) |
-| Sale-to-list | ≥ 99% | 96–99% | < 95% (bidders flat) |
+| Buy Opportunity (`bs`) | ≥ 55 | 35–55 | < 25 |
 
 **Verdict structure** (always include all three):
 1. **Worth it / Marginal / Skip** — one-word call.
@@ -302,7 +371,7 @@ When the user asks whether a region is worth pursuing, **don't just look at one 
 3. **Tactic** — if Worth it: which buckets to mail (auctions vs tax-lien vs Ch13) and over what date window. If Marginal: what to test first. If Skip: what would change your mind.
 
 Example shape:
-> **Camden NJ — Worth it.** Exit Speed 78, Heat 71 (Seller market), 17,499 mailable records with 199 auctions in next 60 days. Lead with auction-window mail (next 60d) → fall back to Ch13 filings as a slower-funnel pool. Skip pure tax-lien blasts here unless ROI per piece is dialed in — too much volume to mail blind.
+> **Camden NJ — Worth it.** Exit Speed 85, Hotness 75, Pending Ratio 91%, 17,499 mailable records with 249 auctions queued. Lead with auction-window mail (next 60d) → fall back to Ch13 filings as a slower-funnel pool. Skip pure tax-lien blasts here unless ROI per piece is dialed in — too much volume to mail blind.
 
 When asked about a STATE: call `state_top_counties` with `metric=mail_score` (or `g` for raw market quality). Report the top 5–10, identify which clusters carry the state's mail value, and tell the user where to focus rather than blanket-mailing.
 
@@ -389,11 +458,11 @@ TOOLS = [
     {
         "name": "get_county_trends",
         "description": (
-            "Return month-by-month time series for a county: Zillow ZHVI (up to 36mo), "
-            "Redfin sale price / DOM / supply / homes_sold (up to 24mo), Realtor list price / "
-            "pending_ratio / price_reduced (up to 23mo). Use this for 'is this county heating up?', "
-            "'has DOM been improving?', 'price trend over the last year' — anything time-series. "
-            "get_county_metrics gives the snapshot; this gives the history."
+            "Return Realtor 36-month time series for a county. Each entry: "
+            "{m: yyyymm, lp: median list price, d: median DOM, hs: hotness score 0-100}. "
+            "Use this for 'is this county heating up?', 'DOM trajectory', 'price trend over the last year' — "
+            "anything time-series. get_county_metrics gives the snapshot; this gives the history. "
+            "Aggregated from ZIP-level Realtor data via active-listing-weighted means."
         ),
         "input_schema": {
             "type": "object",
@@ -407,8 +476,9 @@ TOOLS = [
     {
         "name": "get_zip_trends",
         "description": (
-            "Return ZIP-level detail (current heat history, buy/exit signal breakdowns, golden score). "
-            "Less rich than county trends — most ZIPs only have a current snapshot, not full series."
+            "Return Realtor 36-month time series for a single ZIP. Each entry: "
+            "{m: yyyymm, lp: median list price, d: median DOM, hs: hotness score}. "
+            "Same shape as get_county_trends but for one ZIP."
         ),
         "input_schema": {
             "type": "object",
@@ -424,7 +494,8 @@ TOOLS = [
             "Return the top N counties in a state ranked by a chosen metric. Useful for "
             "answering 'which counties in [state] are worth pursuing'. Available metrics: "
             "g (Golden), bs (Buy), es (Exit), mail_score, mail_total, mail_auc (auction count), "
-            "v (home value), pr (price drops %), d (DOM), zh (Zillow Heat Index)."
+            "lp (median list price), pr (price drops %), d (DOM), hs (hotness score), "
+            "ppr (pending ratio %), vy (YoY %), a (active listings)."
         ),
         "input_schema": {
             "type": "object",
@@ -454,6 +525,17 @@ except Exception:
 def _load_static(name):
     if name in _static_cache:
         return _static_cache[name]
+    # Prefer the local file when it exists (covers local dev + any file we
+    # rebuilt). Fall back to the Vercel Blob URL only when the file isn't
+    # bundled — that's the production path for files >10MB.
+    local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "data", name)
+    if os.path.exists(local_path):
+        try:
+            with open(local_path) as f:
+                _static_cache[name] = json.load(f)
+        except Exception:
+            _static_cache[name] = {}
+        return _static_cache[name]
     blob_url = _BLOB_URLS.get(name)
     if blob_url:
         try:
@@ -463,12 +545,7 @@ def _load_static(name):
         except Exception:
             _static_cache[name] = {}
     else:
-        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "data", name)
-        try:
-            with open(path) as f:
-                _static_cache[name] = json.load(f)
-        except Exception:
-            _static_cache[name] = {}
+        _static_cache[name] = {}
     return _static_cache[name]
 
 
@@ -478,15 +555,16 @@ def _zips_in_county(fips):
     return {"fips": fips, "zip_count": len(zips), "zips": zips}
 
 
-# Friendly label map for the compact heatmap fields
+# Friendly label map for the compact heatmap fields (Realtor-only build)
 HEATMAP_FIELD_LABELS = {
-    "g":   "golden_score", "bs": "buy_score", "es": "exit_score",
-    "v":   "zillow_zhvi_home_value", "vy": "home_value_yoy_pct",
-    "d":   "median_days_on_market",  "pr": "price_drops_pct",
-    "ppr": "pending_ratio_pct",      "lp": "median_list_price",
-    "sp":  "median_sale_price",      "a":  "active_listings",
-    "zh":  "zillow_heat_index",      "zhc":"market_classification",
-    "name": "county_name",            "sc": "state_code",
+    "g":    "golden_score",         "bs":  "buy_score",
+    "es":   "exit_score",
+    "lp":   "median_list_price",     "vy":  "list_price_yoy_pct",
+    "d":    "median_days_on_market", "pr":  "price_drops_pct",
+    "ppr":  "pending_ratio_pct",     "a":   "active_listings",
+    "hs":   "hotness_score",
+    "name": "county_name",           "sc":  "state_code",
+    "zc":   "zip_count_with_data",
     "fc_ct": "scraped_pre_foreclosures",
     "au_ct": "scraped_auctions",
     "tot_ct": "scraped_total_listings",
@@ -534,8 +612,10 @@ _STATE_FIPS = {
 }
 
 def _get_county_trends(fips, months=12):
-    """Return per-month time series (Zillow ZHVI, Redfin sale/DOM/supply, Realtor list/pending)
-    for the last `months` months. Source: county-detail.json (Vercel Blob)."""
+    """Return Realtor 36-month series for a county. Each entry: {m (yyyymm),
+    lp (median list price), d (median DOM), hs (hotness score)}. Source:
+    county-detail.json. ZIP-level data is aggregated into county-level series
+    via active-listing-weighted means."""
     fips = str(fips).zfill(5)
     if not isinstance(months, int) or months < 1: months = 12
     if months > 36: months = 36
@@ -545,20 +625,23 @@ def _get_county_trends(fips, months=12):
     return {
         "fips": fips, "state": d.get("state"), "months_returned": months,
         "current": d.get("current", {}),
-        "zillow_trend":  (d.get("zillow_trend")  or [])[-months:],
-        "redfin_trend":  (d.get("redfin_trend")  or [])[-months:],
-        "realtor_trend": (d.get("realtor_trend") or [])[-months:],
+        "trend": (d.get("trend") or [])[-months:],
     }
 
 
 def _get_zip_trends(zip5):
-    """Return current-state ZIP detail (heat history, buy/exit signals, golden score).
-    Source: zip-detail.json (Vercel Blob). Less rich than county trends — most ZIPs only carry the snapshot."""
+    """Return Realtor 36-month series for a single ZIP. Trend entries:
+    {m (yyyymm), lp (median list price), d (median DOM), hs (hotness score)}.
+    Source: zip-detail.json."""
     z = str(zip5).zfill(5)
     d = _load_static("zip-detail.json").get(z)
     if not d:
         return {"error": f"No detail data for ZIP {z}"}
-    return {"zip": z, "current": d.get("current", {})}
+    return {
+        "zip": z,
+        "current": d.get("current", {}),
+        "trend": d.get("trend", []),
+    }
 
 
 def _state_top_counties(state, metric="g", limit=20):
@@ -576,7 +659,7 @@ def _state_top_counties(state, metric="g", limit=20):
         row = {"fips": f, "county": d.get("name"), "state": d.get("sc")}
         row.update(_expand_metrics({k: d.get(k) for k in (
             "g","bs","es","mail_score","mail_total","mail_auc","mail_fc","mail_tl","mail_bk",
-            "v","vy","d","pr","ppr","zh","zhc","a"
+            "lp","vy","d","pr","ppr","hs","a"
         ) if k in d}))
         rows.append(row)
     return {"state": state, "metric": metric, "ranked_by": HEATMAP_FIELD_LABELS.get(metric, metric),

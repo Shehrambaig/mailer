@@ -314,7 +314,7 @@
             </div>
             <div>
                 <div style="color:var(--accent-purple);font-weight:700;font-size:.82rem;">Exit Speed</div>
-                <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How fast you can resell to a retail family buyer. Driven by: <b>DOM</b> (primary — lower is faster), <b>Pending Ratio</b> (more buyers under contract = strong demand), and <b>Sale-to-List ratio</b> (above 100% = bidding wars, below 97% = slow market).</div>
+                <div style="color:var(--text-secondary);font-size:.75rem;line-height:1.5;margin-top:3px;">How fast you can resell to a retail family buyer. Driven by: <b>DOM</b> (primary — lower is faster), <b>Pending Ratio</b> (more buyers under contract = strong demand), and Realtor's <b>Hotness Score</b> (composite of supply &amp; demand subscores).</div>
             </div>
         </div>
 
@@ -325,10 +325,10 @@
                 <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">DOM (Days on Market)</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median days a listing sits before going under contract. &lt;30 = fast (green). 30–60 = moderate. &gt;60 = slow (red). Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
                 <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Price Drops %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">% of active listings where the seller has cut the asking price at least once. 25%+ = meaningful distress signal. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
                 <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Pending Ratio</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Pending listings ÷ total active listings. 30%+ = strong buyer demand. 10%- = few buyers. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">YoY %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Year-over-year change in median listing price. Negative = prices falling = buy opportunity. Sources: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com</a> · <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a>.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Sale-to-List</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Actual sale price ÷ list price. &gt;100% = sold above asking (competitive). &lt;97% = buyer has leverage. Source: <a href="https://www.redfin.com/news/data-center/" target="_blank" rel="noopener" class="src-lnk">Redfin Data Center</a>.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Market Heat</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Zillow Market Heat Index — 0 (strong buyer) to 100 (strong seller). Direct read on where selling is easy. Source: <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow Research</a>.</div></div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Affordability</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Median income ÷ median home value. Higher = more buyers can afford the market = easier to sell. Sources: <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-lnk">Census ACS</a> · <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">YoY %</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Year-over-year change in median listing price. Negative = prices falling = buy opportunity. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Median List Price</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Realtor.com median listing price for the geo. Aggregated to county/state by active-listing-weighted mean across ZIPs. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Hotness Score</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Realtor.com market hotness — composite 0-100. Combines supply (low inventory = hot) + demand (page views / engagement). Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Hotness</a>.</div></div>
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Active Listings</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">Total properties for sale right now. Higher = more deal flow. Used as the activity multiplier in the Golden Score. Source: <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a>.</div></div>
             </div>
         </div>
 
@@ -358,12 +358,8 @@
                     </div>
                     <div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;margin-top:4px;">Percentile direction is layer-aware: for layers where <b>high is good</b> (Golden, Buy, Exit, Income) the top performers pulse; for layers where <b>low is good</b> (DOM), the lowest values pulse. Hunt Mode works on both the national view and inside a drilled-down state.</div>
                 </div>
-                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Data Sources</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">
-                    <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a> (county + ZIP inventory, monthly) ·
-                    <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow Research</a> (ZHVI + Market Heat Index, county + ZIP) ·
-                    <a href="https://www.redfin.com/news/data-center/" target="_blank" rel="noopener" class="src-lnk">Redfin Data Center</a> (sale prices, sale-to-list, county) ·
-                    <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-lnk">Census ACS 5-yr</a> (median household income) ·
-                    <a href="https://www.fhfa.gov/data/hpi" target="_blank" rel="noopener" class="src-lnk">FHFA HPI</a> (long-horizon appreciation).
+                <div><span style="color:var(--text-primary);font-weight:600;font-size:.78rem;">Data Source</span><div style="color:var(--text-secondary);font-size:.72rem;line-height:1.4;">
+                    <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Realtor.com Research</a> (ZIP-level inventory + market hotness, monthly). All county and state values are weighted aggregates of the underlying ZIP data, served from Neon Postgres.
                 </div></div>
             </div>
         </div>
@@ -377,12 +373,6 @@
 <div class="map-row" id="map-row">
 <div class="glass-card slide-up map-card">
     <div class="fchip-row">
-        <span class="fchip-label">Source</span>
-        <button class="fchip active" data-src="realtor" onclick="setSource(this,'realtor')">Realtor</button>
-        <button class="fchip" data-src="zillow" onclick="setSource(this,'zillow')">Zillow</button>
-        <button class="fchip" data-src="redfin" onclick="setSource(this,'redfin')">Redfin</button>
-        <button class="fchip" data-src="overlap" onclick="setSource(this,'overlap')">Overlap</button>
-        <span style="flex:0 0 12px"></span>
         <span class="fchip-label">Scraped</span>
         <button class="fchip bk-auc active" data-bk="auc" onclick="toggleBucket(this,'auc')">Auctions</button>
         <button class="fchip bk-fc active"  data-bk="fc"  onclick="toggleBucket(this,'fc')">Foreclosures</button>
@@ -396,10 +386,10 @@
         <button class="lbtn" data-layer="biv" onclick="setLayer(this,'biv')">Buy × Exit</button>
         <button class="lbtn" data-layer="es" onclick="setLayer(this,'es')">Exit Speed</button>
         <button class="lbtn" data-layer="bs" onclick="setLayer(this,'bs')">Buy Opportunity</button>
-        <button class="lbtn" data-layer="v"  onclick="setLayer(this,'v')">Home Value</button>
         <button class="lbtn" data-layer="d"  onclick="setLayer(this,'d')">Days on Market</button>
         <button class="lbtn" data-layer="pr" onclick="setLayer(this,'pr')">Price Drops %</button>
-        <button class="lbtn" data-layer="inc" onclick="setLayer(this,'inc')">Income</button>
+        <button class="lbtn" data-layer="hs" onclick="setLayer(this,'hs')">Hotness Score</button>
+        <button class="lbtn" data-layer="ppr" onclick="setLayer(this,'ppr')">Pending Ratio</button>
         <div class="lbtn-sep"></div>
         <button class="lbtn hunt-btn" id="hunt-btn" onclick="toggleHunt()">HUNT MODE</button>
         <div class="lbtn-sep"></div>
@@ -523,9 +513,9 @@
             </div>
             <div class="ptab-content" id="pt-hist">
                 <div class="hist-wrap">
-                    <div class="csec"><div class="ct">Home Value — <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-lnk">Zillow ZHVI</a> (monthly median estimate)</div><div style="height:110px;position:relative;"><canvas id="hc-price"></canvas></div></div>
-                    <div class="csec"><div class="ct">Days on Market — median days before going under contract <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></div><div style="height:80px;position:relative;"><canvas id="hc-dom"></canvas></div></div>
-                    <div class="csec"><div class="ct">Price Reduction Rate — % of listings that cut their asking price <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></div><div style="height:80px;position:relative;"><canvas id="hc-pr"></canvas></div></div>
+                    <div class="csec"><div class="ct">Median List Price (Realtor) — 36-month trend</div><div style="height:110px;position:relative;"><canvas id="hc-price"></canvas></div></div>
+                    <div class="csec"><div class="ct">Days on Market (Realtor) — median days to go under contract</div><div style="height:80px;position:relative;"><canvas id="hc-dom"></canvas></div></div>
+                    <div class="csec"><div class="ct">Hotness Score (Realtor) — composite supply + demand, 0-100</div><div style="height:80px;position:relative;"><canvas id="hc-pr"></canvas></div></div>
                 </div>
             </div>
             <div class="pfooter">
@@ -558,12 +548,12 @@
                     <th class="sortable sorted" data-col="g" onclick="sortR('g')">Score <span class="info-icon" data-bs-toggle="tooltip" title="Golden Zone: √(Buy × Exit). Ranges 0–100. Both buying ease and exit speed must be strong.">i</span></th>
                     <th class="sortable" data-col="name" onclick="sortR('name')">County</th>
                     <th class="sortable" data-col="sc" onclick="sortR('sc')">State</th>
-                    <th class="sortable" data-col="inc" onclick="sortR('inc')">Med Income <span class="info-icon" data-bs-toggle="tooltip" title="Census ACS 2022 median household income. Higher income = more qualified retail buyers in the area.">i</span> <a href="https://www.census.gov/programs-surveys/acs" target="_blank" rel="noopener" class="src-pill" title="Source: Census ACS">src</a></th>
-                    <th class="sortable" data-col="v" onclick="sortR('v')">Home Value <span class="info-icon" data-bs-toggle="tooltip" title="Zillow Home Value Index (ZHVI) — smoothed monthly estimate of the median home value.">i</span> <a href="https://www.zillow.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Zillow Research">src</a></th>
-                    <th class="sortable" data-col="vy" onclick="sortR('vy')">YoY <span class="info-icon" data-bs-toggle="tooltip" title="Year-over-year % change in median listing price. Negative = prices falling = more seller motivation.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
-                    <th class="sortable" data-col="d" onclick="sortR('d')">DOM <span class="info-icon" data-bs-toggle="tooltip" title="Median Days on Market — days from listing to going under contract. <30 = fast exit. >60 = slow.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
-                    <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price. Higher = more motivated sellers.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
-                    <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count — how many properties are currently for sale. Higher = larger, more liquid market.">i</span> <a href="https://www.realtor.com/research/data/" target="_blank" rel="noopener" class="src-pill" title="Source: Realtor.com Research">src</a></th>
+                    <th class="sortable" data-col="lp" onclick="sortR('lp')">Med List Price <span class="info-icon" data-bs-toggle="tooltip" title="Realtor.com median listing price for the county (active-listing-weighted across ZIPs).">i</span></th>
+                    <th class="sortable" data-col="vy" onclick="sortR('vy')">YoY <span class="info-icon" data-bs-toggle="tooltip" title="Year-over-year % change in median listing price. Negative = prices falling = more seller motivation.">i</span></th>
+                    <th class="sortable" data-col="d" onclick="sortR('d')">DOM <span class="info-icon" data-bs-toggle="tooltip" title="Median Days on Market. <30 = fast exit. >60 = slow.">i</span></th>
+                    <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price.">i</span></th>
+                    <th class="sortable" data-col="ppr" onclick="sortR('ppr')">Pending Ratio <span class="info-icon" data-bs-toggle="tooltip" title="Pending listings ÷ active listings. >25% = strong demand.">i</span></th>
+                    <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count. Higher = larger, more liquid market.">i</span></th>
                     <th></th>
                 </tr>
                 <tr class="filter-row">
@@ -577,14 +567,7 @@
                     </select></th>
                     <th><input class="tfilter" type="search" placeholder="search…" data-col="name" oninput="setTblFilter('name',this.value)"></th>
                     <th><select class="tfilter" data-col="sc" onchange="setTblFilter('sc',this.value)"><option value="">Any</option></select></th>
-                    <th><select class="tfilter" data-col="inc" onchange="setTblFilter('inc',this.value)">
-                        <option value="any">Any</option>
-                        <option value="t25">Top 25%</option>
-                        <option value="t50">Top 50%</option>
-                        <option value="b50">Bottom 50%</option>
-                        <option value="b25">Bottom 25%</option>
-                    </select></th>
-                    <th><select class="tfilter" data-col="v" onchange="setTblFilter('v',this.value)">
+                    <th><select class="tfilter" data-col="lp" onchange="setTblFilter('lp',this.value)">
                         <option value="any">Any</option>
                         <option value="lt200">&lt; $200K</option>
                         <option value="200to400">$200–400K</option>
@@ -609,6 +592,12 @@
                         <option value="gt30">&gt; 30% (Motivated)</option>
                         <option value="15to30">15–30%</option>
                         <option value="lt15">&lt; 15%</option>
+                    </select></th>
+                    <th><select class="tfilter" data-col="ppr" onchange="setTblFilter('ppr',this.value)">
+                        <option value="any">Any</option>
+                        <option value="gt40">&gt; 40% (Hot)</option>
+                        <option value="25to40">25–40%</option>
+                        <option value="lt25">&lt; 25%</option>
                     </select></th>
                     <th><select class="tfilter" data-col="vol" onchange="setTblFilter('vol',this.value)">
                         <option value="any">Any</option>
@@ -987,10 +976,11 @@ const LAYERS = {
     biv: { label:'Buy × Exit Matrix',   biv:true },
     bs:  { label:'Buy Opportunity',     colors:['#1a1a3e','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
     es:  { label:'Exit Speed',          colors:['#ef4444','#0a0a2e','#7c3aed'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
-    v:   { label:'Home Value (Zillow)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[50000,900000],fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'neither' },
+    lp:  { label:'Median List Price (Realtor)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[100000,1500000], fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'neither' },
     d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d`, dir:'low' },
     pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
-    inc: { label:'Median Income',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[20000,120000],fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'high' },
+    hs:  { label:'Hotness Score (Realtor)', colors:['#1a1a3e','#f59e0b','#ec4899'], domain:[0,100],   fmt:v=>`${v|0}/100`, dir:'high' },
+    ppr: { label:'Pending Ratio %',     colors:['#1a1a3e','#7c3aed','#10b981'], domain:[0,100],       fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
     fc_ct:  { label:'Pre-Foreclosures (scraped)', colors:['#1a1a3e','#f59e0b','#ef4444'], domain:[0,200], fmt:v=>`${v|0}`, dir:'high' },
     au_ct:  { label:'Active Auctions (scraped)',  colors:['#1a1a3e','#7c3aed','#ec4899'], domain:[0,10],  fmt:v=>`${v|0}`, dir:'high' },
     tot_ct: { label:'All Scraped Listings',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,250], fmt:v=>`${v|0}`, dir:'high' },
@@ -1014,56 +1004,14 @@ function bivColor(buy, exit) {
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
-let countyData={}, incomeData={}, scatterRows=[], scatterMedX=50, scatterMedY=50;
+let countyData={}, scatterRows=[], scatterMedX=50, scatterMedY=50;
 let listingsData={};
 let currentLayer='g', currentLevel='national', selState=null, selFips=null;
-// Source filter for choropleth tinting (Realtor / Zillow / Redfin / Overlap)
-let currentSource = 'realtor';
-// Presence sets — built when /api/stacked/county loads.
-let _srcPresent = { realtor: new Set(), zillow: new Set(), redfin: new Set(), overlap: new Set() };
 
-function loadStackedSourceSets() {
-    fetch('/api/stacked/county').then(r => r.ok ? r.json() : null).then(payload => {
-        if (!payload || !payload.data) return;
-        const r = new Set(), z = new Set(), rf = new Set(), o = new Set();
-        // Need metro→Redfin map: hit /api/stacked/metro once to know which CBSAs Redfin covers
-        fetch('/api/stacked/metro').then(rr => rr.ok ? rr.json() : null).then(mp => {
-            const rfCbsa = new Set();
-            if (mp && mp.data) {
-                for (const [cbsa, m] of Object.entries(mp.data)) {
-                    const metrics = m.metrics || {};
-                    if ((metrics.sale_price || metrics.sale_to_list || metrics.homes_sold || {}).src === 'redfin') {
-                        rfCbsa.add(cbsa);
-                    }
-                }
-            }
-            for (const [fips, c] of Object.entries(payload.data)) {
-                const m = c.metrics || {};
-                if (Object.values(m).some(v => !v.src)) r.add(fips);            // realtor (no src tag = realtor default)
-                if ('home_value_zhvi' in m)                z.add(fips);
-                const cbsa = (c.metro || {}).code;
-                if (cbsa && rfCbsa.has(cbsa))              rf.add(fips);
-                if (r.has(fips) && z.has(fips) && rf.has(fips)) o.add(fips);
-            }
-            _srcPresent = { realtor: r, zillow: z, redfin: rf, overlap: o };
-            applySourceFilter();
-        });
-    });
-}
-
-function applySourceFilter() {
-    if (!gCo) return;
-    const set = _srcPresent[currentSource];
-    if (!set) return;
-    if (currentSource === 'realtor') {
-        // Default — no dimming.
-        gCo.selectAll('.county-path').style('filter', null).attr('opacity', f => opacityFor(String(f.id).padStart(5,'0'), 0.93));
-    } else {
-        gCo.selectAll('.county-path')
-            .style('filter', f => set.has(String(f.id).padStart(5,'0')) ? null : 'saturate(0.15) brightness(0.45)')
-            .attr('opacity', f => set.has(String(f.id).padStart(5,'0')) ? 1 : 0.35);
-    }
-}
+// Realtor-only build — no source filter / income layer needed.
+const incomeData = {}; // kept as empty object for backwards-compat with any legacy reads
+function loadStackedSourceSets() { /* no-op (Realtor-only build) */ }
+function applySourceFilter()     { /* no-op (Realtor-only build) */ }
 // Bucket filter for scraped-dots overlay (default all on)
 let bucketFilter = { auc:true, fc:true, tl:true, bk:true, ss:true };
 // Whether the scraped-dots overlay is active.
@@ -1143,23 +1091,11 @@ async function boot() {
 
     const n = Object.keys(ch).length;
     setDS('realtor', n>0?'ok':'warn', n>0?`${n.toLocaleString()} counties`:'No county data');
-    setDS('zillow',  n>0?'ok':'warn', n>0?`Zillow merged`:'—');
 
     initMap();
     renderScatter();
-    loadStackedSourceSets();
     renderRankings();
     renderOppList();
-
-    // Census income in background
-    fetch('/api/census-income').then(r=>r.json()).then(d=>{
-        incomeData = d;
-        const ic = Object.keys(d).length;
-        setDS('census', ic>0?'ok':'warn', ic>0?`${ic.toLocaleString()} counties`:'Unavailable');
-        updateMapColors(); // income data arrived — refresh circle colors
-        renderRankings();
-        renderOppList();
-    }).catch(()=>setDS('census','warn','Census unavailable'));
 
     // Scraped listings (auctions + pre-foreclosures) in background
     fetch('/api/listings').then(r=>r.json()).then(d=>{
@@ -1219,11 +1155,11 @@ function initMap() {
 }
 
 function computePercentiles() {
-    const lays = ['g','bs','es','d','pr','v','inc'];
+    const lays = ['g','bs','es','d','pr','lp','hs','ppr'];
     const buckets = Object.fromEntries(lays.map(k => [k, []]));
     for (const [fips, d] of Object.entries(countyData)) {
         for (const k of lays) {
-            const v = k === 'inc' ? ((incomeData[fips]||{}).income||0) : (d[k]||0);
+            const v = d[k]||0;
             if (v > 0) buckets[k].push(v);
         }
     }
@@ -1277,9 +1213,7 @@ function renderBivLegend() {
 
 function countyVal(fips) {
     const d = countyData[fips] || {};
-    return currentLayer === 'inc'
-        ? ((incomeData[fips] || {}).income || 0)
-        : (d[currentLayer] || 0);
+    return d[currentLayer] || 0;
 }
 
 function fillFor(fips) {
@@ -1303,9 +1237,7 @@ function huntTier(fips) {
     if (dir === 'neither') return 'mid';
     const pct = layerPct[layer];
     if (!pct) return 'mid';
-    let v;
-    if (layer === 'inc') v = (incomeData[fips]||{}).income||0;
-    else v = (countyData[fips]||{})[layer]||0;
+    const v = (countyData[fips]||{})[layer]||0;
     if (!v) return 'dim';
     if (dir === 'high') {
         if (v >= pct.p97) return 'top3';
@@ -1352,7 +1284,7 @@ function drawHuntPulses(counties) {
     if (dir === 'neither') return;
     const rows = counties.map(f => {
         const fips = String(f.id).padStart(5,'0');
-        const v = layer === 'inc' ? ((incomeData[fips]||{}).income||0) : ((countyData[fips]||{})[layer]||0);
+        const v = (countyData[fips]||{})[layer]||0;
         const c = geoP.centroid(f);
         return { fips, v, cx: c[0], cy: c[1] };
     }).filter(r => r.v && !isNaN(r.cx));
@@ -1535,17 +1467,7 @@ window.toggleDots = function(btn) {
     refreshDots();
 };
 
-window.setSource = function(btn, src) {
-    document.querySelectorAll('.fchip[data-src]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentSource = src;
-    applySourceFilter();
-    // If a county is open, re-render its detail panel from the cached stacked
-    // data so the metric grid reflects the new source.
-    if (selFips && _lastDetail && _lastDetail.fips === selFips) {
-        ensureStackedCounty(selFips).then(() => renderDetail(selFips, _lastDetail.legacy));
-    }
-};
+// setSource removed — Realtor-only build.
 
 function drawNationalView() {
     mapMode = 'national';
@@ -1891,9 +1813,10 @@ function showStateTip(ev, f) {
             <span class="tip-badge tip-e">Exit ${avg('es')}</span>
         </div>
         <div class="tip-sec">State Averages</div>
-        <div class="tip-row"><span class="l">Avg Home Value</span><span class="v">$${(+avg('v')/1000).toFixed(0)}K</span></div>
+        <div class="tip-row"><span class="l">Avg List Price</span><span class="v">$${(+avg('lp')/1000).toFixed(0)}K</span></div>
         <div class="tip-row"><span class="l">Avg DOM</span><span class="v">${avg('d')} days</span></div>
         <div class="tip-row"><span class="l">Price Drops</span><span class="v">${avg('pr')}%</span></div>
+        <div class="tip-row"><span class="l">Hotness</span><span class="v">${avg('hs')}/100</span></div>
         ${topG.length?`<div class="tip-sec">Top Counties</div>`+topG.map(d=>`<div class="tip-row"><span class="l">${d.name},${d.sc}</span><span class="v" style="color:var(--accent-cyan)">${d.g}/100</span></div>`).join(''):''}
     `;
     tipEl.classList.add('show');
@@ -1901,7 +1824,6 @@ function showStateTip(ev, f) {
 
 function showCountyTip(ev, fips) {
     const d = countyData[fips]||{};
-    const inc = (incomeData[fips]||{}).income||0;
     const dom = d.d||0;
     const domColor = dom<=30?'var(--accent-green)':dom<=60?'var(--accent-amber)':'var(--accent-red)';
     const yColor = (d.vy||0)<0?'var(--accent-green)':'var(--accent-amber)';
@@ -1912,30 +1834,19 @@ function showCountyTip(ev, fips) {
             <span class="tip-badge tip-b">Buy ${d.bs||'—'}</span>
             <span class="tip-badge tip-e">Exit ${d.es||'—'}</span>
         </div>
-        ${inc?`<div class="tip-row"><span class="l">Median Income</span><span class="v" style="color:var(--accent-green)">$${(inc/1000).toFixed(0)}K</span></div>`:''}
         <div class="tip-sec">Market</div>
-        <div class="tip-row"><span class="l">Home Value</span><span class="v">${d.v?'$'+(d.v/1000).toFixed(0)+'K':'—'}</span></div>
+        <div class="tip-row"><span class="l">List Price</span><span class="v">${d.lp?'$'+(d.lp/1000).toFixed(0)+'K':'—'}</span></div>
         <div class="tip-row"><span class="l">YoY</span><span class="v" style="color:${yColor}">${d.vy?(d.vy>0?'+':'')+d.vy.toFixed(1)+'%':'—'}</span></div>
         <div class="tip-row"><span class="l">Days on Market</span><span class="v" style="color:${domColor}">${dom||'—'}</span></div>
         <div class="tip-row"><span class="l">Price Drops</span><span class="v">${d.pr?d.pr.toFixed(1)+'%':'—'}</span></div>
         <div class="tip-row"><span class="l">Pending Ratio</span><span class="v">${d.ppr?d.ppr.toFixed(1)+'%':'—'}</span></div>
-        <div class="tip-row"><span class="l">List Price</span><span class="v">${d.lp?'$'+(d.lp/1000).toFixed(0)+'K':d.sp?'$'+(d.sp/1000).toFixed(0)+'K':'—'}</span></div>
+        <div class="tip-row"><span class="l">Hotness</span><span class="v">${d.hs?d.hs+'/100':'—'}</span></div>
+        ${d.a?`<div class="tip-row"><span class="l">Active Listings</span><span class="v">${d.a.toLocaleString()}</span></div>`:''}
     `;
     tipEl.classList.add('show');
 }
 
 // ── County selection ──────────────────────────────────────────
-const _stackedCountyCache = {};
-let _lastDetail = null;     // {fips, legacy} so setSource() can re-render
-
-function ensureStackedCounty(fips) {
-    if (_stackedCountyCache[fips]) return Promise.resolve(_stackedCountyCache[fips]);
-    return fetch(`/api/stacked/county/${fips}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { _stackedCountyCache[fips] = d || {}; return _stackedCountyCache[fips]; })
-        .catch(() => ({}));
-}
-
 function selectCounty(fips) {
     selFips = fips;
     const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
@@ -1949,42 +1860,13 @@ function selectCounty(fips) {
     if (tagEl) tagEl.textContent = `${d.name||fips}${d.sc?', '+d.sc:''} — County Detail`;
     document.getElementById('panel-default').style.display='none';
     document.getElementById('panel-sel').style.display='flex';
-    Promise.all([
-        fetch(`/api/county/${fips}`).then(r=>r.json()),
-        ensureStackedCounty(fips),
-    ]).then(([legacy, _stacked]) => {
-        _lastDetail = { fips, legacy };
-        renderDetail(fips, legacy);
+    fetch(`/api/county/${fips}`).then(r=>r.json()).then(detail => {
+        renderDetail(fips, detail);
     });
     // Show ZIP-drill affordance when we're inside the state modal.
     const inModal = document.getElementById('state-modal').classList.contains('open');
     const drillBtn = document.getElementById('zip-drill-btn');
     if (drillBtn) drillBtn.style.display = inModal ? '' : 'none';
-}
-
-// Pull a metric value from the stacked entry under the active source.
-// Stacked metric shape: {v, src?: 'zillow'|'redfin', alt?: {zillow: N, redfin: N}}.
-// Default src = 'realtor' when key absent.
-function metricForSource(stackedMetrics, key, source) {
-    const m = stackedMetrics && stackedMetrics[key];
-    if (!m) return null;
-    const src = m.src || 'realtor';
-    if (source === 'realtor') return src === 'realtor' ? m.v : null;
-    if (source === 'zillow') {
-        if (src === 'zillow') return m.v;
-        return (m.alt && m.alt.zillow != null) ? m.alt.zillow : null;
-    }
-    if (source === 'redfin') {
-        if (src === 'redfin') return m.v;
-        return (m.alt && m.alt.redfin != null) ? m.alt.redfin : null;
-    }
-    if (source === 'overlap') {
-        const has_r  = src === 'realtor' || (m.alt && m.alt.realtor != null);
-        const has_z  = src === 'zillow'  || (m.alt && m.alt.zillow  != null);
-        const has_rf = src === 'redfin'  || (m.alt && m.alt.redfin  != null);
-        return (has_r && has_z && has_rf) ? m.v : null;
-    }
-    return null;
 }
 
 function clearSel() {
@@ -2004,91 +1886,70 @@ function clearSel() {
 // ═══════════════════════════════════════════════════════════════
 function renderDetail(fips, data) {
     const cur = data.current||{};
-    const inc = (incomeData[fips]||{}).income || cur.median_income||0;
-    const cname = cur.census_name || (cur.county_name?(cur.county_name+' County'):'') || fips;
-    const state = data.state||'';
-    document.getElementById('p-name').textContent = cname.replace(', '+SNAMES[state],'');
+    const heat = countyData[fips]||{};
+    const cname = heat.name || fips;
+    const state = data.state || heat.sc || '';
+    document.getElementById('p-name').textContent = cname;
     document.getElementById('p-sub').textContent  = SNAMES[state]||state;
-    document.getElementById('p-gs').textContent   = cur.golden_score||'—';
-    document.getElementById('p-bs').textContent   = (cur.buy_signals||{}).score||'—';
-    document.getElementById('p-es').textContent   = (cur.exit_signals||{}).score||'—';
+    document.getElementById('p-gs').textContent   = cur.golden_score!=null ? cur.golden_score : (heat.g||'—');
+    document.getElementById('p-bs').textContent   = cur.buy_score!=null    ? cur.buy_score    : (heat.bs||'—');
+    document.getElementById('p-es').textContent   = cur.exit_score!=null   ? cur.exit_score   : (heat.es||'—');
 
-    // Per-source metric grid — pulls from cached stacked data when source != realtor
-    const stacked = (_stackedCountyCache[fips] || {}).metrics || {};
-    const src = currentSource;
-
-    // Helpers — return formatted string + class, given a numeric value (or null).
-    const fmtK   = v => v != null ? '$' + (v/1000).toFixed(0) + 'K' : '—';
-    const fmtPct = v => v != null ? (v*100).toFixed(1) + '%' : '—';
-    const fmtPctRaw = v => v != null ? v.toFixed(1) + '%' : '—';
-    const fmtDays = v => v != null ? Math.round(v) + 'd' : '—';
-    const fmtPpsf = v => v != null ? '$' + Math.round(v) : '—';
-    const fmtYoy = v => {
+    // Formatters
+    const fmtK    = v => v!=null ? '$' + (v/1000).toFixed(0) + 'K'      : '—';
+    const fmtPct  = v => v!=null ? (v*100).toFixed(1) + '%'              : '—';
+    const fmtDays = v => v!=null ? Math.round(v) + 'd'                   : '—';
+    const fmtYoy  = v => {
         if (v == null) return '—';
         const pct = Math.abs(v) < 2 ? v * 100 : v;
         return (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
     };
 
-    let dom, yoy, pr, pending, stl, val, ppsf;
-    if (src === 'realtor') {
-        // Fast path — use the legacy merged endpoint.
-        dom     = cur.realtor_dom != null ? cur.realtor_dom : null;
-        yoy     = cur.realtor_list_price_yy != null ? cur.realtor_list_price_yy : null;
-        pr      = cur.realtor_price_reduced != null ? cur.realtor_price_reduced : null;
-        pending = cur.realtor_pending_ratio != null ? cur.realtor_pending_ratio : null;
-        stl     = null;
-        val     = cur.realtor_list_price != null ? cur.realtor_list_price : null;
-        ppsf    = cur.realtor_ppsf != null ? cur.realtor_ppsf : null;
-    } else {
-        dom     = metricForSource(stacked, 'dom_days',         src);
-        yoy     = metricForSource(stacked, 'list_price_yoy',   src);
-        pr      = metricForSource(stacked, 'price_drops_share',src);
-        pending = metricForSource(stacked, 'pending_ratio',    src);
-        stl     = metricForSource(stacked, 'sale_to_list',     src);
-        val     = metricForSource(stacked, src === 'zillow' ? 'home_value_zhvi' :
-                                  src === 'redfin' ? 'sale_price' : 'list_price', src);
-        ppsf    = metricForSource(stacked, 'ppsf',             src);
-    }
-    const afford = (val && inc) ? ((inc/val)*100).toFixed(1) + '%' : '—';
-    const domCls = dom != null ? (dom<=30?'c-green':dom<=60?'c-amber':'c-red') : '';
-    const yCls   = yoy != null ? (yoy<0?'c-green':yoy>0.08?'c-red':'') : '';
-    const prCls  = pr  != null ? (pr*100>30?'c-amber':pr*100>15?'c-cyan':'') : '';
+    const dom     = cur.dom;
+    const yoy     = cur.yoy;
+    const pr      = cur.price_drops;       // 0..1
+    const pending = cur.pending_ratio;     // 0..1
+    const hot     = cur.hotness_score;
+    const lp      = heat.lp;               // current-month list price from heatmap
+    const active  = cur.active != null ? cur.active : heat.a;
+
+    const domCls  = dom!=null ? (dom<=30?'c-green':dom<=60?'c-amber':'c-red') : '';
+    const yCls    = yoy!=null ? (yoy<0?'c-green':yoy>0.08?'c-red':'') : '';
+    const prCls   = pr!=null  ? (pr*100>30?'c-amber':pr*100>15?'c-cyan':'') : '';
+    const ppCls   = pending!=null ? (pending>0.30?'c-green':pending>0.10?'c-cyan':'') : '';
+    const hotCls  = hot!=null ? (hot>=70?'c-green':hot>=40?'c-cyan':'') : '';
 
     const metrics = [
-        {v:inc?'$'+(inc/1000).toFixed(0)+'K':'—', l:'Med Income', cls:inc>70000?'c-green':inc?'c-cyan':''},
-        {v:fmtK(val), l:'Home Value', cls:''},
-        {v:afford, l:'Affordability', cls:''},
-        {v:fmtDays(dom), l:'Days on Mkt', cls:domCls},
-        {v:fmtYoy(yoy), l:'YoY Price', cls:yCls},
-        {v:fmtPct(pr),  l:'Price Drops', cls:prCls},
-        {v:fmtPct(pending), l:'Pending Ratio', cls:pending>0.3?'c-green':pending>0.1?'c-cyan':''},
-        {v:stl != null ? fmtPct(stl > 5 ? stl/100 : stl) : '—', l:'Sale/List', cls:''},
-        {v:fmtPpsf(ppsf), l:'$/SqFt', cls:''},
+        {v:fmtK(lp),         l:'Med List Price', cls:''},
+        {v:fmtYoy(yoy),      l:'YoY Price',      cls:yCls},
+        {v:fmtDays(dom),     l:'Days on Mkt',    cls:domCls},
+        {v:fmtPct(pr),       l:'Price Drops',    cls:prCls},
+        {v:fmtPct(pending),  l:'Pending Ratio',  cls:ppCls},
+        {v:hot!=null ? Math.round(hot)+'/100' : '—', l:'Hotness Score', cls:hotCls},
+        {v:active != null ? active.toLocaleString() : '—', l:'Active Listings', cls:''},
     ];
     document.getElementById('p-mgrid').innerHTML = metrics.map(m=>
         `<div class="mcell ${m.cls}"><div class="mv">${m.v}</div><div class="ml">${m.l}</div></div>`
     ).join('');
 
-    // Source banner under the panel name so user knows what the metric grid represents.
-    const SRC_LABELS = { realtor:'Realtor', zillow:'Zillow', redfin:'Redfin', overlap:'Overlap (R + Z + Rf)' };
-    const subEl = document.getElementById('p-sub');
-    if (subEl) {
-        const baseSub = SNAMES[state] || state || '';
-        subEl.innerHTML = `${baseSub} <span style="opacity:.6;margin-left:6px;font-size:.7em">· source: <b style="color:var(--accent-cyan)">${SRC_LABELS[src]||src}</b></span>`;
-    }
+    // Footer line
+    const incEl = document.getElementById('p-income');
+    if (incEl) incEl.textContent = active != null ? `${active.toLocaleString()} active listings` : '';
 
-    // Income line in footer
-    document.getElementById('p-income').textContent = inc?`Median household income: $${(inc/1000).toFixed(0)}K`:'';
+    // Signals: Realtor build doesn't ship per-county signal copy. Show a placeholder
+    // explaining what drives Buy / Exit so the tabs aren't empty.
+    renderSigs('p-buy-sigs', [
+        {type:'watch', text:`Buy Score ${heat.bs ?? '—'} — driven by Price Drops % (${fmtPct(pr)}), YoY (${fmtYoy(yoy)}), and stale-inventory ratio.`},
+    ]);
+    renderSigs('p-exit-sigs', [
+        {type:'watch', text:`Exit Score ${heat.es ?? '—'} — driven by DOM (${fmtDays(dom)}), Pending Ratio (${fmtPct(pending)}), and Realtor Hotness (${hot!=null?Math.round(hot):'—'}).`},
+    ]);
 
-    // Signals
-    renderSigs('p-buy-sigs',  (cur.buy_signals||{}).signals||[]);
-    renderSigs('p-exit-sigs', (cur.exit_signals||{}).signals||[]);
-
-    // Store trend data
+    // Trend data — single Realtor series with {m, lp, d, hs}.
     const histEl = document.getElementById('pt-hist');
-    histEl.dataset.z  = JSON.stringify(data.zillow_trend||[]);
-    histEl.dataset.r  = JSON.stringify(data.redfin_trend||[]);
-    histEl.dataset.rl = JSON.stringify(data.realtor_trend||[]);
+    histEl.dataset.rl = JSON.stringify(data.trend||[]);
+    histEl.dataset.z  = '[]';   // legacy compatibility — left empty
+    histEl.dataset.r  = '[]';
     if (histEl.classList.contains('active')) renderHistory();
 
     // Listings tab
@@ -2199,21 +2060,19 @@ function showPTab(name, btn) {
 
 function renderHistory() {
     const el = document.getElementById('pt-hist');
-    const ztrend = JSON.parse(el.dataset.z||'[]');
-    const rltrend = JSON.parse(el.dataset.rl||'[]');
+    // Realtor-only build — single trend series with {m, lp, d, hs}
+    const trend = JSON.parse(el.dataset.rl||'[]');
     for (const k in hCharts) { if(hCharts[k]){hCharts[k].destroy();hCharts[k]=null;} }
+    if (!trend.length) return;
     const COPTS = {responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(5,5,14,.95)',borderColor:'rgba(0,240,255,.2)',borderWidth:1,cornerRadius:7,padding:9,titleFont:{family:'Inter'},bodyFont:{family:'Inter'}}},
         scales:{x:{display:true,grid:{color:'rgba(255,255,255,.03)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9},maxTicksLimit:8}},y:{display:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9}}}},
         elements:{point:{radius:0,hoverRadius:4},line:{tension:.4,borderWidth:2}},
     };
-    if (ztrend.length) {
-        hCharts.p = new Chart(document.getElementById('hc-price'),{type:'line',data:{labels:ztrend.map(d=>d.month?.slice(5)||d.month||''),datasets:[{label:'Zillow ZHVI',data:ztrend.map(d=>d.zhvi/1000),borderColor:'#00f0ff',backgroundColor:'rgba(0,240,255,.05)',fill:true}]},options:COPTS});
-    }
-    if (rltrend.length) {
-        hCharts.d = new Chart(document.getElementById('hc-dom'),{type:'line',data:{labels:rltrend.map(d=>String(d.month).slice(-2)),datasets:[{label:'DOM',data:rltrend.map(d=>d.dom),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.05)',fill:true}]},options:COPTS});
-        hCharts.r = new Chart(document.getElementById('hc-pr'),{type:'line',data:{labels:rltrend.map(d=>String(d.month).slice(-2)),datasets:[{label:'Price Reductions %',data:rltrend.map(d=>d.price_reduced!=null?+(d.price_reduced*100).toFixed(1):null),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.05)',fill:true}]},options:COPTS});
-    }
+    const labels = trend.map(d => String(d.m).slice(-2));
+    hCharts.p = new Chart(document.getElementById('hc-price'),{type:'line',data:{labels,datasets:[{label:'Median List Price (K)',data:trend.map(d=>d.lp!=null?+(d.lp/1000).toFixed(0):null),borderColor:'#00f0ff',backgroundColor:'rgba(0,240,255,.05)',fill:true}]},options:COPTS});
+    hCharts.d = new Chart(document.getElementById('hc-dom'),  {type:'line',data:{labels,datasets:[{label:'DOM (days)',data:trend.map(d=>d.d!=null?+d.d.toFixed(0):null),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.05)',fill:true}]},options:COPTS});
+    hCharts.r = new Chart(document.getElementById('hc-pr'),   {type:'line',data:{labels,datasets:[{label:'Hotness Score',data:trend.map(d=>d.hs!=null?+d.hs.toFixed(0):null),borderColor:'#ec4899',backgroundColor:'rgba(236,72,153,.05)',fill:true}]},options:COPTS});
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2314,14 +2173,13 @@ function renderOppList() {
     const items = [...scatterRows].sort((a,b)=>b.g-a.g).slice(0,10);
     if (!items.length) { el.innerHTML='<div style="padding:28px;text-align:center;color:var(--text-muted)">No data yet</div>'; return; }
     el.innerHTML = items.map((r,i)=>{
-        const inc = incomeData[r.fips];
-        const incStr = inc?`$${((inc.income||inc)/1000).toFixed(0)}K income · `:'';
+        const lpStr  = r.lp?`$${(r.lp/1000).toFixed(0)}K list · `:'';
         const domStr = r.d?`${r.d}d DOM · `:'';
         const prStr  = r.pr?`${r.pr.toFixed(0)}% drops`:'';
         return `<div class="opp-item" onclick="drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800);">
             <div class="opp-rank">#${i+1} &nbsp;·&nbsp; Buy ${r.y}/100 &nbsp;·&nbsp; Exit ${r.x}/100</div>
             <div class="opp-name">${r.name}${r.sc?', '+r.sc:''}</div>
-            <div class="opp-meta">${incStr}${domStr}${prStr}</div>
+            <div class="opp-meta">${lpStr}${domStr}${prStr}</div>
         </div>`;
     }).join('');
 }
@@ -2332,13 +2190,12 @@ function renderOppList() {
 function buildRankList() {
     return [...scatterRows].map(r=>({
         ...r,
-        inc:(incomeData[r.fips]||{}).income||0,
         vol:r.vol||0,
     }));
 }
 
-// Per-column filters for the rankings table.
-let tableFilters = { g:'any', name:'', sc:'', inc:'any', v:'any', vy:'any', d:'any', pr:'any', vol:'any' };
+// Per-column filters for the rankings table (Realtor-only).
+let tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any' };
 let _filterPctCache = null;  // {col: {p10,p25,p50,p75,p90}}
 
 function _filterPercentile(rows, col, p) {
@@ -2351,7 +2208,7 @@ function _ensureFilterPcts() {
     if (_filterPctCache) return;
     const all = buildRankList();
     _filterPctCache = {};
-    for (const col of ['g','inc']) {
+    for (const col of ['g']) {
         _filterPctCache[col] = {
             p10: _filterPercentile(all, col, 0.10),
             p25: _filterPercentile(all, col, 0.25),
@@ -2374,20 +2231,13 @@ function _filterPredicate(r) {
         if (f.g === 'b25' && r.g > p.p25) return false;
         if (f.g === 'b10' && r.g > p.p10) return false;
     }
-    if (f.inc !== 'any') {
-        const p = _filterPctCache.inc;
-        if (f.inc === 't25' && r.inc < p.p75) return false;
-        if (f.inc === 't50' && r.inc < p.p50) return false;
-        if (f.inc === 'b50' && r.inc > p.p50) return false;
-        if (f.inc === 'b25' && r.inc > p.p25) return false;
-    }
-    if (f.v !== 'any') {
-        const v = r.v || 0;
-        if (f.v === 'lt200'    && !(v > 0 && v < 200_000)) return false;
-        if (f.v === '200to400' && !(v >= 200_000 && v < 400_000)) return false;
-        if (f.v === '400to600' && !(v >= 400_000 && v < 600_000)) return false;
-        if (f.v === '600to1m'  && !(v >= 600_000 && v < 1_000_000)) return false;
-        if (f.v === 'gt1m'     && !(v >= 1_000_000)) return false;
+    if (f.lp !== 'any') {
+        const lp = r.lp || 0;
+        if (f.lp === 'lt200'    && !(lp > 0 && lp < 200_000)) return false;
+        if (f.lp === '200to400' && !(lp >= 200_000 && lp < 400_000)) return false;
+        if (f.lp === '400to600' && !(lp >= 400_000 && lp < 600_000)) return false;
+        if (f.lp === '600to1m'  && !(lp >= 600_000 && lp < 1_000_000)) return false;
+        if (f.lp === 'gt1m'     && !(lp >= 1_000_000)) return false;
     }
     if (f.vy !== 'any') {
         const vy = r.vy;
@@ -2410,6 +2260,12 @@ function _filterPredicate(r) {
         if (f.pr === '15to30' && !(pr >= 15 && pr <= 30)) return false;
         if (f.pr === 'lt15'   && !(pr < 15)) return false;
     }
+    if (f.ppr !== 'any') {
+        const pp = r.ppr || 0;
+        if (f.ppr === 'gt40'   && !(pp > 40)) return false;
+        if (f.ppr === '25to40' && !(pp >= 25 && pp <= 40)) return false;
+        if (f.ppr === 'lt25'   && !(pp > 0 && pp < 25)) return false;
+    }
     if (f.vol !== 'any') {
         const v = r.vol || 0;
         if (f.vol === 'gt10k'   && !(v > 10000)) return false;
@@ -2430,7 +2286,7 @@ window.setTblFilter = function(col, val) {
 };
 
 window.resetTableFilters = function() {
-    tableFilters = { g:'any', name:'', sc:'', inc:'any', v:'any', vy:'any', d:'any', pr:'any', vol:'any' };
+    tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any' };
     document.querySelectorAll('.tfilter').forEach(el => {
         el.classList.remove('dirty');
         if (el.tagName === 'INPUT') el.value = '';
@@ -2476,18 +2332,19 @@ function renderRankings() {
         const domStr = r.d?`<span style="color:${r.d<=30?'var(--accent-green)':r.d<=60?'var(--accent-amber)':'var(--accent-red)'}">${r.d}d</span>`:'—';
         const yoyStr = r.vy!=null?`<span style="color:${r.vy<0?'var(--accent-green)':'var(--accent-amber)'}">${r.vy>0?'+':''}${r.vy.toFixed(1)}%</span>`:'—';
         const prStr  = r.pr?`<span style="color:var(--accent-amber)">${r.pr.toFixed(0)}%</span>`:'—';
-        const incStr = r.inc?`<span style="color:var(--accent-green);font-size:.75rem">$${(r.inc/1000).toFixed(0)}K</span>`:'—';
+        const lpStr  = r.lp?`$${(r.lp/1000).toFixed(0)}K`:'—';
+        const ppStr  = r.ppr!=null?`<span style="color:${r.ppr>40?'var(--accent-green)':r.ppr>25?'var(--accent-cyan)':'var(--text-secondary)'}">${r.ppr.toFixed(0)}%</span>`:'—';
         const fn = `drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800)`;
         return `<tr onclick="${fn}">
             <td style="color:var(--text-muted);font-weight:700">${i+1}</td>
             <td>${sbar}<span style="font-size:.78rem;font-weight:700;color:${sc(r.g)}">${r.g}</span></td>
             <td style="font-weight:600;color:var(--accent-cyan)">${r.name||'—'}</td>
-            <td style="font-weight:700;color:var(--text-secondary)">${r.sc}</td>
-            <td>${incStr}</td>
-            <td>${r.v?'$'+(r.v/1000).toFixed(0)+'K':'—'}</td>
+            <td style="font-weight:700;color:var(--text-secondary)">${r.sc||''}</td>
+            <td>${lpStr}</td>
             <td>${yoyStr}</td>
             <td>${domStr}</td>
             <td>${prStr}</td>
+            <td>${ppStr}</td>
             <td style="color:var(--text-secondary)">${r.vol?r.vol.toLocaleString():'—'}</td>
             <td><button class="lbtn" style="padding:2px 8px;font-size:.65rem" onclick="event.stopPropagation();${fn}">View ›</button></td>
         </tr>`;
