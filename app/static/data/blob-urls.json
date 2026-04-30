@@ -1,4 +1,5 @@
 {
   "listings-detail.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/listings-detail.json",
+  "listings-zip.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/listings-zip.json",
   "zip-detail.json": "https://2w8hqmt2kkpnxw0k.public.blob.vercel-storage.com/data/zip-detail.json"
 }

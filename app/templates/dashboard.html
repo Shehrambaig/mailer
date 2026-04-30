@@ -2670,13 +2670,58 @@ function renderZipDetail(z, data) {
     histEl.dataset.r  = '[]';
     if (histEl.classList.contains('active')) renderHistory();
 
-    // Listings tab — clear (per-ZIP scraped listings are wired separately).
-    const items = document.getElementById('p-list-items');
-    const summary = document.getElementById('p-list-summary');
+    // Listings tab — per-ZIP scraped foreclosure/auction records.
+    renderZipListingsTab(z);
+}
+
+const _zipListingsCache = {};
+function renderZipListingsTab(z) {
     const badge = document.getElementById('p-list-badge');
-    if (badge) badge.style.display = 'none';
-    if (summary) summary.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">ZIP-level listings drill-down — open via the county view to see full sample cards.</div>`;
-    if (items) items.innerHTML = '';
+    const summary = document.getElementById('p-list-summary');
+    const items = document.getElementById('p-list-items');
+
+    const render = (L) => {
+        if (!L || !L.total) {
+            if (badge) badge.style.display = 'none';
+            summary.innerHTML = '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:.82rem;">No scraped auction / pre-foreclosure records for this ZIP yet.</div>';
+            items.innerHTML = '';
+            return;
+        }
+        if (badge) { badge.style.display = ''; badge.textContent = L.total; }
+        summary.innerHTML = `
+            <div class="lsum-grid">
+                <div class="lsum-cell"><div class="lv" style="color:#a78bfa">${L.auc||0}</div><div class="ll">Auctions</div></div>
+                <div class="lsum-cell"><div class="lv" style="color:#ef4444">${L.fc||0}</div><div class="ll">Foreclosures</div></div>
+                <div class="lsum-cell"><div class="lv" style="color:#f59e0b">${L.tl||0}</div><div class="ll">Tax Liens</div></div>
+                <div class="lsum-cell"><div class="lv" style="color:#60a5fa">${L.bk||0}</div><div class="ll">Bankruptcies</div></div>
+                <div class="lsum-cell"><div class="lv" style="color:#34d399">${L.ss||0}</div><div class="ll">Short Sales</div></div>
+                <div class="lsum-cell"><div class="lv">${L.upcoming_30||0}</div><div class="ll">Auctions ≤ 30d</div></div>
+                <div class="lsum-cell"><div class="lv">${L.upcoming_60||0}</div><div class="ll">Auctions ≤ 60d</div></div>
+                <div class="lsum-cell"><div class="lv">${L.upcoming_90||0}</div><div class="ll">Auctions ≤ 90d</div></div>
+                <div class="lsum-cell"><div class="lv">${L.mail_score||0}</div><div class="ll">Mail Score</div></div>
+            </div>
+        `;
+        const samples = (L.samples||[]).map(s => ({
+            // Adapter: listings-zip.json sample fields → _listingCard schema
+            ...s, src: s.type || s.src,
+        }));
+        items.innerHTML = samples.length
+            ? samples.map(_listingCard).join('')
+            : '<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">No samples available.</div>';
+    };
+
+    if (_zipListingsCache[z]) {
+        render(_zipListingsCache[z]);
+        return;
+    }
+    items.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">Loading…</div>';
+    fetch(`/api/listings-zip/${z}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(L => {
+            _zipListingsCache[z] = L || {};
+            render(_zipListingsCache[z]);
+        })
+        .catch(() => render({}));
 }
 
 // Keep ZIP fills in sync when the user changes the layer while drilled in.

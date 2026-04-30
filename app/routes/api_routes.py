@@ -107,6 +107,19 @@ def zip_detail(zip5):
     return jsonify(entry)
 
 
+@api_bp.route("/listings-zip/<zip5>")
+def listings_zip_detail(zip5):
+    """Per-ZIP scraped foreclosure/auction records — aggregates + sample cards."""
+    try:
+        listings = _load("listings-zip.json")
+    except FileNotFoundError:
+        return jsonify({}), 404
+    entry = listings.get(zip5.zfill(5))
+    if not entry:
+        return jsonify({}), 404
+    return jsonify(entry)
+
+
 @api_bp.route("/cache/clear", methods=["POST"])
 def clear_cache():
     _cache.clear()
