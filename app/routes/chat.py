@@ -184,6 +184,10 @@ OR
 OR (source='foreclosure_com' AND classification = 'Auction')
 ```
 
+### Realtor tables — three grains: ZIP, County, State
+
+The dashboard reads each grain from its **own** Realtor file, not by aggregating up from ZIP. So the values in the county-level and state-level tables match Realtor's published numbers byte-for-byte, and the ZIP-level table is granular for ZIP drill-downs. Don't try to validate a county number by averaging ZIP numbers — that's a different math (median-of-medians ≠ true median) and won't reconcile.
+
 ### Table: `realtor_inventory_zip` (~28k rows; current-month snapshot only, March 2026)
 
 Realtor.com Monthly Housing Inventory at the ZIP level. **One row per ZIP for the current month only** — no history here. Use this for "right now" lookups: median price, active listings, days on market, price drops, pending ratio, etc.
@@ -218,6 +222,69 @@ realtor_inventory_zip
   PRIMARY KEY (month_date_yyyymm, postal_code)
 ```
 
+### Table: `realtor_inventory_county` (~3.1k rows; current-month snapshot, March 2026)
+
+Realtor's county-level inventory file. **Source of truth for county metrics** shown in the dashboard — list price, YoY, DOM, active count, price drops, pending ratio, etc. Same column set as the ZIP table but keyed by `county_fips` (5-digit FIPS, zero-padded). `county_name` is "city, st" lowercase (e.g., `"maricopa, az"`).
+
+```
+realtor_inventory_county
+  month_date_yyyymm   INTEGER
+  county_fips         VARCHAR(5)   -- 5-digit FIPS, e.g., "04013" = Maricopa AZ
+  county_name         TEXT         -- "maricopa, az"
+  median_listing_price       NUMERIC   -- TRUE county median (not avg of ZIP medians)
+  median_listing_price_yy    NUMERIC   -- ratio
+  active_listing_count       NUMERIC
+  median_days_on_market      NUMERIC
+  price_reduced_share        NUMERIC   -- 0..1
+  pending_ratio              NUMERIC   -- 0..1
+  pending_listing_count      NUMERIC
+  total_listing_count        NUMERIC
+  ... (same MoM/YoY columns as ZIP table)
+  PRIMARY KEY (month_date_yyyymm, county_fips)
+```
+
+Use for: "what's Maricopa's true median price right now?" / "show me top 10 counties in NJ by Exit metrics" / county-level rollups.
+
+### Table: `realtor_hotness_county` (~58k rows; 36-month county-level history)
+
+Realtor's county-level Hotness file. Source of truth for county hotness scores and county-level price/DOM time series. Use for "is this county heating up over the last year?".
+
+```
+realtor_hotness_county
+  month_date_yyyymm  INTEGER
+  county_fips        VARCHAR(5)
+  county_name        TEXT
+  cbsa_code, cbsa_title              -- metro membership
+  hh_rank                            INTEGER   -- household rank
+  hotness_rank                       INTEGER   -- 1 = hottest county nationally that month
+  hotness_rank_mm / _yy              NUMERIC
+  hotness_score                      NUMERIC   -- 0..100ish composite
+  supply_score / demand_score        NUMERIC
+  median_days_on_market              NUMERIC
+  median_listing_price               NUMERIC
+  median_listing_price_yy            NUMERIC
+  median_dom_vs_us, median_listing_price_vs_us, ...
+  PRIMARY KEY (month_date_yyyymm, county_fips)
+```
+
+### Table: `realtor_inventory_state` (51 rows; current-month snapshot)
+
+State-level rollup from Realtor. Same columns as the inventory tables, keyed by `state_id` (2-letter, e.g. `"NJ"`). Use for state-wide answers — list price, DOM, pending ratio, etc.
+
+```
+realtor_inventory_state
+  month_date_yyyymm    INTEGER
+  state                TEXT          -- "New Jersey"
+  state_id             CHAR(2)       -- "NJ"
+  median_listing_price NUMERIC
+  median_listing_price_yy NUMERIC
+  active_listing_count NUMERIC
+  ... (same column set as the other inventory tables)
+  PRIMARY KEY (month_date_yyyymm, state_id)
+```
+
+Note: Realtor does **not** publish a state-level Hotness file. State-level Hotness Score on the dashboard is derived as a county-active-weighted mean of `realtor_hotness_county` (the only place state hotness exists).
+
 ### Table: `realtor_hotness_zip` (~435k rows; 36-month history, 202304–202603)
 
 Realtor.com Monthly Market Hotness at the ZIP level. **3 years of monthly history** — use this for trends, "is this ZIP heating up?", DOM trajectory, hotness rank changes, etc.
@@ -246,14 +313,17 @@ realtor_hotness_zip
   PRIMARY KEY (month_date_yyyymm, postal_code)
 ```
 
-**When to query which:**
-- "What's the median price in 90210 right now?" → `realtor_inventory_zip`
-- "How has DOM in 46201 trended over the last year?" → `realtor_hotness_zip` ORDER BY month_date_yyyymm
-- "Which ZIPs in Camden NJ are hottest?" → first `zips_in_county('34007')`, then `realtor_hotness_zip` filtered to the latest month and `postal_code IN (...)`
+**When to query which — pick the right grain for the question:**
+- "What's the median price in **ZIP 90210** right now?" → `realtor_inventory_zip`
+- "How has DOM in **ZIP 46201** trended?" → `realtor_hotness_zip ORDER BY month_date_yyyymm`
+- "What's **Maricopa County's** median price?" → `realtor_inventory_county WHERE county_fips='04013'` (NOT a ZIP rollup — that gives a different answer)
+- "Has **Camden County** been heating up?" → `realtor_hotness_county WHERE county_fips='34007' ORDER BY month_date_yyyymm`
+- "What's the median price across **New Jersey**?" → `realtor_inventory_state WHERE state_id='NJ'`
+- "Which **ZIPs in Camden NJ** are hottest right now?" → first `zips_in_county('34007')`, then `realtor_hotness_zip WHERE postal_code IN (...) AND month_date_yyyymm=<latest>`
 
-`realtor_inventory_zip` and `realtor_hotness_zip` only have `postal_code`, no county/state columns. **You CAN aggregate them to county or state — never tell the user that's impossible.** The pattern:
-- **County rollup:** call `zips_in_county(fips)` → use that ZIP list with `WHERE postal_code IN (...)` and `GROUP BY` whatever you need (or no GROUP BY, with aggregates over the whole set).
-- **State rollup:** state→ZIPs is implicit through `state_top_counties` + `zips_in_county` per county. Easier path: call `state_top_counties(state)` first to get the counties, then loop county-by-county if the user wants a state-wide answer. For broad "any ZIP in state X" filters, you can also use the `zip_name` text column which contains "city, st" (e.g., `WHERE zip_name LIKE '%, nj'`) — case-insensitive match recommended.
+**Don't aggregate ZIPs to compute a county number** — there's a true county-level row in `realtor_inventory_county`. Aggregating ZIP medians gives a different (often higher) number because mean-of-medians ≠ true median. Use the right table.
+
+**ZIP-level tables don't have county columns.** If a user asks for ZIP-level answers scoped to a county/state, use `zips_in_county(fips)` for the ZIP list, or filter by `zip_name LIKE '%, nj'` for state.
 
 For ranking questions ("top N hottest", "5 worst DOM", "biggest price drops"), **always include an explicit `ORDER BY ... LIMIT N`** in your SQL. Don't return an unsorted slice and call it the "top".
 
@@ -268,15 +338,18 @@ For ranking questions ("top N hottest", "5 worst DOM", "biggest price drops"), *
 - Quote case-sensitive classification strings exactly: `classification = 'Tax Lien'` (not `'tax lien'`).
 - After running a query, summarize the result for the user in 2-4 sentences. Don't dump every row — pick highlights and reason about them.
 
-## The dashboard architecture (Realtor-only, since 2026-04-30 refactor)
+## The dashboard architecture (Realtor-only, source-of-truth at each grain)
 
-The dashboard is a Flask + static-JSON app. Drill chain: USA → State → County → ZIP grid (double-click a county or click "ZIP View ›").
+The dashboard is a Flask + static-JSON app. Drill chain: USA → State → County → ZIP grid (double-click a county or click "ZIP View ›"). Clicking a ZIP in the grid populates the same detail panel with ZIP-level data; clicking a county populates it with county-level data.
 
-**Single data source: Realtor.com.** Two Postgres tables (Neon) feed everything:
-- `realtor_inventory_zip` — current-month ZIP snapshot. Driver of all "right now" metrics.
-- `realtor_hotness_zip` — 36-month ZIP history. Driver of all trend metrics.
+**Single data source: Realtor.com**, but each level of the dashboard reads from its own Realtor file:
+- ZIP card → `realtor_inventory_zip` + `realtor_hotness_zip`
+- County card → `realtor_inventory_county` + `realtor_hotness_county` (Realtor's own county aggregation, not a ZIP rollup)
+- State card → `realtor_inventory_state` (state hotness derived as county-weighted mean since Realtor doesn't publish a state hotness file)
 
-Static JSONs (`county-heatmap.json`, `zip-heatmap.json`, `state-heatmap.json`, `county-detail.json`, `zip-detail.json`, `scatter.json`) are baked from these two tables by `scripts/build_realtor_only.py`, with mail-target counts merged in from the scraped `foreclosure_records` table via `listings.json`. There is **no Zillow, no Redfin, no Census, no FHFA data**.
+This means county and state numbers in the dashboard match Realtor's published files exactly — you can spot-check any county against `Mailer_Data_set/Realtor/Monthly Housing Inventory/Monthly_Inventory__County.csv`.
+
+Static JSONs (`county-heatmap.json`, `zip-heatmap.json`, `state-heatmap.json`, `county-detail.json`, `zip-detail.json`, `scatter.json`) are baked from these tables by `scripts/build_realtor_only.py`, with mail-target counts merged in from the scraped `foreclosure_records` table via `listings.json`. There is **no Zillow, no Redfin, no Census, no FHFA data**.
 
 ### Compact key set in `county-heatmap.json` / `zip-heatmap.json`
 
@@ -391,7 +464,10 @@ TOOLS = [
             "Execute a read-only SELECT against the Postgres database. Available tables: "
             "`foreclosure_records` (mail-target distress data, 882k rows), "
             "`realtor_inventory_zip` (Realtor monthly inventory, current-month snapshot, ~28k ZIPs), "
-            "`realtor_hotness_zip` (Realtor monthly market hotness, 36-month ZIP-level history, ~435k rows). "
+            "`realtor_hotness_zip` (Realtor ZIP-level market hotness, 36-month history, ~435k rows), "
+            "`realtor_inventory_county` (Realtor county-level inventory, current-month snapshot, ~3.1k counties — keyed by 5-digit county_fips), "
+            "`realtor_hotness_county` (Realtor county-level hotness, 36-month history, ~58k rows), "
+            "`realtor_inventory_state` (Realtor state-level inventory, current-month snapshot, 51 rows — keyed by 2-letter state_id). "
             "Returns rows as JSON. Single statement only; 10s statement timeout. "
             "No LIMIT is auto-applied — include your own LIMIT for top-N queries; omit it for full aggregates. "
             "Use specific WHERE predicates — do not scan whole tables blindly."

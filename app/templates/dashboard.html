@@ -2584,13 +2584,99 @@ function backToStateView() {
 }
 
 function selectZip(z) {
-    const d = zipData[z] || {};
+    const heat = zipData[z] || {};
     const tagEl = document.getElementById('page-tagline');
-    if (tagEl) tagEl.textContent = `ZIP ${z} — Liquidity ${d.g || '—'}`;
-    // For now, keep the county detail panel open and just flash the selected ZIP.
+    if (tagEl) tagEl.textContent = `ZIP ${z}`;
+    // Highlight the selected ZIP polygon
     gCo.selectAll('.zip-path')
         .attr('stroke', f => (f.properties||{}).zip === z ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.18)')
         .attr('stroke-width', f => (f.properties||{}).zip === z ? 2.4 : 0.6);
+
+    // Open the detail panel and load ZIP-level data into it.
+    document.getElementById('panel-default').style.display = 'none';
+    document.getElementById('panel-sel').style.display = 'flex';
+    fetch(`/api/zip/${z}`)
+        .then(r => r.ok ? r.json() : {})
+        .then(detail => renderZipDetail(z, detail))
+        .catch(() => renderZipDetail(z, {}));
+}
+
+// Renders the same detail panel used for counties, populated with ZIP-level
+// data. Reuses every DOM id from #panel-sel (p-name, p-gs/p-bs/p-es,
+// p-mgrid, pt-hist).
+function renderZipDetail(z, data) {
+    const cur  = data.current || {};
+    const heat = zipData[z] || {};
+    const cityState = cur.name || '';      // e.g., "phoenix, az"
+    const parts = cityState ? cityState.split(',').map(s => s.trim()) : [];
+    const city  = parts[0] ? parts[0].replace(/\b\w/g, c => c.toUpperCase()) : '';
+    const state = (parts[1] || '').toUpperCase();
+
+    document.getElementById('p-name').textContent = `ZIP ${z}${city ? ' · ' + city : ''}`;
+    document.getElementById('p-sub').textContent  = state ? `${SNAMES[state] || state}` : '';
+    document.getElementById('p-gs').textContent   = heat.g  ?? cur.golden_score ?? '—';
+    document.getElementById('p-bs').textContent   = heat.bs ?? cur.buy_score    ?? '—';
+    document.getElementById('p-es').textContent   = heat.es ?? cur.exit_score   ?? '—';
+
+    const fmtK    = v => v!=null ? '$' + (v/1000).toFixed(0) + 'K' : '—';
+    const fmtPctR = v => v!=null ? v.toFixed(1) + '%'              : '—';
+    const fmtDays = v => v!=null ? Math.round(v) + 'd'             : '—';
+    const fmtYoy  = v => v==null ? '—' : (v>0?'+':'') + v.toFixed(1) + '%';
+
+    // ZIP heatmap stores already-rounded display values (lp = $, vy = %, etc).
+    const lp      = heat.lp;
+    const vy      = heat.vy;
+    const dom     = heat.d;
+    const pr      = heat.pr;        // already a %
+    const ppr     = heat.ppr;       // already a %
+    const hs      = heat.hs;
+    const active  = heat.a;
+
+    const domCls = dom!=null ? (dom<=30?'c-green':dom<=60?'c-amber':'c-red') : '';
+    const yCls   = vy!=null ? (vy<0?'c-green':vy>8?'c-red':'') : '';
+    const prCls  = pr!=null ? (pr>30?'c-amber':pr>15?'c-cyan':'') : '';
+    const ppCls  = ppr!=null ? (ppr>30?'c-green':ppr>10?'c-cyan':'') : '';
+    const hotCls = hs!=null ? (hs>=70?'c-green':hs>=40?'c-cyan':'') : '';
+
+    const metrics = [
+        {v:fmtK(lp),               l:'Med List Price',   cls:''},
+        {v:fmtYoy(vy),             l:'YoY Price',        cls:yCls},
+        {v:fmtDays(dom),           l:'Days on Mkt',      cls:domCls},
+        {v:fmtPctR(pr),            l:'Price Drops',      cls:prCls},
+        {v:fmtPctR(ppr),           l:'Pending Ratio',    cls:ppCls},
+        {v:hs!=null?hs+'/100':'—', l:'Hotness Score',    cls:hotCls},
+        {v:active!=null?active.toLocaleString():'—', l:'Active Listings', cls:''},
+    ];
+    document.getElementById('p-mgrid').innerHTML = metrics.map(m =>
+        `<div class="mcell ${m.cls}"><div class="mv">${m.v}</div><div class="ml">${m.l}</div></div>`
+    ).join('');
+
+    // Footer line
+    const incEl = document.getElementById('p-income');
+    if (incEl) incEl.textContent = active != null ? `${active.toLocaleString()} active listings` : '';
+
+    // Buy / Exit signal stubs — no per-ZIP signal copy from the build, surface drivers.
+    renderSigs('p-buy-sigs', [
+        {type:'watch', text:`Buy Score ${heat.bs ?? '—'} — driven by Price Drops % (${fmtPctR(pr)}), YoY (${fmtYoy(vy)}).`},
+    ]);
+    renderSigs('p-exit-sigs', [
+        {type:'watch', text:`Exit Score ${heat.es ?? '—'} — driven by DOM (${fmtDays(dom)}), Pending Ratio (${fmtPctR(ppr)}), Hotness (${hs ?? '—'}).`},
+    ]);
+
+    // Trend tab
+    const histEl = document.getElementById('pt-hist');
+    histEl.dataset.rl = JSON.stringify(data.trend || []);
+    histEl.dataset.z  = '[]';
+    histEl.dataset.r  = '[]';
+    if (histEl.classList.contains('active')) renderHistory();
+
+    // Listings tab — clear (per-ZIP scraped listings are wired separately).
+    const items = document.getElementById('p-list-items');
+    const summary = document.getElementById('p-list-summary');
+    const badge = document.getElementById('p-list-badge');
+    if (badge) badge.style.display = 'none';
+    if (summary) summary.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:.78rem;">ZIP-level listings drill-down — open via the county view to see full sample cards.</div>`;
+    if (items) items.innerHTML = '';
 }
 
 // Keep ZIP fills in sync when the user changes the layer while drilled in.

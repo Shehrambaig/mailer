@@ -307,19 +307,150 @@ def fetch_hotness_history(conn, months=TREND_MONTHS):
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# County / state — read directly from Realtor's authoritative county+state files
+# (so dashboard county cards match Realtor's published numbers byte-for-byte)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _strip_state_suffix(name):
+    """ 'maricopa, az' -> 'Maricopa'. Realtor uses lowercase 'city, st' format. """
+    if not name:
+        return None
+    parts = [p.strip() for p in name.rsplit(",", 1)]
+    base = parts[0] if parts else name
+    return base.title() if base else None
+
+
+def fetch_inventory_county(conn):
+    """Return (latest_month, {fips5: {fields...}}). Source of truth for county metrics."""
+    rows = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT MAX(month_date_yyyymm) AS m FROM realtor_inventory_county")
+        latest = cur.fetchone()["m"]
+        cur.execute(
+            """
+            SELECT county_fips, county_name, median_listing_price,
+                   median_listing_price_yy, active_listing_count, new_listing_count,
+                   median_days_on_market, price_reduced_share, price_increased_share,
+                   pending_listing_count, pending_ratio, total_listing_count,
+                   median_listing_price_per_square_foot, average_listing_price,
+                   month_date_yyyymm
+              FROM realtor_inventory_county
+             WHERE month_date_yyyymm = %s
+            """,
+            (latest,),
+        )
+        for r in cur.fetchall():
+            r = dict(r)
+            r["month"] = r.pop("month_date_yyyymm")
+            rows[r["county_fips"]] = r
+    return latest, rows
+
+
+def fetch_hotness_county_latest(conn):
+    out = {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(month_date_yyyymm) FROM realtor_hotness_county")
+        latest = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT county_fips, hotness_score, hotness_rank, supply_score, demand_score
+              FROM realtor_hotness_county
+             WHERE month_date_yyyymm = %s
+            """,
+            (latest,),
+        )
+        for fips, hs, hr, ss, ds in cur.fetchall():
+            out[fips] = {
+                "hotness_score": float(hs) if hs is not None else None,
+                "hotness_rank":  int(hr) if hr is not None else None,
+                "supply_score":  float(ss) if ss is not None else None,
+                "demand_score":  float(ds) if ds is not None else None,
+            }
+    return latest, out
+
+
+def fetch_hotness_county_history(conn, months=TREND_MONTHS):
+    """Return {fips5: [(yyyymm, list_price, dom, hotness_score), ...]} ordered ascending."""
+    out = defaultdict(list)
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(month_date_yyyymm) FROM realtor_hotness_county")
+        latest = cur.fetchone()[0]
+        yr = latest // 100
+        mo = latest % 100
+        total = yr * 12 + (mo - 1) - (months - 1)
+        yy = total // 12
+        mm = (total % 12) + 1
+        min_month = yy * 100 + mm
+
+        cur.execute(
+            """
+            SELECT county_fips, month_date_yyyymm,
+                   median_listing_price, median_days_on_market, hotness_score
+              FROM realtor_hotness_county
+             WHERE month_date_yyyymm >= %s
+             ORDER BY county_fips, month_date_yyyymm
+            """,
+            (min_month,),
+        )
+        for fips, m, lp, dom, hs in cur.fetchall():
+            out[fips].append((
+                int(m),
+                float(lp) if lp is not None else None,
+                float(dom) if dom is not None else None,
+                float(hs) if hs is not None else None,
+            ))
+    return out
+
+
+def fetch_inventory_state(conn):
+    """Return (latest_month, {state_id: {fields...}})."""
+    rows = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT MAX(month_date_yyyymm) AS m FROM realtor_inventory_state")
+        latest = cur.fetchone()["m"]
+        cur.execute(
+            """
+            SELECT state, state_id, median_listing_price, median_listing_price_yy,
+                   active_listing_count, new_listing_count,
+                   median_days_on_market, price_reduced_share, price_increased_share,
+                   pending_listing_count, pending_ratio, total_listing_count
+              FROM realtor_inventory_state
+             WHERE month_date_yyyymm = %s
+            """,
+            (latest,),
+        )
+        for r in cur.fetchall():
+            r = dict(r)
+            rows[r["state_id"]] = r
+    return latest, rows
+
+
 def main():
     print(f"Connecting to Neon...")
     conn = psycopg2.connect(NEON_DB)
     conn.set_session(readonly=True)
     try:
         latest_inv, inv = fetch_inventory(conn)
-        print(f"Inventory: {len(inv)} ZIPs for month {latest_inv}")
+        print(f"Inventory (ZIP): {len(inv)} ZIPs for month {latest_inv}")
 
         latest_hot, hot = fetch_hotness_latest(conn)
-        print(f"Hotness latest: {len(hot)} ZIPs for month {latest_hot}")
+        print(f"Hotness latest (ZIP): {len(hot)} ZIPs for month {latest_hot}")
 
         history = fetch_hotness_history(conn)
-        print(f"Hotness history loaded: {sum(len(v) for v in history.values())} rows across {len(history)} ZIPs")
+        print(f"Hotness history (ZIP): {sum(len(v) for v in history.values())} rows across {len(history)} ZIPs")
+
+        latest_inv_county, inv_county = fetch_inventory_county(conn)
+        print(f"Inventory (County): {len(inv_county)} counties for month {latest_inv_county}")
+
+        latest_hot_county, hot_county = fetch_hotness_county_latest(conn)
+        print(f"Hotness latest (County): {len(hot_county)} counties")
+
+        history_county = fetch_hotness_county_history(conn)
+        print(f"Hotness history (County): {sum(len(v) for v in history_county.values())} rows across {len(history_county)} counties")
+
+        latest_inv_state, inv_state = fetch_inventory_state(conn)
+        print(f"Inventory (State): {len(inv_state)} states for month {latest_inv_state}")
     finally:
         conn.close()
 
@@ -414,118 +545,125 @@ def main():
     OUT_ZIP_DETAIL.write_text(json.dumps(zip_detail, separators=(",", ":")))
     print(f"  → {OUT_ZIP_DETAIL.name}: {len(zip_detail)} ZIPs")
 
-    # ── County aggregates (active-weighted) ──────────────────────────────────
+    # ── County heatmap — read straight from realtor_inventory_county ─────────
+    # County numbers now match Realtor's published county file byte-for-byte.
+    # ZIP heatmap is unchanged (per-ZIP from realtor_inventory_zip).
     print("Building county-heatmap.json ...")
     county_heat = {}
     county_compute = {}
 
-    for fips, zips in zip_by_county.items():
-        # Realtor data
-        pieces = [zip_compute.get(z) for z in zips if z in zip_compute]
-        pieces = [p for p in pieces if p]
-        # Determine county name + state from any ZIP's name (last token = state)
-        # Better: pick the most common state among ZIPs.
-        state_counts = defaultdict(int)
-        for p in pieces:
-            if p.get("state"):
-                state_counts[p["state"]] += 1
-        state = max(state_counts, key=state_counts.get) if state_counts else None
+    # Pull a state code from the county_name suffix, fall back to legacy mapping.
+    def _state_from_county_name(nm):
+        if not nm or "," not in nm:
+            return None
+        s = nm.rsplit(",", 1)[1].strip()
+        return s.upper() if len(s) == 2 else None
 
-        # Aggregate weighted by active listings
-        weights = [(p.get("active") or 0) for p in pieces]
-        if not any(weights):
-            # Fall back to equal weights so we still aggregate dom/yoy etc.
-            weights = [1] * len(pieces)
-        agg = {
-            "dom":           _wmean([p.get("dom") for p in pieces], weights),
-            "pending_ratio": _wmean([p.get("pending_ratio") for p in pieces], weights),
-            "yoy":           _wmean([p.get("yoy") for p in pieces], weights),
-            "list_price":    _wmean([p.get("list_price") for p in pieces], weights),
-            "price_drops":   _wmean([p.get("price_drops") for p in pieces], weights),
-            "hotness_score": _wmean([p.get("hotness_score") for p in pieces], weights),
-            "active":        sum((p.get("active") or 0) for p in pieces),
-            "new_listings":  sum((p.get("new_listings") or 0) for p in pieces),
-            "zip_count":     len([p for p in pieces if (p.get("active") or 0) > 0]),
-        }
+    # Union of every county we have a Realtor record for (covers ~3,108) plus
+    # any that appear in the scraped listings.json (mail targets) so we don't
+    # drop counties with mail data but no Realtor coverage.
+    all_fips = set(inv_county.keys()) | set(listings_county.keys()) | set(zip_by_county.keys())
+
+    for fips in sorted(all_fips):
+        c   = inv_county.get(fips) or {}
+        h   = hot_county.get(fips) or {}
+        lc  = listings_county.get(fips) or {}
+        nm_legacy = (county_names.get(fips) or {})
+
+        nm_raw = c.get("county_name")
+        cname = _strip_state_suffix(nm_raw) or nm_legacy.get("name")
+        state = _state_from_county_name(nm_raw) or nm_legacy.get("sc")
+
+        list_price    = _round(c.get("median_listing_price"))
+        yoy           = _round(c.get("median_listing_price_yy"))
+        active        = c.get("active_listing_count")
+        new_l         = c.get("new_listing_count")
+        dom           = _round(c.get("median_days_on_market"))
+        price_drops   = _round(c.get("price_reduced_share"))
+        pending_ratio = _round(c.get("pending_ratio"))
+        hotness_score = h.get("hotness_score")
+
         feat = {
-            "dom": agg["dom"], "pending_ratio": agg["pending_ratio"], "yoy": agg["yoy"],
-            "active": agg["active"], "new_listings": agg["new_listings"],
-            "price_drops": agg["price_drops"], "hotness_score": agg["hotness_score"],
+            "dom": dom, "pending_ratio": pending_ratio, "yoy": yoy,
+            "active": int(active) if active is not None else None,
+            "new_listings": int(new_l) if new_l is not None else None,
+            "price_drops": price_drops, "hotness_score": hotness_score,
+            "list_price": list_price,
         }
         bs = compute_buy_score(feat)
         es = compute_exit_score(feat)
-        gs = compute_golden_score(bs, es, agg["active"])
+        gs = compute_golden_score(bs, es, feat["active"])
 
-        # Mail-target buckets from listings.json (per-county)
-        lc = listings_county.get(fips) or {}
+        # Mail-target buckets from scraped foreclosure_records via listings.json
         buckets = {k: int(lc.get(k) or 0) for k in MAIL_WEIGHTS}
         mail_total = sum(buckets.values())
         ms = compute_mail_score(buckets, es) if mail_total > 0 else 0
 
-        # County name from extracted names file (legacy heatmap dump).
-        nm_entry = county_names.get(fips) or {}
-        cname = nm_entry.get("name")
-        # If no Realtor state derived (no ZIPs in inventory for this county),
-        # fall back to the legacy state code.
-        if not state:
-            state = nm_entry.get("sc")
+        # ZIP coverage count — handy in tooltips ("23 of 33 ZIPs reporting").
+        county_zips = zip_by_county.get(fips) or []
+        zc = sum(1 for z in county_zips if z in inv)
 
         rec = {
             "g":  gs, "bs": bs, "es": es,
-            "lp": int(round(agg["list_price"])) if agg["list_price"] else None,
-            "vy": _pct(agg["yoy"], 2) if agg["yoy"] is not None else None,
-            "d":  int(round(agg["dom"])) if agg["dom"] else None,
-            "pr": _pct(agg["price_drops"], 1) if agg["price_drops"] is not None else None,
-            "ppr": _pct(agg["pending_ratio"], 1) if agg["pending_ratio"] is not None else None,
-            "a":  int(agg["active"]) if agg["active"] else None,
-            "hs": int(round(agg["hotness_score"])) if agg["hotness_score"] is not None else None,
+            "lp": int(round(list_price)) if list_price else None,
+            "vy": _pct(yoy, 2) if yoy is not None else None,
+            "d":  int(round(dom)) if dom else None,
+            "pr": _pct(price_drops, 1) if price_drops is not None else None,
+            "ppr": _pct(pending_ratio, 1) if pending_ratio is not None else None,
+            "a":  int(active) if active is not None else None,
+            "hs": int(round(hotness_score)) if hotness_score is not None else None,
             "sc": state, "name": cname,
             "mail_score": ms, "mail_total": mail_total,
             "mail_auc": buckets["auc"], "mail_fc": buckets["fc"],
             "mail_tl": buckets["tl"], "mail_bk": buckets["bk"], "mail_ss": buckets["ss"],
             "fc_ct": buckets["fc"], "au_ct": buckets["auc"],
             "tot_ct": mail_total,
-            "zc": agg["zip_count"],
+            "zc": zc,
         }
         county_heat[fips] = {k: v for k, v in rec.items() if v is not None}
-        county_compute[fips] = {**feat, "bs": bs, "es": es, "gs": gs, "state": state, "name": cname}
+        county_compute[fips] = {**feat, "bs": bs, "es": es, "gs": gs,
+                                "state": state, "name": cname}
 
     OUT_COUNTY_HEAT.write_text(json.dumps(county_heat, separators=(",", ":")))
     print(f"  → {OUT_COUNTY_HEAT.name}: {len(county_heat)} counties")
 
-    # ── State aggregates ─────────────────────────────────────────────────────
+    # ── State heatmap — read straight from realtor_inventory_state ──────────
+    # No state hotness file from Realtor → derive state hotness as a county-
+    # weighted mean (active-weighted across that state's counties).
     print("Building state-heatmap.json ...")
-    state_buckets = defaultdict(list)
-    for fips, c in county_compute.items():
-        if c.get("state"):
-            state_buckets[c["state"]].append((fips, c))
     state_heat = {}
-    for st, items in state_buckets.items():
-        weights = [(c.get("active") or 0) for _, c in items]
-        if not any(weights):
-            weights = [1] * len(items)
-        feats = [c for _, c in items]
-        agg_dom     = _wmean([c.get("dom") for c in feats], weights)
-        agg_pending = _wmean([c.get("pending_ratio") for c in feats], weights)
-        agg_yoy     = _wmean([c.get("yoy") for c in feats], weights)
-        agg_pr      = _wmean([c.get("price_drops") for c in feats], weights)
-        agg_hs      = _wmean([c.get("hotness_score") for c in feats], weights)
-        agg_active  = sum((c.get("active") or 0) for c in feats)
-        agg_new     = sum((c.get("new_listings") or 0) for c in feats)
+    for st, s in inv_state.items():
+        list_price    = _round(s.get("median_listing_price"))
+        yoy           = _round(s.get("median_listing_price_yy"))
+        active        = s.get("active_listing_count")
+        new_l         = s.get("new_listing_count")
+        dom           = _round(s.get("median_days_on_market"))
+        price_drops   = _round(s.get("price_reduced_share"))
+        pending_ratio = _round(s.get("pending_ratio"))
+
+        # Hotness rollup from county hotness, weighted by county active listings.
+        in_state = [(f, c) for f, c in county_compute.items() if c.get("state") == st]
+        if in_state:
+            wts = [(c.get("active") or 0) or 1 for _, c in in_state]
+            hs_vals = [c.get("hotness_score") for _, c in in_state]
+            agg_hs = _wmean(hs_vals, wts)
+        else:
+            agg_hs = None
 
         feat = {
-            "dom": agg_dom, "pending_ratio": agg_pending, "yoy": agg_yoy,
-            "active": agg_active, "new_listings": agg_new,
-            "price_drops": agg_pr, "hotness_score": agg_hs,
+            "dom": dom, "pending_ratio": pending_ratio, "yoy": yoy,
+            "active": int(active) if active is not None else None,
+            "new_listings": int(new_l) if new_l is not None else None,
+            "price_drops": price_drops, "hotness_score": agg_hs,
         }
         bs = compute_buy_score(feat)
         es = compute_exit_score(feat)
-        gs = compute_golden_score(bs, es, agg_active)
+        gs = compute_golden_score(bs, es, feat["active"])
 
-        # Mail buckets summed across counties
+        # Mail buckets summed across all counties in the state
         buckets = {k: 0 for k in MAIL_WEIGHTS}
-        for fips, _ in items:
-            lc = listings_county.get(fips) or {}
+        for f, _ in in_state:
+            lc = listings_county.get(f) or {}
             for k in MAIL_WEIGHTS:
                 buckets[k] += int(lc.get(k) or 0)
         mail_total = sum(buckets.values())
@@ -533,62 +671,52 @@ def main():
 
         rec = {
             "g":  gs, "bs": bs, "es": es,
-            "vy": _pct(agg_yoy, 2) if agg_yoy is not None else None,
-            "d":  int(round(agg_dom)) if agg_dom else None,
-            "pr": _pct(agg_pr, 1) if agg_pr is not None else None,
-            "ppr": _pct(agg_pending, 1) if agg_pending is not None else None,
-            "a":  int(agg_active) if agg_active else None,
+            "lp": int(round(list_price)) if list_price else None,
+            "vy": _pct(yoy, 2) if yoy is not None else None,
+            "d":  int(round(dom)) if dom else None,
+            "pr": _pct(price_drops, 1) if price_drops is not None else None,
+            "ppr": _pct(pending_ratio, 1) if pending_ratio is not None else None,
+            "a":  int(active) if active is not None else None,
             "hs": int(round(agg_hs)) if agg_hs is not None else None,
+            "name": s.get("state"),
             "mail_score": ms, "mail_total": mail_total,
             "mail_auc": buckets["auc"], "mail_fc": buckets["fc"],
             "mail_tl": buckets["tl"], "mail_bk": buckets["bk"], "mail_ss": buckets["ss"],
             "tot_ct": mail_total,
-            "fips_ct": len(items),
+            "fips_ct": len(in_state),
         }
         state_heat[st] = {k: v for k, v in rec.items() if v is not None}
 
     OUT_STATE_HEAT.write_text(json.dumps(state_heat, separators=(",", ":")))
     print(f"  → {OUT_STATE_HEAT.name}: {len(state_heat)} states")
 
-    # ── County detail (36mo aggregated trend) ────────────────────────────────
-    # Aggregate hotness history at the county level by month: weighted mean across
-    # ZIPs in county for each (yyyymm).
+    # ── County detail (36-month trend, sourced from county hotness) ──────────
+    # Reads realtor_hotness_county directly — no ZIP rollup. The trend matches
+    # what Realtor publishes per-county.
     print("Building county-detail.json ...")
     county_detail = {}
-    for fips, zips in zip_by_county.items():
-        # Month → list of (lp, dom, hs, active_weight)
-        m_buckets = defaultdict(list)
-        for z in zips:
-            for m, lp, dom, hs in history.get(z, []):
-                w = (zip_compute.get(z, {}).get("active") or 0) or 1
-                m_buckets[m].append((lp, dom, hs, w))
-        if not m_buckets:
+    for fips, series in history_county.items():
+        if not series:
             continue
-        trend = []
-        for m in sorted(m_buckets):
-            entries = m_buckets[m]
-            wts = [e[3] for e in entries]
-            trend.append({
-                "m": m,
-                "lp": _round(_wmean([e[0] for e in entries], wts), 0),
-                "d":  _round(_wmean([e[1] for e in entries], wts), 1),
-                "hs": _round(_wmean([e[2] for e in entries], wts), 1),
-            })
         cur = county_compute.get(fips, {})
         county_detail[fips] = {
             "state": cur.get("state"),
             "current": {
-                "buy_score": cur.get("bs"),
-                "exit_score": cur.get("es"),
-                "golden_score": cur.get("gs"),
-                "dom": cur.get("dom"),
-                "yoy": cur.get("yoy"),
+                "buy_score":     cur.get("bs"),
+                "exit_score":    cur.get("es"),
+                "golden_score":  cur.get("gs"),
+                "dom":           cur.get("dom"),
+                "yoy":           cur.get("yoy"),
                 "pending_ratio": cur.get("pending_ratio"),
-                "price_drops": cur.get("price_drops"),
+                "price_drops":   cur.get("price_drops"),
                 "hotness_score": cur.get("hotness_score"),
-                "active": cur.get("active"),
+                "active":        cur.get("active"),
+                "list_price":    cur.get("list_price"),
             },
-            "trend": trend,
+            "trend": [
+                {"m": m, "lp": lp, "d": dom, "hs": hs}
+                for (m, lp, dom, hs) in series
+            ],
         }
     OUT_COUNTY_DET.write_text(json.dumps(county_detail, separators=(",", ":")))
     print(f"  → {OUT_COUNTY_DET.name}: {len(county_detail)} counties")
