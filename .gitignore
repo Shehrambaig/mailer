@@ -16,8 +16,9 @@ migrations/
 .vercel
 .env*.local
 
-# Large data — hosted on Vercel Blob (see app/static/data/blob-urls.json)
-/app/static/data/county-detail.json
+# Large data — county-detail.json is now Realtor-only (~4.6 MB) and bundled
+# directly in the function. listings-detail.json and zip-detail.json remain
+# on Vercel Blob (see app/static/data/blob-urls.json).
 /app/static/data/listings-detail.json
 /app/static/data/zip-detail.json
 # Build-only artifacts (not loaded at runtime)
