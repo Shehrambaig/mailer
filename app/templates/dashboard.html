@@ -554,6 +554,7 @@
                     <th class="sortable" data-col="pr" onclick="sortR('pr')">Price Drops <span class="info-icon" data-bs-toggle="tooltip" title="% of active listings where the seller has already cut their asking price.">i</span></th>
                     <th class="sortable" data-col="ppr" onclick="sortR('ppr')">Pending Ratio <span class="info-icon" data-bs-toggle="tooltip" title="Pending listings ÷ active listings. >25% = strong demand.">i</span></th>
                     <th class="sortable" data-col="vol" onclick="sortR('vol')">Listings <span class="info-icon" data-bs-toggle="tooltip" title="Active listing count. Higher = larger, more liquid market.">i</span></th>
+                    <th class="sortable" data-col="scr" onclick="sortR('scr')">Records <span class="info-icon" data-bs-toggle="tooltip" title="Total scraped foreclosure_records (active) for this county. Sub-line: 'X dated' = records with an auction_date set; remainder are undated (filings, tax liens, bankruptcies). Filter to slice by auction-date status.">i</span></th>
                     <th></th>
                 </tr>
                 <tr class="filter-row">
@@ -605,11 +606,20 @@
                         <option value="1kto10k">1K–10K</option>
                         <option value="lt1k">&lt; 1K</option>
                     </select></th>
+                    <th><select class="tfilter" data-col="scr" onchange="setTblFilter('scr',this.value)">
+                        <option value="any">Any</option>
+                        <option value="dated">With auction date</option>
+                        <option value="undated">Without auction date</option>
+                        <option value="due60">Auction in next 60d</option>
+                        <option value="gt1k">&gt; 1,000 records</option>
+                        <option value="100to1k">100–1,000</option>
+                        <option value="lt100">&lt; 100 (or none)</option>
+                    </select></th>
                     <th></th>
                 </tr>
             </thead>
             <tbody id="rank-body">
-                <tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
+                <tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
             </tbody>
         </table>
     </div>
@@ -2188,14 +2198,22 @@ function renderOppList() {
 // RANKINGS TABLE
 // ═══════════════════════════════════════════════════════════════
 function buildRankList() {
-    return [...scatterRows].map(r=>({
-        ...r,
-        vol:r.vol||0,
-    }));
+    return [...scatterRows].map(r=>{
+        // Pull scraped-record splits straight from countyData (county-heatmap.json).
+        const c = countyData[r.fips] || {};
+        return {
+            ...r,
+            vol:        r.vol || 0,
+            scr:        c.scr        || 0,
+            scr_dated:  c.scr_dated  || 0,
+            scr_60d:    c.scr_60d    || 0,
+            scr_undated:c.scr_undated|| 0,
+        };
+    });
 }
 
 // Per-column filters for the rankings table (Realtor-only).
-let tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any' };
+let tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any', scr:'any' };
 let _filterPctCache = null;  // {col: {p10,p25,p50,p75,p90}}
 
 function _filterPercentile(rows, col, p) {
@@ -2272,6 +2290,18 @@ function _filterPredicate(r) {
         if (f.vol === '1kto10k' && !(v >= 1000 && v <= 10000)) return false;
         if (f.vol === 'lt1k'    && !(v > 0 && v < 1000)) return false;
     }
+    if (f.scr !== 'any') {
+        const total   = r.scr        || 0;
+        const dated   = r.scr_dated  || 0;
+        const due60   = r.scr_60d    || 0;
+        const undated = r.scr_undated|| 0;
+        if (f.scr === 'dated'   && !(dated  > 0)) return false;
+        if (f.scr === 'undated' && !(undated > 0)) return false;
+        if (f.scr === 'due60'   && !(due60  > 0)) return false;
+        if (f.scr === 'gt1k'    && !(total  > 1000)) return false;
+        if (f.scr === '100to1k' && !(total >= 100 && total <= 1000)) return false;
+        if (f.scr === 'lt100'   && !(total < 100)) return false;
+    }
     return true;
 }
 
@@ -2286,7 +2316,7 @@ window.setTblFilter = function(col, val) {
 };
 
 window.resetTableFilters = function() {
-    tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any' };
+    tableFilters = { g:'any', name:'', sc:'', lp:'any', vy:'any', d:'any', pr:'any', ppr:'any', vol:'any', scr:'any' };
     document.querySelectorAll('.tfilter').forEach(el => {
         el.classList.remove('dirty');
         if (el.tagName === 'INPUT') el.value = '';
@@ -2324,7 +2354,7 @@ function renderRankings() {
     const body = document.getElementById('rank-body');
     if (!top.length) {
         const allCount = scatterRows.length;
-        body.innerHTML=`<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">No counties match your filters. <a href="javascript:resetTableFilters()" style="color:var(--accent-cyan)">Reset filters</a> (${allCount.toLocaleString()} total)</td></tr>`;
+        body.innerHTML=`<tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px">No counties match your filters. <a href="javascript:resetTableFilters()" style="color:var(--accent-cyan)">Reset filters</a> (${allCount.toLocaleString()} total)</td></tr>`;
         return;
     }
     body.innerHTML = top.map((r,i)=>{
@@ -2334,6 +2364,21 @@ function renderRankings() {
         const prStr  = r.pr?`<span style="color:var(--accent-amber)">${r.pr.toFixed(0)}%</span>`:'—';
         const lpStr  = r.lp?`$${(r.lp/1000).toFixed(0)}K`:'—';
         const ppStr  = r.ppr!=null?`<span style="color:${r.ppr>40?'var(--accent-green)':r.ppr>25?'var(--accent-cyan)':'var(--text-secondary)'}">${r.ppr.toFixed(0)}%</span>`:'—';
+        // Scraped records — total + small sub-line breakdown
+        const scrTotal = r.scr || 0;
+        const scrDated = r.scr_dated || 0;
+        const scr60    = r.scr_60d || 0;
+        let scrStr;
+        if (scrTotal === 0) {
+            scrStr = '<span style="color:var(--text-muted)">—</span>';
+        } else {
+            const sub = scr60 > 0
+                ? `<span style="color:var(--accent-amber);font-size:.62rem">${scr60} ≤60d</span>`
+                : (scrDated > 0
+                    ? `<span style="color:var(--accent-cyan);font-size:.62rem">${scrDated} dated</span>`
+                    : `<span style="color:var(--text-muted);font-size:.62rem">undated</span>`);
+            scrStr = `<div style="font-weight:600;color:var(--text-secondary)">${scrTotal.toLocaleString()}</div><div>${sub}</div>`;
+        }
         const fn = `drillDownState('${r.sc}');setTimeout(()=>selectCounty('${r.fips}'),800)`;
         return `<tr onclick="${fn}">
             <td style="color:var(--text-muted);font-weight:700">${i+1}</td>
@@ -2346,6 +2391,7 @@ function renderRankings() {
             <td>${prStr}</td>
             <td>${ppStr}</td>
             <td style="color:var(--text-secondary)">${r.vol?r.vol.toLocaleString():'—'}</td>
+            <td>${scrStr}</td>
             <td><button class="lbtn" style="padding:2px 8px;font-size:.65rem" onclick="event.stopPropagation();${fn}">View ›</button></td>
         </tr>`;
     }).join('');

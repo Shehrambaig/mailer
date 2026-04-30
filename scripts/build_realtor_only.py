@@ -426,6 +426,69 @@ def fetch_inventory_state(conn):
     return latest, rows
 
 
+def fetch_scraped_by_zip(conn):
+    """Per-ZIP scraped foreclosure_records rollups for counties.
+
+    Returns {zip5: {total, dated, undated, due_60d, mailable_total,
+                    mailable_dated, mailable_undated, mailable_60d}} where
+    `dated` means auction_date IS NOT NULL and `due_60d` means it's between
+    today and +60d. `mailable_*` is restricted to the mailable buckets
+    (auctions, foreclosures, tax liens, bankruptcies, short sales).
+    """
+    out = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH classed AS (
+                SELECT
+                    LPAD(zip, 5, '0') AS zip,
+                    auction_date,
+                    CASE
+                      WHEN source='auction_com' AND classification IN
+                        ('TRUSTEE','DAY_1_REO','REO','PRIVATE_SELLER','PRIVATE_SELLER_INSPECTION')
+                      THEN 1
+                      WHEN source='foreclosure_com' AND classification IN
+                        ('Auction','Foreclosure','Tax Lien','Short Sale',
+                         'Chapter 7 Filed','Chapter 11 Filed','Chapter 12 Filed',
+                         'Chapter 13 Filed','Chapter 15 Filed','Bankruptcy')
+                      THEN 1
+                      ELSE 0
+                    END AS is_mailable
+                FROM foreclosure_records
+                WHERE status = 'active'
+                  AND zip IS NOT NULL AND zip <> ''
+            )
+            SELECT
+                zip,
+                COUNT(*)                                                                       AS total,
+                COUNT(*) FILTER (WHERE auction_date IS NOT NULL)                               AS dated,
+                COUNT(*) FILTER (WHERE auction_date IS NULL)                                   AS undated,
+                COUNT(*) FILTER (WHERE auction_date BETWEEN CURRENT_DATE
+                                                       AND CURRENT_DATE + INTERVAL '60 days')  AS due_60d,
+                COUNT(*) FILTER (WHERE is_mailable = 1)                                        AS mail_total,
+                COUNT(*) FILTER (WHERE is_mailable = 1 AND auction_date IS NOT NULL)           AS mail_dated,
+                COUNT(*) FILTER (WHERE is_mailable = 1 AND auction_date IS NULL)               AS mail_undated,
+                COUNT(*) FILTER (WHERE is_mailable = 1 AND auction_date BETWEEN CURRENT_DATE
+                                                       AND CURRENT_DATE + INTERVAL '60 days')  AS mail_60d
+            FROM classed
+            GROUP BY zip
+            """
+        )
+        for row in cur.fetchall():
+            zip5 = row[0]
+            out[zip5] = {
+                "total":         int(row[1] or 0),
+                "dated":         int(row[2] or 0),
+                "undated":       int(row[3] or 0),
+                "due_60d":       int(row[4] or 0),
+                "mail_total":    int(row[5] or 0),
+                "mail_dated":    int(row[6] or 0),
+                "mail_undated":  int(row[7] or 0),
+                "mail_60d":      int(row[8] or 0),
+            }
+    return out
+
+
 def main():
     print(f"Connecting to Neon...")
     conn = psycopg2.connect(NEON_DB)
@@ -451,6 +514,9 @@ def main():
 
         latest_inv_state, inv_state = fetch_inventory_state(conn)
         print(f"Inventory (State): {len(inv_state)} states for month {latest_inv_state}")
+
+        scraped_by_zip = fetch_scraped_by_zip(conn)
+        print(f"Scraped (ZIP-rollup from foreclosure_records): {len(scraped_by_zip)} ZIPs")
     finally:
         conn.close()
 
@@ -603,6 +669,20 @@ def main():
         county_zips = zip_by_county.get(fips) or []
         zc = sum(1 for z in county_zips if z in inv)
 
+        # Scraped record splits (total / dated / undated / due-in-60d) — sum
+        # across the county's ZIPs from the per-ZIP foreclosure rollup.
+        scr_total = scr_dated = scr_undated = scr_60d = 0
+        scr_mail_total = scr_mail_60d = 0
+        for z in county_zips:
+            s = scraped_by_zip.get(z)
+            if not s: continue
+            scr_total      += s["total"]
+            scr_dated      += s["dated"]
+            scr_undated    += s["undated"]
+            scr_60d        += s["due_60d"]
+            scr_mail_total += s["mail_total"]
+            scr_mail_60d   += s["mail_60d"]
+
         rec = {
             "g":  gs, "bs": bs, "es": es,
             "lp": int(round(list_price)) if list_price else None,
@@ -619,6 +699,13 @@ def main():
             "fc_ct": buckets["fc"], "au_ct": buckets["auc"],
             "tot_ct": mail_total,
             "zc": zc,
+            # Scraped-record breakdown (from foreclosure_records, not listings.json)
+            "scr":         scr_total,    # all scraped records (any classification)
+            "scr_dated":   scr_dated,    # records WHERE auction_date IS NOT NULL
+            "scr_undated": scr_undated,  # records WHERE auction_date IS NULL
+            "scr_60d":     scr_60d,      # records WHERE auction_date IN [today, +60d]
+            "scr_mail":    scr_mail_total,  # mailable subset (auctions/fc/tl/bk/ss)
+            "scr_mail_60d": scr_mail_60d,
         }
         county_heat[fips] = {k: v for k, v in rec.items() if v is not None}
         county_compute[fips] = {**feat, "bs": bs, "es": es, "gs": gs,
