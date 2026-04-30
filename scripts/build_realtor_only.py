@@ -353,6 +353,7 @@ def main():
             "active": int(active) if active is not None else None,
             "new_listings": int(new_l) if new_l is not None else None,
             "price_drops": price_drops, "hotness_score": hotness_score,
+            "list_price": list_price,
         }
         bs = compute_buy_score(feat)
         es = compute_exit_score(feat)
@@ -439,7 +440,7 @@ def main():
             "dom":           _wmean([p.get("dom") for p in pieces], weights),
             "pending_ratio": _wmean([p.get("pending_ratio") for p in pieces], weights),
             "yoy":           _wmean([p.get("yoy") for p in pieces], weights),
-            "list_price":    _wmean([float(zip_heat.get(z, {}).get("lp")) for z, p in zip(zips, pieces) if zip_heat.get(z, {}).get("lp") is not None], weights),
+            "list_price":    _wmean([p.get("list_price") for p in pieces], weights),
             "price_drops":   _wmean([p.get("price_drops") for p in pieces], weights),
             "hotness_score": _wmean([p.get("hotness_score") for p in pieces], weights),
             "active":        sum((p.get("active") or 0) for p in pieces),
