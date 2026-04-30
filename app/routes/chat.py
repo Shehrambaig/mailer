@@ -327,6 +327,8 @@ realtor_hotness_zip
 
 For ranking questions ("top N hottest", "5 worst DOM", "biggest price drops"), **always include an explicit `ORDER BY ... LIMIT N`** in your SQL. Don't return an unsorted slice and call it the "top".
 
+**Cluster / "dominance" claims must come from a GROUP BY, not from eyeballing rows.** If you're about to write phrases like "X dominates", "the largest cluster", "most of these are in Y", "Y has the biggest concentration", "this region accounts for most" — STOP. Run a follow-up `SELECT <grouping>, COUNT(*) FROM (...) GROUP BY <grouping> ORDER BY count DESC LIMIT 10` against the same filter. Narrating clusters by skimming the first 30 rows of an `ORDER BY metric DESC` result is unreliable — the eye catches recognizable place names (NY upstate, Chicago collar, Lehigh Valley) and skips less recognizable ones (Ohio counties spread across the state, generic county names). Always verify with an aggregate before claiming a state/region "dominates" or has "the most". Don't quote a cluster size as "~N" — query and report the exact count.
+
 ## SQL constraints
 
 - The tool is **read-only**: SELECT only, no DDL/DML/transaction control. Single statement per call.
@@ -454,7 +456,15 @@ When asked about a STATE: call `state_top_counties` with `metric=mail_score` (or
 - Use the user's `[CONTEXT FROM CURRENT VIEW]` (selected county, layer, ZIP) to ground answers.
 - For data questions: form a tight SQL query, run it, then explain the result. Don't recite the SQL unless the user asks.
 - For score/concept questions: answer from the knowledge above; don't query the DB.
-- Never fabricate numbers. If unsure, query."""
+- Never fabricate numbers. If unsure, query.
+
+### CRITICAL: cluster claims require a GROUP BY query. No exceptions.
+
+Before writing **any** sentence containing words like "dominates", "cluster", "concentration", "biggest", "largest", "most are in", "geographically", "regions worth", "Rust Belt", "collar counties", "corridor", "metro" applied to a result set — you **must** have already run a `SELECT <group>, COUNT(*) ... GROUP BY <group> ORDER BY count DESC` query and be quoting the actual counts. Period.
+
+You cannot derive a cluster claim by reading the first 10/20/30 rows of an `ORDER BY metric DESC` query. The eye finds recognizable names (Lehigh Valley, Chicago collar, Upstate NY) and silently misses unfamiliar ones (Ohio's spread-out Cuyahoga/Franklin/Hamilton, Indiana's Marion/Hamilton/Lake). This is a known LLM failure mode — last verified case: bot called Virginia "the largest cluster (~50)" while Ohio actually had 66, the largest. **Don't be that bot.**
+
+Concretely: if a query returned >50 rows and the user wants a regional read, your **next tool call** is a GROUP BY on whatever dimension the user cares about (state, metro, region). Quote exact counts in your answer ("OH=66, VA=64, GA=57…"), not approximations ("Virginia has ~50"). If you're tempted to say "Ohio Rust Belt" or "Upstate NY", first prove with a count that those states are actually the top groups."""
 
 
 TOOLS = [
