@@ -2,9 +2,9 @@
 AI agent for the dashboard. Streams via SSE.
 
 Tools available to the model:
-  - query_database(sql) — read-only SELECT against the `probate` Postgres DB.
-    Hard caps: SELECT only, LIMIT enforced (default 200, max 1000), 10s timeout,
-    read-only transaction, ~30 result columns/row max returned to the model.
+  - query_database(sql) — read-only SELECT against the Neon Postgres DB.
+    Hard caps: SELECT only, 10s statement timeout, read-only transaction.
+    No LIMIT is injected — the model owns LIMIT for top-N queries.
 
 Architecture: manual agentic loop with streaming. We stream text deltas to the
 browser as they arrive; when the model emits a tool_use block we execute the
@@ -28,8 +28,6 @@ chat_bp = Blueprint("chat", __name__)
 
 MODEL = "claude-opus-4-7"
 MAX_ITERATIONS = 6           # tool-use → result → text rounds
-DEFAULT_ROW_LIMIT = 200
-HARD_ROW_LIMIT = 1000
 STATEMENT_TIMEOUT_MS = 10_000
 
 # ── SQL safety ─────────────────────────────────────────────────────────────
@@ -42,7 +40,6 @@ DENY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 SELECT_RE = re.compile(r"^\s*(with\s+.*?\)\s*select|select)\b", re.IGNORECASE | re.DOTALL)
-LIMIT_RE = re.compile(r"\blimit\s+(\d+)\b", re.IGNORECASE)
 
 
 def _sanitize_sql(sql: str):
@@ -58,14 +55,6 @@ def _sanitize_sql(sql: str):
         return None, "only SELECT (or WITH … SELECT) statements are allowed"
     if DENY_KEYWORDS.search(sql):
         return None, "query contains a disallowed keyword (DDL/DML/transaction control)"
-    # Enforce LIMIT
-    m = LIMIT_RE.search(sql)
-    if m:
-        n = int(m.group(1))
-        if n > HARD_ROW_LIMIT:
-            sql = LIMIT_RE.sub(f"LIMIT {HARD_ROW_LIMIT}", sql, count=1)
-    else:
-        sql = f"{sql} LIMIT {DEFAULT_ROW_LIMIT}"
     return sql, None
 
 
@@ -262,11 +251,16 @@ realtor_hotness_zip
 - "How has DOM in 46201 trended over the last year?" → `realtor_hotness_zip` ORDER BY month_date_yyyymm
 - "Which ZIPs in Camden NJ are hottest?" → first `zips_in_county('34007')`, then `realtor_hotness_zip` filtered to the latest month and `postal_code IN (...)`
 
-Always filter by `postal_code IN (...)` (not by county/state — those columns don't exist on these tables). For county-scoped questions, look up ZIPs first via `zips_in_county`.
+`realtor_inventory_zip` and `realtor_hotness_zip` only have `postal_code`, no county/state columns. **You CAN aggregate them to county or state — never tell the user that's impossible.** The pattern:
+- **County rollup:** call `zips_in_county(fips)` → use that ZIP list with `WHERE postal_code IN (...)` and `GROUP BY` whatever you need (or no GROUP BY, with aggregates over the whole set).
+- **State rollup:** state→ZIPs is implicit through `state_top_counties` + `zips_in_county` per county. Easier path: call `state_top_counties(state)` first to get the counties, then loop county-by-county if the user wants a state-wide answer. For broad "any ZIP in state X" filters, you can also use the `zip_name` text column which contains "city, st" (e.g., `WHERE zip_name LIKE '%, nj'`) — case-insensitive match recommended.
+
+For ranking questions ("top N hottest", "5 worst DOM", "biggest price drops"), **always include an explicit `ORDER BY ... LIMIT N`** in your SQL. Don't return an unsorted slice and call it the "top".
 
 ## SQL constraints
 
-- The tool is **read-only**: SELECT only, no DDL/DML/transaction control. Single statement per call. LIMIT is forced (max 1000, default 200) — request what you need; the tool will append LIMIT if missing.
+- The tool is **read-only**: SELECT only, no DDL/DML/transaction control. Single statement per call.
+- No LIMIT is auto-injected — include your own `LIMIT` when you only need a slice. For aggregates and full breakdowns, you can omit it entirely.
 - Statement timeout is 10s; write queries that scan with predicates (`WHERE status='active' AND zip='90210'`), don't `SELECT *` from the whole table.
 - foreclosure_com rows have `county` NULL — never filter on `county` for them; filter on `zip` instead.
 - For county-scoped questions, **call `zips_in_county(fips)` first** to get the authoritative ZIP list, then write a SQL with `zip IN (...)`. Don't guess ZIPs from training data.
@@ -329,8 +323,9 @@ TOOLS = [
             "`foreclosure_records` (mail-target distress data, 882k rows), "
             "`realtor_inventory_zip` (Realtor monthly inventory, current-month snapshot, ~28k ZIPs), "
             "`realtor_hotness_zip` (Realtor monthly market hotness, 36-month ZIP-level history, ~435k rows). "
-            "Returns rows as JSON. Single statement only; LIMIT enforced (max 1000); 10s timeout. "
-            "Use specific WHERE predicates — do not scan whole tables."
+            "Returns rows as JSON. Single statement only; 10s statement timeout. "
+            "No LIMIT is auto-applied — include your own LIMIT for top-N queries; omit it for full aggregates. "
+            "Use specific WHERE predicates — do not scan whole tables blindly."
         ),
         "input_schema": {
             "type": "object",
