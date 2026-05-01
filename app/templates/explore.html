@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+{% block title %}Realtor Data Explorer{% endblock %}
+{% block tagline %}Realtor Data Explorer — full County + ZIP grids{% endblock %}
+
+{% block extra_head %}
+<style>
+.explore-card { padding: 0; }
+.explore-toolbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-glass);
+    flex-wrap: wrap;
+}
+.tabs { display: flex; gap: 4px; padding: 4px; background: rgba(255,255,255,.03); border-radius: 10px; }
+.tabs button {
+    background: transparent; color: var(--text-secondary); border: none;
+    padding: 6px 16px; font-size: .78rem; font-weight: 700; letter-spacing: .5px;
+    border-radius: 8px; cursor: pointer; transition: all .15s;
+}
+.tabs button.active {
+    background: linear-gradient(135deg, rgba(0,240,255,.18), rgba(124,58,237,.18));
+    color: var(--accent-cyan);
+    box-shadow: 0 0 12px rgba(0,240,255,.10);
+}
+.tabs button:hover:not(.active) { color: var(--text-primary); }
+
+.search-box {
+    flex: 1; min-width: 280px;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+    border-radius: 8px; padding: 8px 12px; color: var(--text-primary); font-size: .82rem;
+}
+.search-box:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,240,255,.04); }
+
+.btn-tool {
+    background: rgba(255,255,255,.05); color: var(--text-primary);
+    border: 1px solid var(--border-glass); border-radius: 8px;
+    padding: 7px 12px; font-size: .76rem; font-weight: 600; cursor: pointer;
+    transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-tool:hover { background: rgba(0,240,255,.10); border-color: rgba(0,240,255,.30); color: var(--accent-cyan); }
+.btn-tool .badge {
+    background: rgba(0,240,255,.18); color: var(--accent-cyan);
+    border-radius: 999px; padding: 1px 6px; font-size: .65rem; font-weight: 700;
+}
+
+.status-line {
+    padding: 8px 16px; font-size: .72rem; color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-glass);
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+/* Grid container — fixed height, internal scroll for sticky header */
+.grid-wrap {
+    height: calc(100vh - 240px);
+    overflow: auto;
+    position: relative;
+}
+.grid-table {
+    border-collapse: separate; border-spacing: 0;
+    width: 100%;
+    color: var(--text-primary);
+    font-size: .8rem;
+}
+.grid-table thead th {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(8,8,20,0.98);
+    backdrop-filter: blur(10px);
+    color: var(--text-secondary);
+    font-size: .65rem; text-transform: uppercase; letter-spacing: .8px;
+    font-weight: 700; padding: 10px 12px;
+    border-bottom: 1px solid var(--border-glass);
+    text-align: left; cursor: pointer; user-select: none; white-space: nowrap;
+}
+.grid-table thead th:hover { color: var(--text-primary); background: rgba(12,12,28,1); }
+.grid-table thead th.sorted { color: var(--accent-cyan); }
+.grid-table thead th .sort-arrow { font-size: .6rem; opacity: .6; margin-left: 4px; }
+.grid-table tbody td {
+    border-bottom: 1px solid rgba(255,255,255,.025);
+    padding: 8px 12px; white-space: nowrap;
+}
+.grid-table tbody tr:hover { background: rgba(0,240,255,.03); }
+.grid-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.grid-table tbody td.muted { color: var(--text-muted); }
+.grid-table tbody td.pos { color: var(--accent-green); }
+.grid-table tbody td.neg { color: var(--accent-red); }
+
+.empty-state, .loading-state {
+    padding: 40px; text-align: center; color: var(--text-muted); font-size: .85rem;
+}
+
+/* Column drawer */
+#col-drawer {
+    position: fixed; top: 52px; right: -360px;
+    width: 360px; height: calc(100vh - 52px);
+    background: rgba(8,8,20,0.96);
+    border-left: 1px solid var(--border-glass);
+    backdrop-filter: blur(20px);
+    transition: right .25s ease; z-index: 50;
+    display: flex; flex-direction: column;
+}
+#col-drawer.open { right: 0; }
+#col-drawer .head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border-glass);
+    display: flex; justify-content: space-between; align-items: center;
+}
+#col-drawer .head h6 { margin: 0; font-weight: 700; font-size: .9rem; }
+#col-drawer .body { flex: 1; overflow-y: auto; padding: 8px 0; }
+#col-drawer .col-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 18px; cursor: pointer; font-size: .8rem;
+}
+#col-drawer .col-row:hover { background: rgba(0,240,255,.04); }
+#col-drawer .col-row input { accent-color: var(--accent-cyan); }
+#col-drawer .col-row .src {
+    margin-left: auto; font-size: .6rem; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,.05); color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .5px;
+}
+#col-drawer .col-row .src.hot { background: rgba(236,72,153,.15); color: var(--accent-pink); }
+#col-drawer .actions {
+    padding: 12px 18px; border-top: 1px solid var(--border-glass);
+    display: flex; gap: 8px;
+}
+
+#col-drawer-backdrop {
+    position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.4); z-index: 49; display: none;
+}
+#col-drawer-backdrop.open { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="glass-card explore-card">
+    <div class="explore-toolbar">
+        <div class="tabs">
+            <button id="tab-county" class="active" onclick="setGrain('county')">County</button>
+            <button id="tab-zip" onclick="setGrain('zip')">ZIP</button>
+        </div>
+        <input type="search" class="search-box" id="search" placeholder="Search by FIPS / county / ZIP / city / state…" autocomplete="off">
+        <button class="btn-tool" onclick="openColDrawer()">
+            <i class="bi bi-layout-three-columns"></i>
+            <span>Columns</span> <span class="badge" id="col-badge">7</span>
+        </button>
+        <button class="btn-tool" onclick="downloadCSV()">
+            <i class="bi bi-download"></i> Download CSV
+        </button>
+    </div>
+    <div class="status-line">
+        <span id="status-text">Loading…</span>
+        <span id="status-meta" style="color: var(--text-muted);"></span>
+    </div>
+    <div class="grid-wrap" id="grid-wrap">
+        <table class="grid-table" id="grid-table">
+            <thead><tr id="grid-head"></tr></thead>
+            <tbody id="grid-body">
+                <tr><td colspan="100" class="loading-state">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="col-drawer-backdrop" onclick="closeColDrawer()"></div>
+<div id="col-drawer">
+    <div class="head">
+        <h6>Show / Hide Columns</h6>
+        <button class="btn-tool" onclick="closeColDrawer()" style="padding: 4px 10px;">✕</button>
+    </div>
+    <div class="body" id="col-list"></div>
+    <div class="actions">
+        <button class="btn-tool" style="flex:1;" onclick="setAllCols(true)">Show all</button>
+        <button class="btn-tool" style="flex:1;" onclick="setAllCols(false)">Defaults only</button>
+    </div>
+</div>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────────────────
+let state = {
+    grain:    'county',
+    q:        '',
+    sort:     'active_listing_count',
+    dir:      'desc',
+    columns:  [],            // full column metadata from server
+    visible:  new Set(),     // keys currently shown
+    rows:     [],            // accumulated rows
+    total:    0,
+    offset:   0,
+    limit:    100,
+    loading:  false,
+    done:     false,
+};
+
+// ─── Formatting ────────────────────────────────────────────────────────────
+function fmt(val, type) {
+    if (val === null || val === undefined || val === '') return '';
+    if (type === 'currency') {
+        const n = Number(val); if (!isFinite(n)) return val;
+        return '$' + Math.round(n).toLocaleString();
+    }
+    if (type === 'integer') {
+        const n = Number(val); if (!isFinite(n)) return val;
+        return Math.round(n).toLocaleString();
+    }
+    if (type === 'ratio') {
+        const n = Number(val); if (!isFinite(n)) return val;
+        return (n * 100).toFixed(2) + '%';
+    }
+    if (type === 'percent_share') {
+        const n = Number(val); if (!isFinite(n)) return val;
+        return (n * 100).toFixed(1) + '%';
+    }
+    if (type === 'number') {
+        const n = Number(val); if (!isFinite(n)) return val;
+        return n.toFixed(2);
+    }
+    return val;
+}
+function cellClass(val, type) {
+    const cls = [];
+    if (val === null || val === undefined || val === '') { cls.push('muted'); return cls; }
+    if (type === 'currency' || type === 'integer' || type === 'number'
+        || type === 'ratio' || type === 'percent_share') cls.push('num');
+    if (type === 'ratio' || type === 'percent_share') {
+        const n = Number(val);
+        if (isFinite(n)) {
+            if (n > 0) cls.push('pos');
+            else if (n < 0) cls.push('neg');
+        }
+    }
+    return cls;
+}
+
+// ─── Rendering ─────────────────────────────────────────────────────────────
+function renderHeader() {
+    const tr = document.getElementById('grid-head');
+    const cols = state.columns.filter(c => state.visible.has(c.key));
+    tr.innerHTML = cols.map(c => {
+        const sorted = c.key === state.sort;
+        const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
+        return `<th class="${sorted?'sorted':''}" data-key="${c.key}" onclick="sortBy('${c.key}')">
+                  ${c.label}<span class="sort-arrow">${arrow}</span>
+                </th>`;
+    }).join('');
+}
+
+function renderRows() {
+    const tbody = document.getElementById('grid-body');
+    const cols = state.columns.filter(c => state.visible.has(c.key));
+    if (!state.rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${cols.length}" class="empty-state">No results. Try clearing the search.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = state.rows.map(r => {
+        return '<tr>' + cols.map(c => {
+            const v   = r[c.key];
+            const cls = cellClass(v, c.type).join(' ');
+            return `<td class="${cls}">${fmt(v, c.type)}</td>`;
+        }).join('') + '</tr>';
+    }).join('');
+}
+
+function updateStatus() {
+    const shown = state.rows.length;
+    const total = state.total.toLocaleString();
+    const grain = state.grain === 'county' ? 'counties' : 'ZIPs';
+    document.getElementById('status-text').textContent =
+        state.loading ? `Loading…` : `Showing ${shown.toLocaleString()} of ${total} ${grain}`;
+    const visible = state.columns.filter(c => state.visible.has(c.key)).length;
+    document.getElementById('status-meta').textContent =
+        `${visible} of ${state.columns.length} columns • Sort: ${state.sort} ${state.dir.toUpperCase()}`;
+    document.getElementById('col-badge').textContent = visible;
+}
+
+// ─── Data fetching ─────────────────────────────────────────────────────────
+function buildURL({format='json', offsetOverride=null} = {}) {
+    const p = new URLSearchParams();
+    p.set('q',      state.q);
+    p.set('sort',   state.sort);
+    p.set('dir',    state.dir);
+    p.set('limit',  state.limit);
+    p.set('offset', offsetOverride !== null ? offsetOverride : state.offset);
+    if (format !== 'json') p.set('format', format);
+    if (format === 'csv') {
+        const visible = state.columns.filter(c => state.visible.has(c.key)).map(c => c.key);
+        p.set('cols', visible.join(','));
+    }
+    return `/api/explore/${state.grain}?${p.toString()}`;
+}
+
+async function loadInitial() {
+    state.rows = []; state.offset = 0; state.done = false;
+    state.loading = true; updateStatus();
+    document.getElementById('grid-body').innerHTML =
+        `<tr><td colspan="100" class="loading-state">Loading…</td></tr>`;
+    try {
+        const r = await fetch(buildURL());
+        const d = await r.json();
+        state.columns = d.columns;
+        state.rows    = d.rows;
+        state.total   = d.total;
+        state.offset  = d.rows.length;
+        if (state.rows.length >= state.total) state.done = true;
+        if (!state.visible.size) {
+            state.columns.forEach(c => { if (c.default) state.visible.add(c.key); });
+            renderColDrawer();
+        }
+    } catch (e) {
+        document.getElementById('grid-body').innerHTML =
+            `<tr><td colspan="100" class="empty-state">Error loading data: ${e.message}</td></tr>`;
+        state.loading = false; updateStatus();
+        return;
+    }
+    state.loading = false;
+    renderHeader(); renderRows(); updateStatus();
+}
+
+async function loadMore() {
+    if (state.loading || state.done) return;
+    state.loading = true; updateStatus();
+    try {
+        const r = await fetch(buildURL());
+        const d = await r.json();
+        state.rows = state.rows.concat(d.rows);
+        state.offset = state.rows.length;
+        if (state.rows.length >= state.total) state.done = true;
+    } catch (e) {
+        console.warn(e);
+    }
+    state.loading = false;
+    renderRows(); updateStatus();
+}
+
+// ─── Interactions ──────────────────────────────────────────────────────────
+function setGrain(g) {
+    if (g === state.grain) return;
+    state.grain = g;
+    state.q = '';
+    state.sort = 'active_listing_count';
+    state.dir  = 'desc';
+    state.visible = new Set();   // forces re-default from columns
+    document.getElementById('search').value = '';
+    document.getElementById('tab-county').classList.toggle('active', g === 'county');
+    document.getElementById('tab-zip').classList.toggle('active', g === 'zip');
+    loadInitial();
+}
+
+function sortBy(key) {
+    if (state.sort === key) {
+        state.dir = state.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+        state.sort = key;
+        state.dir = 'desc';
+    }
+    loadInitial();
+}
+
+let _qTimer = null;
+document.getElementById('search').addEventListener('input', (e) => {
+    state.q = e.target.value;
+    clearTimeout(_qTimer);
+    _qTimer = setTimeout(loadInitial, 250);
+});
+
+// Scroll → load more
+document.getElementById('grid-wrap').addEventListener('scroll', (e) => {
+    const el = e.target;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        loadMore();
+    }
+});
+
+// Column drawer
+function openColDrawer() {
+    document.getElementById('col-drawer').classList.add('open');
+    document.getElementById('col-drawer-backdrop').classList.add('open');
+}
+function closeColDrawer() {
+    document.getElementById('col-drawer').classList.remove('open');
+    document.getElementById('col-drawer-backdrop').classList.remove('open');
+}
+function renderColDrawer() {
+    const list = document.getElementById('col-list');
+    list.innerHTML = state.columns.map(c => {
+        const checked = state.visible.has(c.key) ? 'checked' : '';
+        const srcClass = c.source === 'hot' ? 'src hot' : 'src';
+        return `<label class="col-row">
+                  <input type="checkbox" ${checked} onchange="toggleCol('${c.key}', this.checked)">
+                  <span>${c.label}</span>
+                  <span class="${srcClass}">${c.source}</span>
+                </label>`;
+    }).join('');
+}
+function toggleCol(key, on) {
+    if (on) state.visible.add(key); else state.visible.delete(key);
+    renderHeader(); renderRows(); updateStatus();
+}
+function setAllCols(showAll) {
+    state.visible = new Set();
+    state.columns.forEach(c => {
+        if (showAll || c.default) state.visible.add(c.key);
+    });
+    renderColDrawer(); renderHeader(); renderRows(); updateStatus();
+}
+
+// CSV download
+function downloadCSV() {
+    const url = buildURL({format: 'csv'});
+    window.location.href = url;
+}
+
+// ─── Boot ──────────────────────────────────────────────────────────────────
+loadInitial();
+
+// Hide topbar status pills (those are dashboard-specific; not relevant here)
+['ds-realtor','ds-zillow','ds-census'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+});
+</script>
+{% endblock %}
