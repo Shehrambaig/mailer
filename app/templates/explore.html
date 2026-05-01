@@ -1708,4 +1708,63 @@ loadInitial();
     const el = document.getElementById(id); if (el) el.style.display = 'none';
 });
 </script>
+
+{% set chat_page = 'explore' %}
+{% set chat_subtitle = 'Knows the County / ZIP grids, your filters, exit-speed weights, and the custom column' %}
+{% set chat_examples = [
+    ['Top 10 counties by foreclosure-per-1000-listings',
+     'Run SQL: top 10 counties by (foreclosure_count / NULLIF(active_listing_count,0)) * 1000 in the latest month, with county name and median list price. Use realtor_inventory_county joined to foreclosure_counts_by_county.'],
+    ['Mail-target bucket mix in selected county',
+     'In the county currently selected on /explore (county_fips in the context), break down active foreclosure_records by classification using foreclosure_records.county_fips directly.'],
+    ['ZIPs in this county heating up',
+     'For the selected county_fips, list the top 15 ZIPs by hotness_score in the latest month with their DOM and median list price.'],
+    ['Why is the score what it is?',
+     'For the selected ZIP, show its DOM, pending ratio, list-price YoY, and explain why its current Exit Speed score lands where it does given my saved weights.'],
+    ['What columns can I add together?',
+     'Which numeric columns are available on /explore for the ZIP grid? Which combinations are commonly used to estimate distress density?']
+] %}
+<script>
+  // Per-page chat context — sends what's currently visible on /explore so the
+  // bot can scope its answers (selected grain, sort, filters, weights, custom col).
+  window.buildChatContext = function() {
+    const ctx = {};
+    try {
+      if (typeof state === 'undefined') return ctx;
+      ctx.page  = '/explore';
+      ctx.grain = state.grain;
+      ctx.sort  = state.sort;
+      ctx.dir   = state.dir;
+      // Filters as compact list
+      if (state.appliedFilters && state.appliedFilters.length) {
+        ctx.filters = state.appliedFilters.map(f =>
+          `${f.col} ${f.op} ${Array.isArray(f.value) ? f.value.join(',') : f.value}`
+        );
+      }
+      if (state.appliedFcFilters && state.appliedFcFilters.length) {
+        ctx.fc_filters = state.appliedFcFilters.map(f =>
+          `${f.field} ${f.op} ${Array.isArray(f.value) ? f.value.join(',') : f.value}`
+        );
+      }
+      if (state.exitWeights) ctx.exit_weights = state.exitWeights;
+      if (state.customColumn && state.customColumn.expression) {
+        ctx.custom_column = {
+          label:      state.customColumn.label,
+          expression: state.customColumn.expression,
+        };
+      }
+      // Selected row hint: top of current sort = "selected" for context purposes
+      if (state.rows && state.rows.length) {
+        const top = state.rows[0];
+        if (state.grain === 'county') {
+          ctx.fips = top.county_fips; ctx.county_name = top.county_name;
+        } else {
+          ctx.zip = top.postal_code;  ctx.zip_name = top.zip_name;
+        }
+      }
+      ctx.total = state.total;
+    } catch (e) {}
+    return ctx;
+  };
+</script>
+{% include "_chat_panel.html" %}
 {% endblock %}

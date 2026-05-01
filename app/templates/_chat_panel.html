@@ -1,0 +1,371 @@
+{# ─── AI chat panel — shared across pages.
+     Caller sets these vars before {% include %}:
+       chat_page      (str)  : 'dashboard' / 'explore' — used for localStorage scope + server page tag
+       chat_subtitle  (str)  : tagline shown under the title
+       chat_examples  (list) : [[label, prompt], …] for the empty-state quick-prompt buttons
+     Caller MUST also define a `window.buildChatContext()` JS function before this
+     partial runs — it returns a per-page context dict ({grain, fips, layer, …}).
+     The partial provides a no-op default if the page doesn't override it.
+─── #}
+{% set chat_page     = chat_page     | default('default') %}
+{% set chat_subtitle = chat_subtitle | default('Powered by Claude — has live DB access via SQL') %}
+{% set chat_examples = chat_examples | default([]) %}
+
+<!-- Markdown renderer (idempotent — browser dedupes by URL if already loaded) -->
+<script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js"></script>
+
+<!-- ══ AI CHAT WIDGET ══════════════════════════════════════════════════ -->
+<style>
+  #ai-chat-fab { position:fixed; bottom:20px; right:20px; z-index:9998; width:54px; height:54px; border-radius:50%; background:linear-gradient(135deg, #00f0ff, #7c3aed); color:#fff; border:none; cursor:pointer; box-shadow:0 8px 30px rgba(0,240,255,.35); display:flex; align-items:center; justify-content:center; font-size:22px; transition:transform .15s; }
+  #ai-chat-fab:hover { transform:scale(1.08); }
+  #ai-chat-fab.open { background:#1a1a3e; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  #ai-chat-panel { position:fixed; bottom:84px; right:20px; z-index:9998; width:400px; max-width:calc(100vw - 40px); height:560px; max-height:calc(100vh - 110px); display:none; flex-direction:column; background:rgba(10,10,30,.97); backdrop-filter:blur(12px); border:1px solid rgba(0,240,255,.25); border-radius:14px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.6); transition:width .25s ease, height .25s ease; }
+  #ai-chat-panel.open { display:flex; }
+  #ai-chat-panel.wide { width:760px; height:720px; }
+  #ai-chat-panel.xwide { width:920px; height:780px; }
+  .aic-header { padding:12px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:8px; }
+  .aic-title { color:var(--accent-cyan); font-weight:700; font-size:.9rem; letter-spacing:.3px; }
+  .aic-sub { color:var(--text-muted); font-size:.7rem; }
+  .aic-newchat { background:rgba(255,255,255,.04); color:var(--text-muted); border:1px solid rgba(255,255,255,.10); border-radius:6px; padding:4px 8px; font-size:.65rem; cursor:pointer; transition:all .12s; }
+  .aic-newchat:hover { color:var(--accent-cyan); border-color:rgba(0,240,255,.30); background:rgba(0,240,255,.08); }
+  .aic-body { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
+  .aic-msg { font-size:.82rem; line-height:1.5; padding:8px 12px; border-radius:10px; max-width:88%; word-wrap:break-word; }
+  .aic-msg.assistant.has-table, .aic-msg.assistant.wide-content { max-width:100%; }
+  .aic-msg.user { align-self:flex-end; background:rgba(0,240,255,.10); color:var(--text-primary); border:1px solid rgba(0,240,255,.18); }
+  .aic-msg.assistant { align-self:flex-start; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.08); }
+  .aic-msg.assistant strong { color:var(--accent-cyan); }
+  .aic-msg.assistant em { color:var(--text-secondary); }
+  .aic-msg.assistant code { background:rgba(0,0,0,.35); padding:1px 5px; border-radius:3px; font-size:.76rem; font-family:ui-monospace,monospace; }
+  .aic-msg.assistant pre { background:rgba(0,0,0,.45); padding:8px 10px; border-radius:6px; overflow-x:auto; margin:8px 0; }
+  .aic-msg.assistant pre code { background:transparent; padding:0; font-size:.72rem; }
+  .aic-msg.assistant p { margin:0 0 8px; }
+  .aic-msg.assistant p:last-child { margin-bottom:0; }
+  .aic-msg.assistant h1, .aic-msg.assistant h2, .aic-msg.assistant h3, .aic-msg.assistant h4 { color:var(--accent-cyan); font-weight:700; margin:10px 0 6px; line-height:1.3; }
+  .aic-msg.assistant h1 { font-size:.95rem; }
+  .aic-msg.assistant h2 { font-size:.88rem; }
+  .aic-msg.assistant h3 { font-size:.82rem; }
+  .aic-msg.assistant h4 { font-size:.78rem; color:var(--text-primary); }
+  .aic-msg.assistant ul, .aic-msg.assistant ol { padding-left:20px; margin:6px 0 8px; }
+  .aic-msg.assistant li { margin:2px 0; }
+  .aic-msg.assistant blockquote { border-left:3px solid var(--accent-cyan); padding-left:10px; color:var(--text-secondary); margin:6px 0; font-style:italic; }
+  .aic-msg.assistant a { color:var(--accent-cyan); text-decoration:underline dotted; }
+  .aic-msg.assistant hr { border:none; border-top:1px solid rgba(255,255,255,.10); margin:10px 0; }
+  .aic-msg.assistant table { border-collapse:collapse; margin:8px 0; font-size:.74rem; width:100%; }
+  .aic-msg.assistant th, .aic-msg.assistant td { padding:5px 8px; border:1px solid rgba(255,255,255,.10); text-align:left; vertical-align:top; }
+  .aic-msg.assistant th { background:rgba(0,240,255,.08); color:var(--accent-cyan); font-weight:700; }
+  .aic-msg.assistant tr:nth-child(even) td { background:rgba(255,255,255,.02); }
+  .aic-msg.error { align-self:center; background:rgba(239,68,68,.10); color:#fca5a5; border:1px solid rgba(239,68,68,.3); font-size:.74rem; }
+  .aic-tool { align-self:flex-start; background:rgba(124,58,237,.08); border:1px solid rgba(124,58,237,.25); border-radius:8px; padding:6px 10px; font-size:.72rem; color:#c4b5fd; max-width:88%; }
+  .aic-tool.ok    { border-color:rgba(16,185,129,.30); color:#86efac; background:rgba(16,185,129,.08); }
+  .aic-tool.error { border-color:rgba(239,68,68,.30); color:#fca5a5; background:rgba(239,68,68,.08); }
+  .aic-tool code  { background:rgba(0,0,0,.3); padding:1px 5px; border-radius:3px; font-size:.65rem; word-break:break-all; }
+  .aic-tool .lbl  { font-weight:700; letter-spacing:.4px; text-transform:uppercase; font-size:.62rem; opacity:.85; margin-right:6px; }
+  .aic-tool .meta { opacity:.7; font-size:.65rem; margin-top:3px; }
+  .aic-empty { color:var(--text-muted); font-size:.78rem; text-align:center; padding:28px 16px; line-height:1.5; }
+  .aic-empty .examples { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+  .aic-empty .examples button { background:rgba(255,255,255,.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:7px 10px; font-size:.72rem; text-align:left; cursor:pointer; transition:all .15s; }
+  .aic-empty .examples button:hover { background:rgba(0,240,255,.10); border-color:rgba(0,240,255,.30); color:var(--text-primary); }
+  .aic-input-row { padding:10px 12px; border-top:1px solid rgba(255,255,255,.08); display:flex; gap:8px; align-items:flex-end; }
+  .aic-input { flex:1; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:8px 10px; font-size:.82rem; resize:none; max-height:100px; font-family:inherit; }
+  .aic-input:focus { outline:none; border-color:var(--accent-cyan); }
+  .aic-send { background:var(--accent-cyan); color:#000; border:none; border-radius:8px; padding:0 14px; height:34px; font-weight:700; font-size:.78rem; cursor:pointer; }
+  .aic-send:disabled { opacity:.4; cursor:not-allowed; }
+  .aic-typing { display:inline-block; }
+  .aic-typing::after { content:'▍'; animation:aic-blink 1s steps(1) infinite; color:var(--accent-cyan); }
+  @keyframes aic-blink { 50% { opacity:0; } }
+</style>
+
+<button id="ai-chat-fab" type="button" title="Ask the AI assistant" onclick="toggleAIChat()">💬</button>
+
+<div id="ai-chat-panel" role="dialog" aria-label="AI Assistant">
+  <div class="aic-header">
+    <div style="flex:1">
+      <div class="aic-title">Market Intel Assistant</div>
+      <div class="aic-sub" id="aic-sub">{{ chat_subtitle }}</div>
+    </div>
+    <button class="aic-newchat" onclick="aicNewChat()" title="Start a new conversation">↻ New</button>
+    <button class="state-modal-close" onclick="toggleAIChat()" style="position:static;font-size:.85rem;padding:4px 8px">✕</button>
+  </div>
+  <div class="aic-body" id="aic-body">
+    <div class="aic-empty">
+      <div>Ask anything about what's on screen.</div>
+      <div class="examples">
+        {% for label, prompt in chat_examples %}
+        <button onclick="aicAsk({{ prompt|tojson }})">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="aic-input-row">
+    <textarea id="aic-input" class="aic-input" rows="1" placeholder="Ask anything…" onkeydown="aicKey(event)"></textarea>
+    <button class="aic-send" id="aic-send" onclick="aicSend()">Send</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CHAT_PAGE = {{ chat_page|tojson }};
+  const CONV_KEY  = `chat_conv_${CHAT_PAGE}`;
+  const history = [];   // [{role, content}] — minimal client-side mirror used to send to /api/chat
+  let conversationId = localStorage.getItem(CONV_KEY) || null;
+  let inflight = false;
+  let historyLoaded = false;
+
+  if (window.marked && marked.setOptions) {
+    marked.setOptions({ gfm:true, breaks:true, headerIds:false, mangle:false });
+  }
+  function renderMd(s) {
+    if (!window.marked) return s;
+    try { return marked.parse(s); } catch(_) { return s; }
+  }
+  function el(id) { return document.getElementById(id); }
+
+  // No-op default — pages that need richer context override window.buildChatContext.
+  if (typeof window.buildChatContext !== 'function') {
+    window.buildChatContext = function(){ return {}; };
+  }
+
+  window.toggleAIChat = function() {
+    const panel = el('ai-chat-panel');
+    const fab = el('ai-chat-fab');
+    const open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    fab.classList.toggle('open', open);
+    fab.textContent = open ? '✕' : '💬';
+    if (open) {
+      setTimeout(() => el('aic-input').focus(), 80);
+      _maybeReplayHistory();
+    }
+  };
+
+  window.aicAsk = function(text) { el('aic-input').value = text; aicSend(); };
+  window.aicKey = function(ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); aicSend(); }
+  };
+  window.aicNewChat = function() {
+    conversationId = null;
+    localStorage.removeItem(CONV_KEY);
+    history.length = 0;
+    historyLoaded  = true;
+    el('aic-body').innerHTML =
+      '<div class="aic-empty"><div>New conversation started.</div></div>';
+    el('aic-sub').textContent = {{ chat_subtitle|tojson }};
+  };
+
+  async function _maybeReplayHistory() {
+    if (historyLoaded) return;
+    historyLoaded = true;
+    if (!conversationId) return;
+    try {
+      const r = await fetch(`/api/chat/history?conversation_id=${encodeURIComponent(conversationId)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const msgs = d.messages || [];
+      if (!msgs.length) return;
+      // Clear empty-state
+      const empty = el('aic-body').querySelector('.aic-empty');
+      if (empty) empty.remove();
+      for (const m of msgs) {
+        const blocks = m.blocks || [];
+        for (const b of blocks) {
+          if (b.type === 'text' && b.text) {
+            appendMsg(m.role, b.text);
+            // Mirror text-only turns into client-side history so next POST has context
+            history.push({role: m.role, content: b.text});
+          } else if (b.type === 'tool_use') {
+            const sql = (b.input && b.input.sql) || '';
+            const fips = (b.input && b.input.fips) || '';
+            const z   = (b.input && b.input.zip) || '';
+            const label = b.name === 'query_database'
+              ? `<span class="lbl">🔎 ${escHtml(b.name)}</span><code>${escHtml(sql)}</code>`
+              : `<span class="lbl">${escHtml(b.name)}</span><code>${escHtml(JSON.stringify(b.input || {}))}</code>`;
+            appendTool(label, 'ok');
+          } else if (b.type === 'tool_result' && b.is_error) {
+            appendError(typeof b.content === 'string' ? b.content : JSON.stringify(b.content));
+          }
+          // tool_result success blocks are not re-rendered — the tool box already showed its summary
+        }
+      }
+      el('aic-sub').textContent = `Resumed conversation · ${msgs.length} prior turns`;
+    } catch (e) {
+      console.warn('chat history replay failed:', e);
+    }
+  }
+
+  function appendMsg(role, text) {
+    const empty = el('aic-body').querySelector('.aic-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'aic-msg ' + role;
+    if (role === 'assistant') {
+      div.innerHTML = text ? renderMd(text) : '';
+      autosizePanel(div);
+    } else {
+      div.textContent = text;
+    }
+    el('aic-body').appendChild(div);
+    el('aic-body').scrollTop = el('aic-body').scrollHeight;
+    return div;
+  }
+
+  function autosizePanel(bubble) {
+    const panel = el('ai-chat-panel');
+    if (!panel) return;
+    let needsWide = false, needsXWide = false;
+    const tables = bubble.querySelectorAll('table');
+    if (tables.length) {
+      bubble.classList.add('has-table');
+      needsWide = true;
+      tables.forEach(t => {
+        const cols = (t.querySelector('tr') || {}).children?.length || 0;
+        if (cols >= 5) needsXWide = true;
+      });
+    }
+    if (bubble.querySelector('pre')) needsWide = true;
+    if (needsWide) panel.classList.add('wide');
+    if (needsXWide) panel.classList.add('xwide');
+    if (needsWide || needsXWide) {
+      requestAnimationFrame(() => {
+        tables.forEach(t => {
+          if (t.scrollWidth > t.clientWidth + 2) panel.classList.add('xwide');
+        });
+      });
+    }
+  }
+
+  function appendError(text) {
+    const div = document.createElement('div');
+    div.className = 'aic-msg error';
+    div.textContent = text;
+    el('aic-body').appendChild(div);
+    el('aic-body').scrollTop = el('aic-body').scrollHeight;
+  }
+  function appendTool(text, status) {
+    const div = document.createElement('div');
+    div.className = 'aic-tool' + (status ? ' '+status : '');
+    div.innerHTML = text;
+    el('aic-body').appendChild(div);
+    el('aic-body').scrollTop = el('aic-body').scrollHeight;
+    return div;
+  }
+  function escHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
+
+  window.aicSend = async function() {
+    if (inflight) return;
+    const input = el('aic-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    inflight = true;
+    el('aic-send').disabled = true;
+
+    appendMsg('user', text);
+    history.push({role:'user', content:text});
+
+    let assistantEl = null, acc = '';
+    let activeToolEl = null;
+    function ensureAssistantBubble() {
+      if (!assistantEl || !assistantEl.isConnected) {
+        assistantEl = appendMsg('assistant', '');
+        assistantEl.classList.add('aic-typing');
+        acc = '';
+      }
+      return assistantEl;
+    }
+
+    try {
+      const res = await fetch('/api/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          messages: history,
+          context: window.buildChatContext(),
+          page: CHAT_PAGE,
+          conversation_id: conversationId,
+        }),
+      });
+      if (!res.ok) {
+        let err = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j.error) err = j.error; } catch(_){}
+        throw new Error(err);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream:true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data) continue;
+          let parsed;
+          try { parsed = JSON.parse(data); } catch (_) { continue; }
+
+          if (parsed.conversation_id && !conversationId) {
+            conversationId = parsed.conversation_id;
+            localStorage.setItem(CONV_KEY, conversationId);
+          }
+          if (parsed.delta) {
+            ensureAssistantBubble();
+            acc += parsed.delta;
+            assistantEl.innerHTML = renderMd(acc);
+            autosizePanel(assistantEl);
+            el('aic-body').scrollTop = el('aic-body').scrollHeight;
+          } else if (parsed.tool) {
+            if (assistantEl) {
+              assistantEl.classList.remove('aic-typing');
+              if (acc) history.push({role:'assistant', content:acc});
+              assistantEl = null; acc = '';
+            }
+            if (parsed.status === 'running') {
+              let label;
+              if (parsed.tool === 'zips_in_county')
+                label = `<span class="lbl">📍 zips_in_county</span><code>FIPS ${escHtml(parsed.fips || '')}</code>`;
+              else if (parsed.tool === 'get_county_metrics')
+                label = `<span class="lbl">📊 get_county_metrics</span><code>FIPS ${escHtml(parsed.fips || '')}</code>`;
+              else if (parsed.tool === 'get_zip_metrics')
+                label = `<span class="lbl">📊 get_zip_metrics</span><code>ZIP ${escHtml(parsed.zip || '')}</code>`;
+              else if (parsed.tool === 'state_top_counties')
+                label = `<span class="lbl">🏆 state_top_counties</span><code>${escHtml(parsed.state || '')} by ${escHtml(parsed.metric || 'g')}</code>`;
+              else
+                label = `<span class="lbl">🔎 query_database</span><code>${escHtml(parsed.sql || '')}</code>`;
+              activeToolEl = appendTool(label, '');
+            } else if (parsed.status === 'ok' && activeToolEl) {
+              activeToolEl.classList.add('ok');
+              activeToolEl.innerHTML += `<div class="meta">${parsed.row_count} row${parsed.row_count===1?'':'s'}${parsed.elapsed_ms?(' · '+parsed.elapsed_ms+' ms'):''}</div>`;
+              activeToolEl = null;
+            } else if (parsed.status === 'error' && activeToolEl) {
+              activeToolEl.classList.add('error');
+              activeToolEl.innerHTML += `<div class="meta">Error: ${escHtml(parsed.error || '')}</div>`;
+              activeToolEl = null;
+            }
+          } else if (parsed.error) {
+            throw new Error(parsed.error);
+          } else if (parsed.done) {
+            const u = parsed.usage || {};
+            const parts = [];
+            if (u.iterations > 1) parts.push(`${u.iterations} steps`);
+            if (u.cache_read)     parts.push(`${u.cache_read} cached`);
+            if (u.input)          parts.push(`${u.input} in / ${u.output||0} out`);
+            if (parts.length) el('aic-sub').textContent = parts.join(' · ');
+          }
+        }
+      }
+      if (assistantEl) {
+        assistantEl.classList.remove('aic-typing');
+        if (acc) history.push({role:'assistant', content:acc});
+      }
+    } catch (e) {
+      if (assistantEl) assistantEl.remove();
+      appendError(`Error: ${e.message}`);
+    } finally {
+      inflight = false;
+      el('aic-send').disabled = false;
+    }
+  };
+})();
+</script>
