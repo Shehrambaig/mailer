@@ -296,8 +296,10 @@ let state = {
     limit:    100,
     loading:  false,
     done:     false,
-    filters:  [],            // [{col, op, value, ...}]  AND-combined
-    appliedFilters: [],      // server response: filters with resolved pct thresholds
+    filters:  [],            // column-level: [{col, op, value, ...}]
+    fcFilters: [],           // foreclosure-record-level: [{field, op, value}]
+    appliedFilters: [],      // server response (with resolved pct thresholds)
+    appliedFcFilters: [],
 };
 
 // Multi-select columns (low-cardinality, fetched via /distinct/)
@@ -350,7 +352,8 @@ function renderHeader() {
     tr.innerHTML = cols.map(c => {
         const sorted = c.key === state.sort;
         const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
-        const hasFilter = state.filters.some(f => f.col === c.key);
+        const hasFilter = state.filters.some(f => f.col === c.key)
+            || (c.key === 'foreclosure_count' && state.fcFilters.length > 0);
         return `<th class="${sorted?'sorted':''}" data-key="${c.key}">
                   <span class="th-inner" onclick="sortBy('${c.key}')">
                     <span class="label">${c.label}</span>
@@ -409,6 +412,11 @@ function buildURL({format='json', offsetOverride=null} = {}) {
         const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
         p.append(`f.${f.col}.${f.op}`, v);
     }
+    // Foreclosure-record-level filters
+    for (const f of state.fcFilters) {
+        const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
+        p.append(`fc.${f.field}.${f.op}`, v);
+    }
     return `/api/explore/${state.grain}?${p.toString()}`;
 }
 
@@ -423,6 +431,10 @@ function syncURL() {
         const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
         p.append(`f.${f.col}.${f.op}`, v);
     }
+    for (const f of state.fcFilters) {
+        const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
+        p.append(`fc.${f.field}.${f.op}`, v);
+    }
     history.replaceState(null, '', '/explore?' + p.toString());
 }
 function loadFromURL() {
@@ -432,13 +444,23 @@ function loadFromURL() {
     state.sort = p.get('sort') || 'active_listing_count';
     state.dir  = p.get('dir')  || 'desc';
     state.filters = [];
+    state.fcFilters = [];
     for (const [k, v] of p.entries()) {
-        if (!k.startsWith('f.')) continue;
-        const parts = k.split('.', 3); // ["f", col, op]
-        if (parts.length !== 3) continue;
-        const [, col, op] = parts;
-        const value = (op === 'in') ? v.split(',').filter(Boolean) : v;
-        state.filters.push({ col, op, value });
+        if (k.startsWith('f.')) {
+            const parts = k.split('.', 3);  // ["f", col, op]
+            if (parts.length !== 3) continue;
+            const [, col, op] = parts;
+            const value = (op === 'in') ? v.split(',').filter(Boolean) : v;
+            state.filters.push({ col, op, value });
+        } else if (k.startsWith('fc.')) {
+            const parts = k.split('.', 3);  // ["fc", field, op]
+            if (parts.length !== 3) continue;
+            const [, field, op] = parts;
+            let value = v;
+            if (op === 'in') value = v.split(',').filter(Boolean);
+            else if (op === 'has') value = (v === 'true' || v === '1');
+            state.fcFilters.push({ field, op, value });
+        }
     }
     document.getElementById('search').value = state.q;
     document.getElementById('tab-county').classList.toggle('active', state.grain === 'county');
@@ -457,7 +479,8 @@ async function loadInitial() {
         state.rows    = d.rows;
         state.total   = d.total;
         state.offset  = d.rows.length;
-        state.appliedFilters = d.applied_filters || [];
+        state.appliedFilters   = d.applied_filters    || [];
+        state.appliedFcFilters = d.applied_fc_filters || [];
         if (state.rows.length >= state.total) state.done = true;
         if (!state.visible.size) {
             state.columns.forEach(c => { if (c.default) state.visible.add(c.key); });
@@ -605,13 +628,34 @@ function formatNum(v, type) {
     if (type === 'number')        return n.toFixed(2);
     return v;
 }
+function fcChipLabel(f) {
+    if (f.field === 'auction_date') {
+        if (f.op === 'has')      return 'Auction date: ' + (f.value ? 'with date' : 'no date');
+        if (f.op === 'gte')      return `Auction date ≥ ${f.value}`;
+        if (f.op === 'lte')      return `Auction date ≤ ${f.value}`;
+        if (f.op === 'eq')       return `Auction date = ${f.value}`;
+    }
+    if (f.field === 'listing_type')   return `Listing type: ${Array.isArray(f.value)?f.value.join(', '):f.value}`;
+    if (f.field === 'classification') return `Classification: ${Array.isArray(f.value)?f.value.join(', '):f.value}`;
+    return `${f.field} ${f.op} ${f.value}`;
+}
 function renderChips() {
     const bar = document.getElementById('chip-bar');
-    if (!state.appliedFilters.length) { bar.innerHTML = ''; return; }
-    const chips = state.appliedFilters.map((f, i) => {
-        return `<span class="chip">${chipLabel(f, null)}<span class="chip-x" title="Remove" onclick="removeFilter(${i})">✕</span></span>`;
-    }).join('');
-    bar.innerHTML = chips + `<span class="clear-all" onclick="clearAllFilters()">Clear all</span>`;
+    const chips = [];
+    state.appliedFilters.forEach((f, i) => {
+        chips.push(`<span class="chip">${chipLabel(f, null)}<span class="chip-x" title="Remove" onclick="removeFilter(${i})">✕</span></span>`);
+    });
+    state.appliedFcFilters.forEach((f, i) => {
+        chips.push(`<span class="chip">${fcChipLabel(f)}<span class="chip-x" title="Remove" onclick="removeFcFilter(${i})">✕</span></span>`);
+    });
+    if (!chips.length) { bar.innerHTML = ''; return; }
+    bar.innerHTML = chips.join('') + `<span class="clear-all" onclick="clearAllFilters()">Clear all</span>`;
+}
+function removeFcFilter(idx) {
+    const af = state.appliedFcFilters.slice();
+    af.splice(idx, 1);
+    state.fcFilters = af.map(f => ({ field: f.field, op: f.op, value: f.value }));
+    loadInitial();
 }
 function removeFilter(idx) {
     // appliedFilters is the resolved list from the server; we need to map back to
@@ -625,7 +669,7 @@ function removeFilter(idx) {
     loadInitial();
 }
 function clearAllFilters() {
-    state.filters = []; loadInitial();
+    state.filters = []; state.fcFilters = []; loadInitial();
 }
 
 // Add or replace a filter for a (col, op) key. For numeric ranges we may have
@@ -657,6 +701,12 @@ function openFilter(col, anchor) {
     const pop = document.getElementById('filter-popover');
     _popoverCol = col;
     pop.classList.remove('open-shorthand');
+
+    // Special popover for the Foreclosures column — count range PLUS
+    // record-level filters that re-aggregate the count.
+    if (col === 'foreclosure_count') {
+        return openForeclosurePopover(anchor);
+    }
 
     // Existing filter values for this column
     const fGte  = state.filters.find(f => f.col === col && f.op === 'gte');
@@ -740,6 +790,152 @@ function openFilter(col, anchor) {
         if (firstInput) firstInput.focus();
     }, 30);
 }
+function openForeclosurePopover(anchor) {
+    const pop = document.getElementById('filter-popover');
+    // Count range — reuse state.filters[col=foreclosure_count]
+    const fGte = state.filters.find(f => f.col === 'foreclosure_count' && f.op === 'gte');
+    const fLte = state.filters.find(f => f.col === 'foreclosure_count' && f.op === 'lte');
+    // Auction date current state
+    const fcHas  = state.fcFilters.find(f => f.field === 'auction_date' && f.op === 'has');
+    const fcGte  = state.fcFilters.find(f => f.field === 'auction_date' && f.op === 'gte');
+    const fcLte  = state.fcFilters.find(f => f.field === 'auction_date' && f.op === 'lte');
+    const fcLt   = state.fcFilters.find(f => f.field === 'listing_type' && f.op === 'in');
+    const fcCl   = state.fcFilters.find(f => f.field === 'classification' && f.op === 'in');
+    const hasYes = !!(fcHas && fcHas.value === true);
+    const hasNo  = !!(fcHas && fcHas.value === false);
+
+    pop.style.minWidth = '320px';
+    pop.style.maxWidth = '420px';
+    pop.innerHTML = `
+      <h6>Foreclosures</h6>
+
+      <div style="font-size:.68rem; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px;">Count range</div>
+      <div class="fp-row">
+        <label class="fp-lbl">Min</label>
+        <input id="fc-min" type="number" step="any" placeholder="" value="${fGte ? fGte.value : ''}">
+      </div>
+      <div class="fp-row">
+        <label class="fp-lbl">Max</label>
+        <input id="fc-max" type="number" step="any" placeholder="" value="${fLte ? fLte.value : ''}">
+      </div>
+      <div class="fp-chips">
+        <button onclick="applyPctFc('t10')">Top 10%</button>
+        <button onclick="applyPctFc('t25')">Top 25%</button>
+        <button onclick="applyPctFc('b25')">Bottom 25%</button>
+      </div>
+
+      <div style="height:10px;"></div>
+      <div style="font-size:.68rem; color:var(--text-muted); margin:8px 0 6px; text-transform:uppercase; letter-spacing:.5px;">Auction date</div>
+      <label class="col-row" style="padding:4px 0; display:flex; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="fc-has-yes" ${hasYes?'checked':''}>
+        <span>With auction date</span>
+      </label>
+      <label class="col-row" style="padding:4px 0; display:flex; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="fc-has-no"  ${hasNo?'checked':''}>
+        <span>Without auction date</span>
+      </label>
+      <div class="fp-row" style="margin-top:6px;">
+        <label class="fp-lbl">From</label>
+        <input id="fc-date-from" type="date" value="${fcGte ? fcGte.value : ''}">
+      </div>
+      <div class="fp-row">
+        <label class="fp-lbl">To</label>
+        <input id="fc-date-to"   type="date" value="${fcLte ? fcLte.value : ''}">
+      </div>
+
+      <div style="height:10px;"></div>
+      <div style="font-size:.68rem; color:var(--text-muted); margin:8px 0 6px; text-transform:uppercase; letter-spacing:.5px;">Listing type</div>
+      <div class="fp-multi-list" id="fc-lt-list">
+        <div style="padding:10px;color:var(--text-muted);font-size:.72rem;">Loading…</div>
+      </div>
+
+      <div style="height:10px;"></div>
+      <div style="font-size:.68rem; color:var(--text-muted); margin:8px 0 6px; text-transform:uppercase; letter-spacing:.5px;">Classification</div>
+      <div class="fp-multi-list" id="fc-cl-list">
+        <div style="padding:10px;color:var(--text-muted);font-size:.72rem;">Loading…</div>
+      </div>
+
+      <div class="fp-actions">
+        <button class="btn-tool" onclick="applyForeclosureFilter()">Apply</button>
+        <button class="btn-tool" onclick="clearForeclosureFilter();">Clear all</button>
+      </div>
+    `;
+    positionPopover(anchor);
+    pop.classList.add('open');
+    pop.style.maxHeight = (window.innerHeight - 100) + 'px';
+    pop.style.overflowY = 'auto';
+
+    // Load distinct values for listing_type + classification
+    loadFcDistinct('listing_type',   'fc-lt-list', fcLt ? fcLt.value : []);
+    loadFcDistinct('classification', 'fc-cl-list', fcCl ? fcCl.value : []);
+}
+
+async function loadFcDistinct(field, listId, checkedValues) {
+    try {
+        const r = await fetch(`/api/explore/foreclosure-distinct/${field}`);
+        const d = await r.json();
+        const checked = new Set((checkedValues || []).map(String));
+        const list = document.getElementById(listId);
+        if (!list) return;
+        list.innerHTML = (d.values || []).map(item => {
+            const v = item.value;
+            const safe = String(v).replace(/"/g,'&quot;');
+            return `<label><input type="checkbox" value="${safe}" ${checked.has(String(v))?'checked':''}> ${v} <span style="margin-left:auto;color:var(--text-muted);font-size:.65rem;">${item.count.toLocaleString()}</span></label>`;
+        }).join('') || `<div style="padding:10px;color:var(--text-muted)">No values.</div>`;
+    } catch (e) {
+        const list = document.getElementById(listId);
+        if (list) list.innerHTML = `<div style="padding:10px;color:var(--accent-red);font-size:.72rem">Failed to load: ${e.message}</div>`;
+    }
+}
+
+function applyPctFc(which) {
+    setFilter('foreclosure_count', 'pct', which);
+    closeFilter();
+}
+
+function applyForeclosureFilter() {
+    // 1. Count range — reuse the column-filter slot
+    const minRaw = document.getElementById('fc-min').value.trim();
+    const maxRaw = document.getElementById('fc-max').value.trim();
+    state.filters = state.filters.filter(f => f.col !== 'foreclosure_count');
+    if (minRaw !== '' && isFinite(Number(minRaw))) {
+        state.filters.push({ col: 'foreclosure_count', op: 'gte', value: Number(minRaw) });
+    }
+    if (maxRaw !== '' && isFinite(Number(maxRaw))) {
+        state.filters.push({ col: 'foreclosure_count', op: 'lte', value: Number(maxRaw) });
+    }
+
+    // 2. Foreclosure-record-level filters (auction_date / listing_type / classification)
+    state.fcFilters = [];
+
+    const hasYes = document.getElementById('fc-has-yes').checked;
+    const hasNo  = document.getElementById('fc-has-no').checked;
+    // Both checked = no constraint (both are valid). Only one checked applies it.
+    if (hasYes && !hasNo) state.fcFilters.push({ field: 'auction_date', op: 'has', value: true });
+    if (hasNo  && !hasYes) state.fcFilters.push({ field: 'auction_date', op: 'has', value: false });
+
+    const dateFrom = document.getElementById('fc-date-from').value;
+    const dateTo   = document.getElementById('fc-date-to').value;
+    if (dateFrom) state.fcFilters.push({ field: 'auction_date', op: 'gte', value: dateFrom });
+    if (dateTo)   state.fcFilters.push({ field: 'auction_date', op: 'lte', value: dateTo });
+
+    const ltChecked = Array.from(document.querySelectorAll('#fc-lt-list input[type="checkbox"]:checked')).map(el => el.value);
+    if (ltChecked.length) state.fcFilters.push({ field: 'listing_type',   op: 'in', value: ltChecked });
+
+    const clChecked = Array.from(document.querySelectorAll('#fc-cl-list input[type="checkbox"]:checked')).map(el => el.value);
+    if (clChecked.length) state.fcFilters.push({ field: 'classification', op: 'in', value: clChecked });
+
+    closeFilter();
+    loadInitial();
+}
+
+function clearForeclosureFilter() {
+    state.filters = state.filters.filter(f => f.col !== 'foreclosure_count');
+    state.fcFilters = [];
+    closeFilter();
+    loadInitial();
+}
+
 function positionPopover(anchor) {
     const pop = document.getElementById('filter-popover');
     const r   = anchor.getBoundingClientRect();

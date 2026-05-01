@@ -335,6 +335,96 @@ def _resolve_pct_thresholds(grain, filters):
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Foreclosure-record-level filters (fc.*) — these don't filter rows directly,
+# they re-scope which foreclosure_records rows count toward the Foreclosures
+# column for each county/ZIP. When any fc.* filter is active we replace the
+# precomputed JOIN with a CTE that re-aggregates on the fly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+FC_FIELDS = {
+    "auction_date":  {"type": "date",   "ops": {"has", "gte", "lte", "eq"}},
+    "listing_type":  {"type": "text",   "ops": {"in", "equals", "contains"}},
+    "classification":{"type": "text",   "ops": {"in", "equals", "contains"}},
+}
+
+
+def _parse_fc_filters(args):
+    """Parse fc.<field>.<op>=<value> records-level filters."""
+    out = []
+    errors = []
+    for raw_key, raw_val in args.items(multi=True):
+        if not raw_key.startswith("fc."):
+            continue
+        parts = raw_key.split(".", 2)
+        if len(parts) != 3:
+            errors.append(f"bad fc filter key {raw_key!r}"); continue
+        _, field, op = parts
+        if field not in FC_FIELDS:
+            errors.append(f"unknown fc field {field!r}"); continue
+        spec = FC_FIELDS[field]
+        if op not in spec["ops"]:
+            errors.append(f"fc.{field}: op {op!r} not allowed"); continue
+        # Normalize values
+        if op == "has":
+            v = str(raw_val).strip().lower() in ("1", "true", "yes")
+        elif op == "in":
+            v = [s for s in raw_val.split(",") if s.strip()]
+            if not v:
+                continue
+        else:
+            v = str(raw_val).strip()
+        out.append({"field": field, "op": op, "value": v, "type": spec["type"]})
+    return out, errors
+
+
+def _build_fc_count_cte(grain: str, fc_filters):
+    """Build a CTE that recomputes foreclosure count per geo, using the
+    record-level filters. Returns (cte_sql, params) producing a relation
+    with columns (postal_code or county_fips, fc_count) joined alias `fc`."""
+    cfg = GRAIN_CONFIG[grain]
+    where = ["status = 'active'", "zip IS NOT NULL", "zip <> ''"]
+    params = []
+
+    for f in fc_filters:
+        if f["field"] == "auction_date":
+            if f["op"] == "has":
+                where.append("auction_date IS NOT NULL" if f["value"] else "auction_date IS NULL")
+            elif f["op"] == "gte":
+                where.append("auction_date >= %s::date"); params.append(f["value"])
+            elif f["op"] == "lte":
+                where.append("auction_date <= %s::date"); params.append(f["value"])
+            elif f["op"] == "eq":
+                where.append("auction_date = %s::date"); params.append(f["value"])
+        elif f["field"] in ("listing_type", "classification"):
+            col = f["field"]
+            if f["op"] == "in":
+                ph = ", ".join(["%s"] * len(f["value"]))
+                where.append(f"{col} IN ({ph})"); params.extend(f["value"])
+            elif f["op"] == "equals":
+                where.append(f"LOWER({col}) = LOWER(%s)"); params.append(f["value"])
+            elif f["op"] == "contains":
+                where.append(f"{col} ILIKE %s"); params.append(f"%{f['value']}%")
+
+    where_sql = " AND ".join(where)
+    if grain == "zip":
+        cte = (f"fc AS ("
+               f"  SELECT LPAD(zip, 5, '0') AS postal_code, COUNT(*)::int AS fc_count "
+               f"  FROM foreclosure_records WHERE {where_sql} "
+               f"  GROUP BY LPAD(zip, 5, '0') )")
+    else:
+        # county — first per-zip, then SUM via zip_county_map
+        cte = (f"fc_zip AS ("
+               f"  SELECT LPAD(zip, 5, '0') AS postal_code, COUNT(*)::int AS fc_count "
+               f"  FROM foreclosure_records WHERE {where_sql} "
+               f"  GROUP BY LPAD(zip, 5, '0') ),"
+               f"fc AS ("
+               f"  SELECT zcm.county_fips, SUM(fz.fc_count)::int AS fc_count "
+               f"  FROM fc_zip fz JOIN zip_county_map zcm ON zcm.postal_code = fz.postal_code "
+               f"  GROUP BY zcm.county_fips )")
+    return cte, params
+
+
 def _filter_to_sql(grain, f, qualifier):
     """Translate one validated filter to (where_clause, params)."""
     col = f["col"]
@@ -364,9 +454,10 @@ def _filter_to_sql(grain, f, qualifier):
     return None, []
 
 
-def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None):
+def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None):
     """Return (sql, params, cols_in_order) for the given grain."""
     filters = filters or []
+    fc_filters = fc_filters or []
     cfg = GRAIN_CONFIG[grain]
     cols     = cfg["columns"]
     key      = cfg["key"]
@@ -412,16 +503,27 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
             where.append(clause)
             params.extend(fparams)
 
+    # When record-level fc.* filters are active, replace the precomputed
+    # foreclosure_counts table with a dynamic CTE that re-aggregates per geo.
+    fc_prefix = ""
+    fc_params_pre = []
+    if fc_filters:
+        fc_cte, fc_params_pre = _build_fc_count_cte(grain, fc_filters)
+        fc_prefix = f"WITH {fc_cte} "
+        fc_join_table = "fc"   # CTE alias already named 'fc'
+    else:
+        fc_join_table = fc_t
+
     base_from = (
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
-        f"LEFT JOIN {fc_t} fc ON fc.{fc_key} = i.{key} "
+        f"LEFT JOIN {fc_join_table} fc ON fc.{fc_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
 
     if want_count:
-        return f"SELECT COUNT(*) {base_from}", params, []
+        return f"{fc_prefix}SELECT COUNT(*) {base_from}", fc_params_pre + params, []
 
     # Validate sort column against the whitelist
     valid_sort_keys = {c["key"] for c in cols if c.get("sortable", True)}
@@ -439,8 +541,8 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
 
     cols_in_order = [key] + inv_cols + hot_cols + fc_cols
-    sql = f"SELECT {', '.join(select_parts)} {base_from} {order_sql}"
-    return sql, params, cols_in_order
+    sql = f"{fc_prefix}SELECT {', '.join(select_parts)} {base_from} {order_sql}"
+    return sql, fc_params_pre + params, cols_in_order
 
 
 def _fmt_for_csv(val):
@@ -449,12 +551,12 @@ def _fmt_for_csv(val):
     return str(val)
 
 
-def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None):
+def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None, fc_filters=None):
     cfg = GRAIN_CONFIG[grain]
     visible_cols = list(visible_cols) if visible_cols else [c["key"] for c in cfg["columns"]]
     label_by_key = {c["key"]: c["label"] for c in cfg["columns"]}
 
-    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [])
+    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [], fc_filters=fc_filters or [])
 
     conn = _conn()
     try:
@@ -493,6 +595,8 @@ def explore(grain):
     fmt      = request.args.get("format", "json").lower()
 
     raw_filters, filter_errors = _parse_filters(grain, request.args)
+    fc_filters,  fc_errors      = _parse_fc_filters(request.args)
+    filter_errors.extend(fc_errors)
     filters = _resolve_pct_thresholds(grain, raw_filters)
 
     if fmt == "csv":
@@ -500,7 +604,8 @@ def explore(grain):
         visible_cols = [c for c in visible.split(",") if c] or None
         filename = f"realtor_{grain}_{request.args.get('q','all')}.csv"
         return Response(
-            stream_with_context(_stream_csv(grain, q, sort, sort_dir, visible_cols, filters=filters)),
+            stream_with_context(_stream_csv(grain, q, sort, sort_dir, visible_cols,
+                                            filters=filters, fc_filters=fc_filters)),
             mimetype="text/csv",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
@@ -517,10 +622,10 @@ def explore(grain):
     except ValueError:
         limit = 100
 
-    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters)
+    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters, fc_filters=fc_filters)
     paged_sql = f"{sql} LIMIT {limit} OFFSET {offset}"
 
-    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters)
+    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters)
 
     conn = _conn()
     try:
@@ -563,7 +668,34 @@ def explore(grain):
              "pct_threshold": f.get("pct_threshold")}
             for f in filters
         ],
+        "applied_fc_filters": [
+            {"field": f["field"], "op": f["op"], "value": f["value"]}
+            for f in fc_filters
+        ],
         "filter_errors": filter_errors,
+    })
+
+
+@explore_bp.route("/api/explore/foreclosure-distinct/<field>")
+def explore_foreclosure_distinct(field):
+    """Distinct values from foreclosure_records for fc.* multi-select filters."""
+    if field not in ("listing_type", "classification"):
+        return jsonify({"error": f"unsupported field {field!r}"}), 400
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {field}, COUNT(*) AS n FROM foreclosure_records "
+                f"WHERE status='active' AND {field} IS NOT NULL "
+                f"GROUP BY {field} ORDER BY n DESC"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return jsonify({
+        "field":  field,
+        "values": [{"value": v, "count": n} for v, n in rows],
+        "count":  len(rows),
     })
 
 
