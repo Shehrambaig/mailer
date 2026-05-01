@@ -72,6 +72,10 @@ COUNTY_COLUMNS = [
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share", "default":True, "source":"inv"},
     {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
+    # Derived scores (precomputed in realtor_scores_county)
+    {"key":"exit_score",             "label":"Exit Speed",            "type":"integer",   "default":True,  "source":"sc"},
+    {"key":"buy_score",              "label":"Buy Score",             "type":"integer",   "default":False, "source":"sc"},
+    {"key":"golden_score",           "label":"Golden Zone",           "type":"integer",   "default":False, "source":"sc"},
 
     # extra inventory cols
     {"key":"median_listing_price_mm","label":"List Price MoM",        "type":"ratio",     "default":False, "source":"inv"},
@@ -122,6 +126,9 @@ ZIP_COLUMNS = [
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share","default":True, "source":"inv"},
     {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
+    {"key":"exit_score",             "label":"Exit Speed",            "type":"integer",   "default":True,  "source":"sc"},
+    {"key":"buy_score",              "label":"Buy Score",             "type":"integer",   "default":False, "source":"sc"},
+    {"key":"golden_score",           "label":"Golden Zone",           "type":"integer",   "default":False, "source":"sc"},
 
     {"key":"median_listing_price_mm","label":"List Price MoM",        "type":"ratio",     "default":False, "source":"inv"},
     {"key":"median_listing_price_yy","label":"List Price YoY",        "type":"ratio",     "default":False, "source":"inv"},
@@ -164,8 +171,10 @@ GRAIN_CONFIG = {
         "columns":      COUNTY_COLUMNS,
         "inv_table":    "realtor_inventory_county",
         "hot_table":    "realtor_hotness_county",
-        "fc_table":     "foreclosure_counts_by_county",   # precomputed, see scripts/refresh_foreclosure_counts.py
+        "fc_table":     "foreclosure_counts_by_county",   # see scripts/refresh_foreclosure_counts.py
         "fc_key":       "county_fips",
+        "score_table":  "realtor_scores_county",          # see scripts/refresh_score_tables.py
+        "score_key":    "county_fips",
         "key":          "county_fips",
         "search_cols":  ["county_fips", "county_name"],
         "default_sort": "active_listing_count",
@@ -176,6 +185,8 @@ GRAIN_CONFIG = {
         "hot_table":    "realtor_hotness_zip",
         "fc_table":     "foreclosure_counts_by_zip",
         "fc_key":       "postal_code",
+        "score_table":  "realtor_scores_zip",
+        "score_key":    "postal_code",
         "key":          "postal_code",
         "search_cols":  ["postal_code", "zip_name"],
         "default_sort": "active_listing_count",
@@ -290,9 +301,8 @@ def _resolve_pct_thresholds(grain, filters):
     parts = []
     for i, f in enumerate(pct_filters):
         pct = PCT_VALUES[f["value"]]
-        qual = "i" if f["source"] == "inv" else ("h" if f["source"] == "hot" else None)
-        if qual is None:
-            # foreclosure_count — pull from the precomputed table inline
+        src = f["source"]
+        if src == "fc":
             parts.append((
                 f"thr_{i}",
                 f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
@@ -301,7 +311,16 @@ def _resolve_pct_thresholds(grain, filters):
                 f"LEFT JOIN {cfg['fc_table']} fc ON fc.{cfg['fc_key']} = i.{key} "
                 f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
             ))
+        elif src == "sc":
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY sc.{f['col']}) "
+                f"FROM {cfg['score_table']} sc "
+                f"WHERE sc.{f['col']} IS NOT NULL"
+            ))
         else:
+            qual = "i" if src == "inv" else "h"
             join = ""
             if qual == "h":
                 join = (f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
@@ -435,6 +454,8 @@ def _filter_to_sql(grain, f, qualifier):
 
     if src == "fc":
         ref = "COALESCE(fc.fc_count, 0)"
+    elif src == "sc":
+        ref = f"sc.{col}"
     else:
         ref = f"{qualifier}.{col}"
 
@@ -470,6 +491,7 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     inv_cols = [c["key"] for c in cols if c["source"] == "inv" and c["key"] != key]
     hot_cols = [c["key"] for c in cols if c["source"] == "hot"]
     fc_cols  = [c["key"] for c in cols if c["source"] == "fc"]
+    sc_cols  = [c["key"] for c in cols if c["source"] == "sc"]
 
     # SELECT list — qualify each column to avoid ambiguity (some keys overlap,
     # e.g. median_days_on_market exists in both inventory and hotness).
@@ -478,10 +500,10 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
         select_parts.append(f"i.{k} AS {k}")
     for k in hot_cols:
         select_parts.append(f"h.{k} AS {k}")
-    # Foreclosure count comes from a precomputed lookup table; default 0 when
-    # the geo has no scraped records.
     if "foreclosure_count" in fc_cols:
         select_parts.append("COALESCE(fc.fc_count, 0) AS foreclosure_count")
+    for k in sc_cols:
+        select_parts.append(f"sc.{k} AS {k}")
 
     # WHERE clause — pin to latest month and apply optional global search.
     where = [
@@ -496,8 +518,9 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     # Per-column filters — each translates to a clause referencing the
     # appropriate table alias.
+    SRC_QUALIFIER = {"inv": "i", "hot": "h", "fc": "fc", "sc": "sc"}
     for f in filters:
-        qual = "i" if f["source"] == "inv" else ("h" if f["source"] == "hot" else "fc")
+        qual = SRC_QUALIFIER.get(f["source"], "i")
         clause, fparams = _filter_to_sql(grain, f, qual)
         if clause:
             where.append(clause)
@@ -514,11 +537,14 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     else:
         fc_join_table = fc_t
 
+    sc_t   = cfg["score_table"]
+    sc_key = cfg["score_key"]
     base_from = (
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
         f"LEFT JOIN {fc_join_table} fc ON fc.{fc_key} = i.{key} "
+        f"LEFT JOIN {sc_t} sc ON sc.{sc_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
 
@@ -534,13 +560,15 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     # Pick the right SQL alias for ORDER BY based on which table the column came from
     if sort == "foreclosure_count":
         order_sort = "COALESCE(fc.fc_count, 0)"
+    elif sort in sc_cols:
+        order_sort = f"sc.{sort}"
     elif sort in (inv_cols + [key]):
         order_sort = f"i.{sort}"
     else:
         order_sort = f"h.{sort}"
     order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
 
-    cols_in_order = [key] + inv_cols + hot_cols + fc_cols
+    cols_in_order = [key] + inv_cols + hot_cols + fc_cols + sc_cols
     sql = f"{fc_prefix}SELECT {', '.join(select_parts)} {base_from} {order_sql}"
     return sql, fc_params_pre + params, cols_in_order
 

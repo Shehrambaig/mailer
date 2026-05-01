@@ -78,12 +78,26 @@
 .grid-table thead th.sorted .label { color: var(--accent-cyan); }
 .grid-table thead th .sort-arrow { font-size: .6rem; opacity: .6; }
 .grid-table thead th .filter-icon {
-    cursor: pointer; opacity: .35; padding: 1px 4px; border-radius: 3px;
-    font-size: .7rem; line-height: 1; margin-left: 2px;
+    cursor: pointer; opacity: .55;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px;
+    padding: 0; border-radius: 4px;
+    line-height: 1; margin-left: 4px;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(255,255,255,.04);
     transition: all .12s;
 }
-.grid-table thead th .filter-icon:hover { opacity: .9; background: rgba(0,240,255,.10); color: var(--accent-cyan); }
-.grid-table thead th .filter-icon.active { opacity: 1; color: var(--accent-cyan); background: rgba(0,240,255,.15); }
+.grid-table thead th .filter-icon i { font-size: .7rem; line-height: 1; }
+.grid-table thead th .filter-icon:hover {
+    opacity: 1; background: rgba(0,240,255,.14);
+    border-color: rgba(0,240,255,.40); color: var(--accent-cyan);
+}
+.grid-table thead th .filter-icon.active {
+    opacity: 1; color: var(--accent-cyan);
+    background: rgba(0,240,255,.18);
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 6px rgba(0,240,255,.30);
+}
 
 /* Filter popover */
 #filter-popover {
@@ -361,7 +375,9 @@ function renderHeader() {
                   </span>
                   <span class="filter-icon ${hasFilter?'active':''}"
                         title="Filter ${c.label}"
-                        onclick="event.stopPropagation(); openFilter('${c.key}', this);">▾</span>
+                        onclick="event.stopPropagation(); openFilter('${c.key}', this);">
+                    <i class="bi bi-funnel${hasFilter?'-fill':''}"></i>
+                  </span>
                 </th>`;
     }).join('');
 }
