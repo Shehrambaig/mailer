@@ -394,6 +394,7 @@ COUNTY_COLUMNS = [
     # default visible
     {"key":"county_fips",            "label":"FIPS",                  "type":"text",      "default":True,  "source":"inv"},
     {"key":"county_name",            "label":"County",                "type":"text",      "default":True,  "source":"inv"},
+    {"key":"state_code",             "label":"State",                 "type":"text",      "default":True,  "source":"inv"},
     {"key":"median_listing_price",   "label":"Median List Price",     "type":"currency",  "default":True,  "source":"inv"},
     {"key":"active_listing_count",   "label":"Active Listings",       "type":"integer",   "default":True,  "source":"inv"},
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
@@ -447,7 +448,8 @@ COUNTY_COLUMNS = [
 
 ZIP_COLUMNS = [
     {"key":"postal_code",            "label":"ZIP",                   "type":"text",      "default":True,  "source":"inv"},
-    {"key":"zip_name",               "label":"City, State",           "type":"text",      "default":True,  "source":"inv"},
+    {"key":"zip_name",               "label":"City",                  "type":"text",      "default":True,  "source":"inv"},
+    {"key":"state_code",             "label":"State",                 "type":"text",      "default":True,  "source":"inv"},
     {"key":"median_listing_price",   "label":"Median List Price",     "type":"currency",  "default":True,  "source":"inv"},
     {"key":"active_listing_count",   "label":"Active Listings",       "type":"integer",   "default":True,  "source":"inv"},
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
@@ -529,6 +531,57 @@ def _conn():
     c = psycopg2.connect(dsn, connect_timeout=5)
     c.set_session(readonly=True)
     return c
+
+
+# Per-grain derived inventory column expressions. The DB stores
+# `county_name`/`zip_name` as "<primary>, <state>" (lowercase) — split it so
+# the grid can show the geography and state in separate columns.
+DERIVED_INV_EXPR = {
+    "county": {
+        "county_name": "TRIM(SPLIT_PART(i.county_name, ',', 1))",
+        "state_code":  "UPPER(TRIM(SPLIT_PART(i.county_name, ',', 2)))",
+    },
+    "zip": {
+        "zip_name":   "TRIM(SPLIT_PART(i.zip_name, ',', 1))",
+        "state_code": "UPPER(TRIM(SPLIT_PART(i.zip_name, ',', 2)))",
+    },
+}
+
+
+# Foreclosure week-over-week: refresh_foreclosure_counts.py copies the
+# current count tables into *_prev before rebuilding them. The explore grid
+# left-joins prev to render a Δ vs last week. On a fresh deploy these may
+# not exist yet, so create empty stubs once per process.
+_PREV_TABLES_READY = False
+
+def _ensure_prev_tables():
+    global _PREV_TABLES_READY
+    if _PREV_TABLES_READY:
+        return
+    dsn = os.getenv("NEON_DB") or os.getenv("PROBATE_DATABASE_URL")
+    if not dsn:
+        return
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=5)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS foreclosure_counts_by_zip_prev (
+                        postal_code text PRIMARY KEY,
+                        fc_count    int
+                    );
+                    CREATE TABLE IF NOT EXISTS foreclosure_counts_by_county_prev (
+                        county_fips text PRIMARY KEY,
+                        fc_count    int
+                    );
+                """)
+            conn.commit()
+        finally:
+            conn.close()
+        _PREV_TABLES_READY = True
+    except Exception:
+        # Don't break /explore if we can't create — query will surface the issue.
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -816,7 +869,8 @@ def _filter_to_sql(grain, f, qualifier, exit_expr=None, custom_col_sql=None):
     elif src == "sc":
         ref = f"sc.{col}"
     else:
-        ref = f"{qualifier}.{col}"
+        derived = DERIVED_INV_EXPR.get(grain, {}).get(col) if src == "inv" else None
+        ref = derived if derived else f"{qualifier}.{col}"
 
     if op in NUMERIC_OPS:
         return f"{ref} {NUMERIC_OP_SQL[op]} %s", [val]
@@ -854,13 +908,16 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     # SELECT list — qualify each column to avoid ambiguity (some keys overlap,
     # e.g. median_days_on_market exists in both inventory and hotness).
+    derived = DERIVED_INV_EXPR.get(grain, {})
     select_parts = [f"i.{key} AS {key}"]
     for k in inv_cols:
-        select_parts.append(f"i.{k} AS {k}")
+        expr = derived.get(k, f"i.{k}")
+        select_parts.append(f"{expr} AS {k}")
     for k in hot_cols:
         select_parts.append(f"h.{k} AS {k}")
     if "foreclosure_count" in fc_cols:
         select_parts.append("COALESCE(fc.fc_count, 0) AS foreclosure_count")
+        select_parts.append("fcp.fc_count AS foreclosure_count_prev")
     for k in sc_cols:
         if k == "exit_score" and exit_expr:
             select_parts.append(f"({exit_expr}) AS {k}")
@@ -903,11 +960,13 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     sc_t   = cfg["score_table"]
     sc_key = cfg["score_key"]
+    fcp_t  = f"{fc_t}_prev"
     base_from = (
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
         f"LEFT JOIN {fc_join_table} fc ON fc.{fc_key} = i.{key} "
+        f"LEFT JOIN {fcp_t} fcp ON fcp.{fc_key} = i.{key} "
         f"LEFT JOIN {sc_t} sc ON sc.{sc_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
@@ -933,7 +992,7 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     elif sort in sc_cols:
         order_sort = f"sc.{sort}"
     elif sort in (inv_cols + [key]):
-        order_sort = f"i.{sort}"
+        order_sort = derived.get(sort, f"i.{sort}")
     else:
         order_sort = f"h.{sort}"
     order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
@@ -991,6 +1050,7 @@ def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iter
 def explore(grain):
     if grain not in GRAIN_CONFIG:
         return jsonify({"error": f"unknown grain '{grain}'; expected 'county' or 'zip'"}), 400
+    _ensure_prev_tables()
 
     q        = request.args.get("q", "")
     sort     = request.args.get("sort", GRAIN_CONFIG[grain]["default_sort"])
@@ -1131,6 +1191,61 @@ def explore_foreclosure_distinct(field):
         "values": [{"value": v, "count": n} for v, n in rows],
         "count":  len(rows),
     })
+
+
+@explore_bp.route("/api/explore/suggest")
+def explore_suggest():
+    """Autocomplete suggestions for the /explore search box.
+
+    Returns up to 10 matches against the FIPS / postal_code / name of the
+    latest-month inventory rows. Prefix matches rank above substring matches.
+    """
+    grain = request.args.get("grain", "county")
+    if grain not in GRAIN_CONFIG:
+        return jsonify({"suggestions": []})
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"suggestions": []})
+
+    cfg = GRAIN_CONFIG[grain]
+    inv_t = cfg["inv_table"]
+    key   = cfg["key"]
+    name_col = "county_name" if grain == "county" else "zip_name"
+
+    like_pre = f"{q}%"
+    like_any = f"%{q}%"
+    sql = f"""
+        SELECT i.{key} AS k, i.{name_col} AS n
+        FROM {inv_t} i
+        WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})
+          AND (i.{key}::text ILIKE %s OR i.{name_col} ILIKE %s)
+        ORDER BY
+          CASE WHEN i.{key}::text ILIKE %s OR i.{name_col} ILIKE %s THEN 0 ELSE 1 END,
+          i.{name_col} ASC
+        LIMIT 10
+    """
+    params = [like_any, like_any, like_pre, like_pre]
+
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    suggestions = []
+    for k, name in rows:
+        parts = (name or "").split(",", 1)
+        primary = parts[0].strip()
+        state   = parts[1].strip().upper() if len(parts) == 2 else ""
+        suggestions.append({
+            "value":   name or k,
+            "key":     k,
+            "primary": primary,
+            "state":   state,
+        })
+    return jsonify({"suggestions": suggestions})
 
 
 @explore_bp.route("/api/explore/<grain>/distinct/<col>")

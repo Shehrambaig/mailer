@@ -24,12 +24,60 @@
 }
 .tabs button:hover:not(.active) { color: var(--text-primary); }
 
+.search-wrap { flex: 1; min-width: 280px; position: relative; }
 .search-box {
-    flex: 1; min-width: 280px;
+    width: 100%;
     background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
     border-radius: 8px; padding: 8px 12px; color: var(--text-primary); font-size: .82rem;
 }
 .search-box:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,240,255,.04); }
+
+#search-suggest {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    z-index: 50; display: none;
+    background: rgba(8,8,20,0.98);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glow);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    overflow: hidden;
+    max-height: 320px; overflow-y: auto;
+}
+#search-suggest.open { display: block; }
+#search-suggest .ss-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; cursor: pointer;
+    font-size: .82rem; color: var(--text-primary);
+    border-bottom: 1px solid rgba(255,255,255,.04);
+}
+#search-suggest .ss-item:last-child { border-bottom: none; }
+#search-suggest .ss-item.active,
+#search-suggest .ss-item:hover {
+    background: rgba(0,240,255,.10); color: var(--accent-cyan);
+}
+#search-suggest .ss-primary { flex: 1; text-transform: capitalize; }
+#search-suggest .ss-state {
+    font-size: .68rem; font-weight: 700; letter-spacing: .5px;
+    color: var(--text-secondary); background: rgba(255,255,255,.06);
+    padding: 2px 6px; border-radius: 4px;
+}
+#search-suggest .ss-key {
+    font-size: .68rem; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+#search-suggest .ss-empty {
+    padding: 10px 12px; font-size: .76rem; color: var(--text-muted);
+}
+
+/* Foreclosure delta chip (rendered inside the Foreclosures cell) */
+.fc-delta {
+    display: inline-block; margin-left: 6px;
+    font-size: .68rem; font-weight: 700;
+    padding: 1px 6px; border-radius: 999px;
+    vertical-align: middle;
+}
+.fc-delta.up   { color: #ff6b6b; background: rgba(255,107,107,.12); }
+.fc-delta.down { color: #4ade80; background: rgba(74,222,128,.12); }
+.fc-delta.flat { color: var(--text-muted); background: rgba(255,255,255,.05); }
 
 .btn-tool {
     background: rgba(255,255,255,.05); color: var(--text-primary);
@@ -448,7 +496,10 @@
             <button id="tab-county" class="active" onclick="setGrain('county')">County</button>
             <button id="tab-zip" onclick="setGrain('zip')">ZIP</button>
         </div>
-        <input type="search" class="search-box" id="search" placeholder="Search by FIPS / county / ZIP / city / state…" autocomplete="off">
+        <div class="search-wrap">
+            <input type="search" class="search-box" id="search" placeholder="Search by FIPS / county / ZIP / city / state…" autocomplete="off">
+            <div id="search-suggest" role="listbox"></div>
+        </div>
         <button class="btn-tool" onclick="openExitDrawer()" title="Customize the Exit Speed scoring weights">
             <i class="bi bi-sliders"></i>
             <span>Exit Speed</span> <span class="badge" id="exit-badge" style="display:none;">custom</span>
@@ -658,6 +709,21 @@ function renderHeader() {
     }).join('');
 }
 
+function renderFcCell(r) {
+    const cur  = r.foreclosure_count;
+    const prev = r.foreclosure_count_prev;
+    const main = (cur === null || cur === undefined) ? '' : Math.round(Number(cur)).toLocaleString();
+    if (prev === null || prev === undefined) return main;
+    const delta = Number(cur) - Number(prev);
+    if (!isFinite(delta) || delta === 0) {
+        return `${main} <span class="fc-delta flat" title="No change vs last week">±0</span>`;
+    }
+    const cls = delta > 0 ? 'up' : 'down';
+    const sign = delta > 0 ? '+' : '−';
+    const title = `Last week: ${Math.round(Number(prev)).toLocaleString()}`;
+    return `${main} <span class="fc-delta ${cls}" title="${title}">${sign}${Math.abs(delta).toLocaleString()}</span>`;
+}
+
 function renderRows() {
     const tbody = document.getElementById('grid-body');
     const cols = state.columns.filter(c => state.visible.has(c.key));
@@ -669,6 +735,9 @@ function renderRows() {
         return '<tr>' + cols.map(c => {
             const v   = r[c.key];
             const cls = cellClass(v, c.type).join(' ');
+            if (c.key === 'foreclosure_count') {
+                return `<td class="${cls}">${renderFcCell(r)}</td>`;
+            }
             return `<td class="${cls}">${fmt(v, c.type)}</td>`;
         }).join('') + '</tr>';
     }).join('');
@@ -819,6 +888,7 @@ function setGrain(g) {
     state.dir  = 'desc';
     state.visible = new Set();   // forces re-default from columns
     document.getElementById('search').value = '';
+    if (typeof _closeSuggest === 'function') _closeSuggest();
     document.getElementById('tab-county').classList.toggle('active', g === 'county');
     document.getElementById('tab-zip').classList.toggle('active', g === 'zip');
     loadInitial();
@@ -834,11 +904,101 @@ function sortBy(key) {
     loadInitial();
 }
 
+// ─── Search box with autocomplete ──────────────────────────────────────────
 let _qTimer = null;
+let _suggestTimer = null;
+let _suggestSeq = 0;
+const _suggestState = { items: [], active: -1 };
+
+function _ssEl() { return document.getElementById('search-suggest'); }
+
+function _renderSuggest() {
+    const el = _ssEl();
+    const items = _suggestState.items;
+    if (!items.length) {
+        el.innerHTML = '';
+        el.classList.remove('open');
+        return;
+    }
+    el.innerHTML = items.map((s, i) => `
+        <div class="ss-item${i === _suggestState.active ? ' active' : ''}" data-i="${i}" role="option">
+            <span class="ss-primary">${s.primary || ''}</span>
+            ${s.state ? `<span class="ss-state">${s.state}</span>` : ''}
+            <span class="ss-key">${s.key || ''}</span>
+        </div>`).join('');
+    el.classList.add('open');
+}
+
+function _closeSuggest() {
+    _suggestState.items = [];
+    _suggestState.active = -1;
+    _renderSuggest();
+}
+
+async function _fetchSuggest(q) {
+    const seq = ++_suggestSeq;
+    if (!q || !q.trim()) { _closeSuggest(); return; }
+    try {
+        const res = await fetch(`/api/explore/suggest?grain=${state.grain}&q=${encodeURIComponent(q)}`);
+        const json = await res.json();
+        if (seq !== _suggestSeq) return;  // newer request in flight
+        _suggestState.items  = json.suggestions || [];
+        _suggestState.active = -1;
+        _renderSuggest();
+    } catch (e) { /* silent */ }
+}
+
+function _selectSuggest(i) {
+    const s = _suggestState.items[i];
+    if (!s) return;
+    state.q = s.value;
+    document.getElementById('search').value = s.value;
+    _closeSuggest();
+    clearTimeout(_qTimer);
+    loadInitial();
+}
+
 document.getElementById('search').addEventListener('input', (e) => {
     state.q = e.target.value;
     clearTimeout(_qTimer);
     _qTimer = setTimeout(loadInitial, 250);
+    clearTimeout(_suggestTimer);
+    _suggestTimer = setTimeout(() => _fetchSuggest(state.q), 120);
+});
+
+document.getElementById('search').addEventListener('keydown', (e) => {
+    const items = _suggestState.items;
+    if (!items.length) {
+        if (e.key === 'Escape') _closeSuggest();
+        return;
+    }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _suggestState.active = (_suggestState.active + 1) % items.length;
+        _renderSuggest();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _suggestState.active = (_suggestState.active - 1 + items.length) % items.length;
+        _renderSuggest();
+    } else if (e.key === 'Enter') {
+        if (_suggestState.active >= 0) {
+            e.preventDefault();
+            _selectSuggest(_suggestState.active);
+        }
+    } else if (e.key === 'Escape') {
+        _closeSuggest();
+    }
+});
+
+document.getElementById('search-suggest').addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.ss-item');
+    if (!item) return;
+    e.preventDefault();  // keep focus in the input
+    _selectSuggest(parseInt(item.dataset.i, 10));
+});
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrap')) _closeSuggest();
 });
 
 // Scroll → load more
