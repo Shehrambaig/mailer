@@ -888,6 +888,20 @@ def _filter_to_sql(grain, f, qualifier, exit_expr=None, custom_col_sql=None):
     return None, []
 
 
+# Column keys whose SUM is a meaningful "total" across rows. Integer counts of
+# something countable (listings, foreclosures); excludes scores, ranks, square
+# feet, quality flags, etc. where summing across rows is meaningless.
+SUMMABLE_KEYS = {
+    "active_listing_count",
+    "pending_listing_count",
+    "new_listing_count",
+    "price_increased_count",
+    "price_reduced_count",
+    "total_listing_count",
+    "foreclosure_count",
+}
+
+
 def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None):
     """Return (sql, params, cols_in_order) for the given grain."""
     filters = filters or []
@@ -1118,11 +1132,59 @@ def explore(grain):
 
     count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"))
 
+    # When filters are active, compute an aggregate per column: SUM for any
+    # numeric type, COUNT DISTINCT for text. Shown as a sticky row aligned
+    # under the column headers. Also tally distinct states for the status
+    # line. Only for filtered views to keep the default page fast.
+    grain_cols = GRAIN_CONFIG[grain]["columns"] + ([custom_col_meta] if custom_col_meta else [])
+    col_types = {c["key"]: c["type"] for c in grain_cols}
+    NUMERIC_AGG_TYPES = {"integer", "currency", "ratio", "percent_share", "number"}
+    # Columns the user has explicitly opted out of aggregating (sum is meaningless).
+    AGG_SKIP = {"median_listing_price"}
+    sum_keys     = [k for k in cols_in_order if col_types.get(k) in NUMERIC_AGG_TYPES and k not in AGG_SKIP]
+    distinct_keys = [k for k in cols_in_order if col_types.get(k) == "text"]
+    want_totals = bool(filters or fc_filters or q)
+    totals_sql = totals_params = None
+    if want_totals:
+        parts = []
+        for k in sum_keys:
+            # Cast SUM to numeric to keep ratios/floats; ints stay ints in JSON.
+            parts.append(f"COALESCE(SUM({k}), 0)::numeric AS {k}")
+        for k in distinct_keys:
+            parts.append(f"COUNT(DISTINCT {k}) AS {k}")
+        # Always include distinct state count for the status line, even if the
+        # state column isn't displayed.
+        if "state_code" not in distinct_keys:
+            parts.append("COUNT(DISTINCT state_code) AS _distinct_states")
+        totals_sql = f"SELECT {', '.join(parts)} FROM ({sql}) _t"
+        totals_params = list(params)
+
     conn = _conn()
+    totals = None
+    distinct_states = None
     try:
         with conn.cursor() as cur:
             cur.execute(count_sql, count_params)
             total = cur.fetchone()[0]
+        if want_totals:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(totals_sql, totals_params)
+                row = cur.fetchone() or {}
+                totals = {}
+                for k in sum_keys:
+                    v = row.get(k)
+                    if v is None:
+                        totals[k] = 0
+                    else:
+                        f = float(v)
+                        # Integer-typed columns get rounded ints to keep JSON tidy.
+                        totals[k] = int(round(f)) if col_types.get(k) == "integer" else f
+                for k in distinct_keys:
+                    totals[k] = int(row.get(k) or 0)
+                if "state_code" in distinct_keys:
+                    distinct_states = totals.get("state_code")
+                elif row.get("_distinct_states") is not None:
+                    distinct_states = int(row["_distinct_states"])
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(paged_sql, params)
             rows = []
@@ -1147,6 +1209,8 @@ def explore(grain):
     return jsonify({
         "grain":   grain,
         "rows":    rows,
+        "totals":  totals,
+        "distinct_states": distinct_states,
         "total":   int(total),
         "offset":  offset,
         "limit":   limit,
@@ -1262,9 +1326,14 @@ def explore_distinct(grain, col):
     src = meta["source"]
 
     if src == "inv":
-        sql = (f"SELECT DISTINCT i.{col} AS v FROM {inv_t} i "
+        # state_code etc. are computed via SPLIT_PART expressions — resolve those
+        # before running the DISTINCT so the dropdown gets actual values.
+        derived_expr = DERIVED_INV_EXPR.get(grain, {}).get(col)
+        col_expr = derived_expr if derived_expr else f"i.{col}"
+        sql = (f"SELECT DISTINCT {col_expr} AS v FROM {inv_t} i "
                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t}) "
-               f"AND i.{col} IS NOT NULL ORDER BY v ASC LIMIT 500")
+               f"AND {col_expr} IS NOT NULL AND {col_expr} <> '' "
+               f"ORDER BY v ASC LIMIT 500")
     elif src == "hot":
         sql = (f"SELECT DISTINCT h.{col} AS v FROM {hot_t} h "
                f"WHERE h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "

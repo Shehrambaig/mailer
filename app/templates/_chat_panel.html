@@ -66,7 +66,7 @@
   .aic-empty .examples button { background:rgba(255,255,255,.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:7px 10px; font-size:.72rem; text-align:left; cursor:pointer; transition:all .15s; }
   .aic-empty .examples button:hover { background:rgba(0,240,255,.10); border-color:rgba(0,240,255,.30); color:var(--text-primary); }
   .aic-input-row { padding:10px 12px; border-top:1px solid rgba(255,255,255,.08); display:flex; gap:8px; align-items:flex-end; }
-  .aic-input { flex:1; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:8px 10px; font-size:.82rem; resize:none; max-height:100px; font-family:inherit; }
+  .aic-input { flex:1; background:rgba(255,255,255,.04); color:var(--text-primary); border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:8px 10px; font-size:.82rem; resize:none; min-height:34px; max-height:180px; font-family:inherit; line-height:1.4; overflow-y:auto; }
   .aic-input:focus { outline:none; border-color:var(--accent-cyan); }
   .aic-send { background:var(--accent-cyan); color:#000; border:none; border-radius:8px; padding:0 14px; height:34px; font-weight:700; font-size:.78rem; cursor:pointer; }
   .aic-send:disabled { opacity:.4; cursor:not-allowed; }
@@ -97,7 +97,7 @@
     </div>
   </div>
   <div class="aic-input-row">
-    <textarea id="aic-input" class="aic-input" rows="1" placeholder="Ask anything…" onkeydown="aicKey(event)"></textarea>
+    <textarea id="aic-input" class="aic-input" rows="1" placeholder="Ask anything…" onkeydown="aicKey(event)" oninput="aicAutosize(this)"></textarea>
     <button class="aic-send" id="aic-send" onclick="aicSend()">Send</button>
   </div>
 </div>
@@ -138,9 +138,17 @@
     }
   };
 
-  window.aicAsk = function(text) { el('aic-input').value = text; aicSend(); };
+  window.aicAsk = function(text) {
+    const i = el('aic-input'); i.value = text; aicAutosize(i); aicSend();
+  };
   window.aicKey = function(ev) {
     if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); aicSend(); }
+  };
+  window.aicAutosize = function(ta) {
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const max = parseInt(getComputedStyle(ta).maxHeight) || 180;
+    ta.style.height = Math.min(ta.scrollHeight, max) + 'px';
   };
   window.aicNewChat = function() {
     conversationId = null;
@@ -256,6 +264,7 @@
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
+    aicAutosize(input);
     inflight = true;
     el('aic-send').disabled = true;
 

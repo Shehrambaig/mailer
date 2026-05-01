@@ -117,7 +117,7 @@
     font-size: .65rem; text-transform: uppercase; letter-spacing: .8px;
     font-weight: 700; padding: 10px 12px;
     border-bottom: 1px solid var(--border-glass);
-    text-align: left; user-select: none; white-space: nowrap;
+    text-align: center; user-select: none; white-space: nowrap;
 }
 .grid-table thead th .th-inner {
     display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
@@ -246,10 +246,22 @@
     padding: 8px 12px; white-space: nowrap;
 }
 .grid-table tbody tr:hover { background: rgba(0,240,255,.03); }
-.grid-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.grid-table tbody td.num { text-align: center; font-variant-numeric: tabular-nums; }
 .grid-table tbody td.muted { color: var(--text-muted); }
 .grid-table tbody td.pos { color: var(--accent-green); }
 .grid-table tbody td.neg { color: var(--accent-red); }
+/* Inline aggregate next to each column label in the sticky header. */
+.grid-table thead th .agg-inline {
+    color: var(--accent-cyan);
+    font-weight: 700;
+    font-size: .62rem;
+    font-variant-numeric: tabular-nums;
+    text-transform: none; letter-spacing: 0;
+    margin-left: 4px;
+}
+.grid-table thead th .agg-inline .agg-prefix {
+    font-size: .55rem; opacity: .55; margin-right: 1px; font-weight: 500;
+}
 
 .empty-state, .loading-state {
     padding: 40px; text-align: center; color: var(--text-muted); font-size: .85rem;
@@ -523,7 +535,9 @@
     </div>
     <div class="grid-wrap" id="grid-wrap">
         <table class="grid-table" id="grid-table">
-            <thead><tr id="grid-head"></tr></thead>
+            <thead>
+                <tr id="grid-head"></tr>
+            </thead>
             <tbody id="grid-body">
                 <tr><td colspan="100" class="loading-state">Loading…</td></tr>
             </tbody>
@@ -626,6 +640,8 @@ let state = {
     columns:  [],            // full column metadata from server
     visible:  new Set(),     // keys currently shown
     rows:     [],            // accumulated rows
+    totals:   null,          // {col_key: sum} — only populated when filters applied
+    distinctStates: null,    // count of distinct states in filtered set
     total:    0,
     offset:   0,
     limit:    100,
@@ -644,7 +660,7 @@ let state = {
 };
 
 // Multi-select columns (low-cardinality, fetched via /distinct/)
-const MULTI_SELECT_COLS = new Set(['cbsa_title', 'quality_flag']);
+const MULTI_SELECT_COLS = new Set(['cbsa_title', 'quality_flag', 'state_code']);
 
 // ─── Formatting ────────────────────────────────────────────────────────────
 function fmt(val, type) {
@@ -687,17 +703,39 @@ function cellClass(val, type) {
 }
 
 // ─── Rendering ─────────────────────────────────────────────────────────────
+function fmtAggValue(c, raw) {
+    if (!isFinite(raw)) return null;
+    if (c.type === 'currency')           return '$' + Math.round(raw).toLocaleString();
+    if (c.type === 'ratio')              return (raw * 100).toFixed(2) + '%';
+    if (c.type === 'percent_share')      return (raw * 100).toFixed(1) + '%';
+    if (c.type === 'number')             return raw.toFixed(2);
+    return Math.round(raw).toLocaleString();
+}
 function renderHeader() {
     const tr = document.getElementById('grid-head');
     const cols = state.columns.filter(c => state.visible.has(c.key));
+    const t = state.totals || {};
     tr.innerHTML = cols.map(c => {
         const sorted = c.key === state.sort;
         const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
         const hasFilter = state.filters.some(f => f.col === c.key)
             || (c.key === 'foreclosure_count' && state.fcFilters.length > 0);
+        // Inline aggregate next to the column label (when filters are applied
+        // and the server returned a value for this column).
+        let aggHtml = '';
+        if (c.key in t) {
+            const raw = Number(t[c.key]);
+            const isText = c.type === 'text';
+            const v = isText ? Math.round(raw).toLocaleString() : fmtAggValue(c, raw);
+            if (v != null) {
+                const prefix = isText ? '#' : 'Σ';
+                aggHtml = `<span class="agg-inline"><span class="agg-prefix">${prefix}</span>${v}</span>`;
+            }
+        }
         return `<th class="${sorted?'sorted':''}" data-key="${c.key}">
                   <span class="th-inner" onclick="sortBy('${c.key}')">
                     <span class="label">${c.label}</span>
+                    ${aggHtml}
                     <span class="sort-arrow">${arrow}</span>
                   </span>
                   <span class="filter-icon ${hasFilter?'active':''}"
@@ -747,8 +785,10 @@ function updateStatus() {
     const shown = state.rows.length;
     const total = state.total.toLocaleString();
     const grain = state.grain === 'county' ? 'counties' : 'ZIPs';
+    const states = state.distinctStates;
+    const stateSuffix = (states != null) ? ` across ${states.toLocaleString()} state${states === 1 ? '' : 's'}` : '';
     document.getElementById('status-text').textContent =
-        state.loading ? `Loading…` : `Showing ${shown.toLocaleString()} of ${total} ${grain}`;
+        state.loading ? `Loading…` : `Showing ${shown.toLocaleString()} of ${total} ${grain}${stateSuffix}`;
     const visible = state.columns.filter(c => state.visible.has(c.key)).length;
     document.getElementById('status-meta').textContent =
         `${visible} of ${state.columns.length} columns • Sort: ${state.sort} ${state.dir.toUpperCase()}`;
@@ -839,6 +879,8 @@ async function loadInitial() {
         state.columns = d.columns;
         state.rows    = d.rows;
         state.total   = d.total;
+        state.totals  = d.totals || null;
+        state.distinctStates = (d.distinct_states != null) ? d.distinct_states : null;
         state.offset  = d.rows.length;
         state.appliedFilters   = d.applied_filters    || [];
         state.appliedFcFilters = d.applied_fc_filters || [];
@@ -1869,62 +1911,4 @@ loadInitial();
 });
 </script>
 
-{% set chat_page = 'explore' %}
-{% set chat_subtitle = 'Knows the County / ZIP grids, your filters, exit-speed weights, and the custom column' %}
-{% set chat_examples = [
-    ['Top 10 counties by foreclosure-per-1000-listings',
-     'Run SQL: top 10 counties by (foreclosure_count / NULLIF(active_listing_count,0)) * 1000 in the latest month, with county name and median list price. Use realtor_inventory_county joined to foreclosure_counts_by_county.'],
-    ['Mail-target bucket mix in selected county',
-     'In the county currently selected on /explore (county_fips in the context), break down active foreclosure_records by classification using foreclosure_records.county_fips directly.'],
-    ['ZIPs in this county heating up',
-     'For the selected county_fips, list the top 15 ZIPs by hotness_score in the latest month with their DOM and median list price.'],
-    ['Why is the score what it is?',
-     'For the selected ZIP, show its DOM, pending ratio, list-price YoY, and explain why its current Exit Speed score lands where it does given my saved weights.'],
-    ['What columns can I add together?',
-     'Which numeric columns are available on /explore for the ZIP grid? Which combinations are commonly used to estimate distress density?']
-] %}
-<script>
-  // Per-page chat context — sends what's currently visible on /explore so the
-  // bot can scope its answers (selected grain, sort, filters, weights, custom col).
-  window.buildChatContext = function() {
-    const ctx = {};
-    try {
-      if (typeof state === 'undefined') return ctx;
-      ctx.page  = '/explore';
-      ctx.grain = state.grain;
-      ctx.sort  = state.sort;
-      ctx.dir   = state.dir;
-      // Filters as compact list
-      if (state.appliedFilters && state.appliedFilters.length) {
-        ctx.filters = state.appliedFilters.map(f =>
-          `${f.col} ${f.op} ${Array.isArray(f.value) ? f.value.join(',') : f.value}`
-        );
-      }
-      if (state.appliedFcFilters && state.appliedFcFilters.length) {
-        ctx.fc_filters = state.appliedFcFilters.map(f =>
-          `${f.field} ${f.op} ${Array.isArray(f.value) ? f.value.join(',') : f.value}`
-        );
-      }
-      if (state.exitWeights) ctx.exit_weights = state.exitWeights;
-      if (state.customColumn && state.customColumn.expression) {
-        ctx.custom_column = {
-          label:      state.customColumn.label,
-          expression: state.customColumn.expression,
-        };
-      }
-      // Selected row hint: top of current sort = "selected" for context purposes
-      if (state.rows && state.rows.length) {
-        const top = state.rows[0];
-        if (state.grain === 'county') {
-          ctx.fips = top.county_fips; ctx.county_name = top.county_name;
-        } else {
-          ctx.zip = top.postal_code;  ctx.zip_name = top.zip_name;
-        }
-      }
-      ctx.total = state.total;
-    } catch (e) {}
-    return ctx;
-  };
-</script>
-{% include "_chat_panel.html" %}
 {% endblock %}

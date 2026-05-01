@@ -238,6 +238,44 @@ def _block_to_dict(block):
         return {"type": "unknown", "raw": str(block)}
 
 
+def _heal_orphan_tool_use(messages):
+    """Walk replayed messages; for each assistant turn ending in tool_use, ensure
+    the next user message contains a matching tool_result block. If missing,
+    splice in a synthetic error result so the Anthropic API accepts the array."""
+    out = []
+    for i, m in enumerate(messages):
+        out.append(m)
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        tool_use_ids = [b.get("id") for b in content
+                        if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")]
+        if not tool_use_ids:
+            continue
+        nxt = messages[i + 1] if i + 1 < len(messages) else None
+        nxt_blocks = nxt.get("content") if (nxt and nxt.get("role") == "user") else None
+        existing_ids = set()
+        if isinstance(nxt_blocks, list):
+            existing_ids = {b.get("tool_use_id") for b in nxt_blocks
+                            if isinstance(b, dict) and b.get("type") == "tool_result"}
+        missing = [tid for tid in tool_use_ids if tid not in existing_ids]
+        if not missing:
+            continue
+        synthetic = [{"type": "tool_result", "tool_use_id": tid,
+                      "content": "Tool call interrupted (no result captured). "
+                                 "Please retry with a corrected query.",
+                      "is_error": True} for tid in missing]
+        if isinstance(nxt_blocks, list):
+            # Merge: append synthetic results to the existing tool_result message.
+            nxt["content"] = list(nxt_blocks) + synthetic
+        else:
+            # Insert a brand-new user message right after this assistant turn.
+            out.append({"role": "user", "content": synthetic})
+    return out
+
+
 def _load_history(conversation_id: str, limit: int = 200):
     """Return [(role, content_json), ...] in chronological order."""
     try:
@@ -1064,6 +1102,13 @@ def chat():
                     messages.append({"role": role, "content": blocks[0]["text"]})
                 else:
                     messages.append({"role": role, "content": blocks})
+        # Heal orphaned tool_use blocks. If the connection dropped mid-stream
+        # the assistant turn (with tool_use) was persisted but the tool_result
+        # never was. Anthropic's API requires every tool_use to be followed
+        # immediately by a user message containing its tool_result — without
+        # this, the next /api/chat call 400s and the conversation is wedged.
+        # Inject synthetic error results for any dangling tool_use ids.
+        messages = _heal_orphan_tool_use(messages)
         # Append the current user turn.
         if new_user_text:
             messages.append({"role": "user", "content": new_user_text})
