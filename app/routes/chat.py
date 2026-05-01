@@ -135,8 +135,12 @@ foreclosure_records (882,188 rows; ~821,508 with status='active')
   street          TEXT
   city            TEXT
   state           CHAR(2)
-  zip             VARCHAR    -- 5-digit, always populated for f-com; needed for joining to map
-  county          TEXT       -- ONLY set for auction_com (NULL for foreclosure_com)
+  zip             VARCHAR    -- 5-digit, populated for both sources (auction_com + foreclosure_com)
+  county          TEXT       -- bare county name, title-cased, no state suffix
+                             --   ("Maricopa", "Los Angeles", "Lowndes" — same format as auction_com)
+                             --   Now populated for ~all foreclosure_com rows via ZIP→FIPS lookup
+                             --   (zip_county_map). Old data may still have NULL for ZIPs missing
+                             --   from the lookup; defensive WHERE county IS NOT NULL is OK.
   full_address    TEXT
   latitude        NUMERIC
   longitude       NUMERIC
