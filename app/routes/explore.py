@@ -60,6 +60,7 @@ COUNTY_COLUMNS = [
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share", "default":True, "source":"inv"},
+    {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
 
     # extra inventory cols
     {"key":"median_listing_price_mm","label":"List Price MoM",        "type":"ratio",     "default":False, "source":"inv"},
@@ -109,6 +110,7 @@ ZIP_COLUMNS = [
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share","default":True, "source":"inv"},
+    {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
 
     {"key":"median_listing_price_mm","label":"List Price MoM",        "type":"ratio",     "default":False, "source":"inv"},
     {"key":"median_listing_price_yy","label":"List Price YoY",        "type":"ratio",     "default":False, "source":"inv"},
@@ -151,14 +153,18 @@ GRAIN_CONFIG = {
         "columns":      COUNTY_COLUMNS,
         "inv_table":    "realtor_inventory_county",
         "hot_table":    "realtor_hotness_county",
+        "fc_table":     "foreclosure_counts_by_county",   # precomputed, see scripts/refresh_foreclosure_counts.py
+        "fc_key":       "county_fips",
         "key":          "county_fips",
-        "search_cols":  ["county_fips", "county_name"],   # case-insensitive ILIKE
+        "search_cols":  ["county_fips", "county_name"],
         "default_sort": "active_listing_count",
     },
     "zip": {
         "columns":      ZIP_COLUMNS,
         "inv_table":    "realtor_inventory_zip",
         "hot_table":    "realtor_hotness_zip",
+        "fc_table":     "foreclosure_counts_by_zip",
+        "fc_key":       "postal_code",
         "key":          "postal_code",
         "search_cols":  ["postal_code", "zip_name"],
         "default_sort": "active_listing_count",
@@ -178,22 +184,29 @@ def _conn():
 def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool):
     """Return (sql, params, cols_in_order) for the given grain."""
     cfg = GRAIN_CONFIG[grain]
-    cols    = cfg["columns"]
-    key     = cfg["key"]
-    inv_t   = cfg["inv_table"]
-    hot_t   = cfg["hot_table"]
+    cols     = cfg["columns"]
+    key      = cfg["key"]
+    inv_t    = cfg["inv_table"]
+    hot_t    = cfg["hot_table"]
+    fc_t     = cfg["fc_table"]
+    fc_key   = cfg["fc_key"]
     search_cols = cfg["search_cols"]
 
     inv_cols = [c["key"] for c in cols if c["source"] == "inv" and c["key"] != key]
     hot_cols = [c["key"] for c in cols if c["source"] == "hot"]
+    fc_cols  = [c["key"] for c in cols if c["source"] == "fc"]
 
-    # SELECT list — qualify each column to avoid ambiguity (some keys overlap, e.g.
-    # median_days_on_market exists in both inventory and hotness).
+    # SELECT list — qualify each column to avoid ambiguity (some keys overlap,
+    # e.g. median_days_on_market exists in both inventory and hotness).
     select_parts = [f"i.{key} AS {key}"]
     for k in inv_cols:
         select_parts.append(f"i.{k} AS {k}")
     for k in hot_cols:
         select_parts.append(f"h.{k} AS {k}")
+    # Foreclosure count comes from a precomputed lookup table; default 0 when
+    # the geo has no scraped records.
+    if "foreclosure_count" in fc_cols:
+        select_parts.append("COALESCE(fc.fc_count, 0) AS foreclosure_count")
 
     # WHERE clause — pin to latest month and apply optional global search.
     where = [
@@ -210,21 +223,29 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool)
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
+        f"LEFT JOIN {fc_t} fc ON fc.{fc_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
 
     if want_count:
         return f"SELECT COUNT(*) {base_from}", params, []
 
-    # Validate sort column against the column whitelist
+    # Validate sort column against the whitelist
     valid_sort_keys = {c["key"] for c in cols if c.get("sortable", True)}
     if sort not in valid_sort_keys:
         sort = cfg["default_sort"]
     sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
-    sort_qualifier = "i" if sort in (inv_cols + [key]) else "h"
-    order_sql = f"ORDER BY {sort_qualifier}.{sort} {sort_dir} NULLS LAST, i.{key} ASC"
 
-    cols_in_order = [key] + inv_cols + hot_cols
+    # Pick the right SQL alias for ORDER BY based on which table the column came from
+    if sort == "foreclosure_count":
+        order_sort = "COALESCE(fc.fc_count, 0)"
+    elif sort in (inv_cols + [key]):
+        order_sort = f"i.{sort}"
+    else:
+        order_sort = f"h.{sort}"
+    order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
+
+    cols_in_order = [key] + inv_cols + hot_cols + fc_cols
     sql = f"SELECT {', '.join(select_parts)} {base_from} {order_sql}"
     return sql, params, cols_in_order
 
