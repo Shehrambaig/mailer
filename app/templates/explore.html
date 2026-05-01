@@ -69,11 +69,116 @@
     font-size: .65rem; text-transform: uppercase; letter-spacing: .8px;
     font-weight: 700; padding: 10px 12px;
     border-bottom: 1px solid var(--border-glass);
-    text-align: left; cursor: pointer; user-select: none; white-space: nowrap;
+    text-align: left; user-select: none; white-space: nowrap;
+}
+.grid-table thead th .th-inner {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
 }
 .grid-table thead th:hover { color: var(--text-primary); background: rgba(12,12,28,1); }
-.grid-table thead th.sorted { color: var(--accent-cyan); }
-.grid-table thead th .sort-arrow { font-size: .6rem; opacity: .6; margin-left: 4px; }
+.grid-table thead th.sorted .label { color: var(--accent-cyan); }
+.grid-table thead th .sort-arrow { font-size: .6rem; opacity: .6; }
+.grid-table thead th .filter-icon {
+    cursor: pointer; opacity: .35; padding: 1px 4px; border-radius: 3px;
+    font-size: .7rem; line-height: 1; margin-left: 2px;
+    transition: all .12s;
+}
+.grid-table thead th .filter-icon:hover { opacity: .9; background: rgba(0,240,255,.10); color: var(--accent-cyan); }
+.grid-table thead th .filter-icon.active { opacity: 1; color: var(--accent-cyan); background: rgba(0,240,255,.15); }
+
+/* Filter popover */
+#filter-popover {
+    position: absolute; z-index: 100;
+    min-width: 260px; max-width: 320px;
+    background: rgba(8,8,20,0.98);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glow);
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    display: none;
+}
+#filter-popover.open { display: block; }
+#filter-popover h6 {
+    margin: 0 0 12px; font-size: .78rem; font-weight: 700;
+    color: var(--accent-cyan); letter-spacing: .5px;
+}
+#filter-popover .fp-row {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+}
+#filter-popover label.fp-lbl {
+    font-size: .68rem; font-weight: 600; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: .5px; min-width: 38px;
+}
+#filter-popover input[type="text"], #filter-popover input[type="number"] {
+    flex: 1; background: rgba(255,255,255,.04);
+    border: 1px solid var(--border-glass); border-radius: 6px;
+    padding: 6px 9px; color: var(--text-primary); font-size: .82rem;
+}
+#filter-popover input:focus { outline: none; border-color: var(--accent-cyan); }
+#filter-popover .fp-chips {
+    display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;
+}
+#filter-popover .fp-chips button {
+    background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+    color: var(--text-secondary); border-radius: 6px;
+    padding: 4px 8px; font-size: .68rem; cursor: pointer;
+}
+#filter-popover .fp-chips button:hover { background: rgba(0,240,255,.10); color: var(--accent-cyan); border-color: rgba(0,240,255,.30); }
+#filter-popover .fp-actions {
+    display: flex; gap: 6px; margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--border-glass);
+}
+#filter-popover .fp-actions button { flex: 1; }
+#filter-popover .fp-toggle {
+    color: var(--text-muted); font-size: .68rem; cursor: pointer;
+    margin-top: 8px; user-select: none;
+}
+#filter-popover .fp-toggle:hover { color: var(--accent-cyan); }
+#filter-popover .fp-shorthand { display: none; margin-top: 8px; }
+#filter-popover.open-shorthand .fp-shorthand { display: block; }
+#filter-popover .fp-help {
+    font-size: .65rem; color: var(--text-muted); margin-top: 4px;
+    line-height: 1.5;
+}
+#filter-popover .fp-multi-list {
+    max-height: 220px; overflow-y: auto; padding: 4px 0;
+    border: 1px solid var(--border-glass); border-radius: 6px;
+}
+#filter-popover .fp-multi-list label {
+    display: flex; gap: 8px; padding: 5px 10px; cursor: pointer;
+    font-size: .78rem; color: var(--text-primary);
+}
+#filter-popover .fp-multi-list label:hover { background: rgba(0,240,255,.06); }
+#filter-popover .fp-multi-list label input { accent-color: var(--accent-cyan); }
+#filter-popover .fp-radios {
+    display: flex; gap: 6px; font-size: .68rem; color: var(--text-secondary);
+    margin-top: 4px;
+}
+#filter-popover .fp-radios label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+#filter-popover .fp-radios input { accent-color: var(--accent-cyan); }
+
+/* Active filter chip bar */
+.chip-bar {
+    padding: 8px 16px; border-bottom: 1px solid var(--border-glass);
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.chip-bar:empty { display: none; }
+.chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(0,240,255,.08); border: 1px solid rgba(0,240,255,.25);
+    color: var(--accent-cyan); border-radius: 999px;
+    padding: 3px 10px; font-size: .72rem; font-weight: 600;
+}
+.chip .chip-x {
+    cursor: pointer; opacity: .65; font-size: .72rem;
+    transition: opacity .1s;
+}
+.chip .chip-x:hover { opacity: 1; }
+.chip-bar .clear-all {
+    color: var(--text-muted); font-size: .68rem; cursor: pointer;
+    margin-left: 6px; text-decoration: underline;
+}
+.chip-bar .clear-all:hover { color: var(--accent-red); }
 .grid-table tbody td {
     border-bottom: 1px solid rgba(255,255,255,.025);
     padding: 8px 12px; white-space: nowrap;
@@ -146,6 +251,7 @@
             <i class="bi bi-download"></i> Download CSV
         </button>
     </div>
+    <div class="chip-bar" id="chip-bar"></div>
     <div class="status-line">
         <span id="status-text">Loading…</span>
         <span id="status-meta" style="color: var(--text-muted);"></span>
@@ -159,6 +265,8 @@
         </table>
     </div>
 </div>
+
+<div id="filter-popover"></div>
 
 <div id="col-drawer-backdrop" onclick="closeColDrawer()"></div>
 <div id="col-drawer">
@@ -188,7 +296,12 @@ let state = {
     limit:    100,
     loading:  false,
     done:     false,
+    filters:  [],            // [{col, op, value, ...}]  AND-combined
+    appliedFilters: [],      // server response: filters with resolved pct thresholds
 };
+
+// Multi-select columns (low-cardinality, fetched via /distinct/)
+const MULTI_SELECT_COLS = new Set(['cbsa_title', 'quality_flag']);
 
 // ─── Formatting ────────────────────────────────────────────────────────────
 function fmt(val, type) {
@@ -237,8 +350,15 @@ function renderHeader() {
     tr.innerHTML = cols.map(c => {
         const sorted = c.key === state.sort;
         const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
-        return `<th class="${sorted?'sorted':''}" data-key="${c.key}" onclick="sortBy('${c.key}')">
-                  ${c.label}<span class="sort-arrow">${arrow}</span>
+        const hasFilter = state.filters.some(f => f.col === c.key);
+        return `<th class="${sorted?'sorted':''}" data-key="${c.key}">
+                  <span class="th-inner" onclick="sortBy('${c.key}')">
+                    <span class="label">${c.label}</span>
+                    <span class="sort-arrow">${arrow}</span>
+                  </span>
+                  <span class="filter-icon ${hasFilter?'active':''}"
+                        title="Filter ${c.label}"
+                        onclick="event.stopPropagation(); openFilter('${c.key}', this);">▾</span>
                 </th>`;
     }).join('');
 }
@@ -274,7 +394,7 @@ function updateStatus() {
 // ─── Data fetching ─────────────────────────────────────────────────────────
 function buildURL({format='json', offsetOverride=null} = {}) {
     const p = new URLSearchParams();
-    p.set('q',      state.q);
+    if (state.q) p.set('q', state.q);
     p.set('sort',   state.sort);
     p.set('dir',    state.dir);
     p.set('limit',  state.limit);
@@ -284,7 +404,45 @@ function buildURL({format='json', offsetOverride=null} = {}) {
         const visible = state.columns.filter(c => state.visible.has(c.key)).map(c => c.key);
         p.set('cols', visible.join(','));
     }
+    // Apply per-column filters
+    for (const f of state.filters) {
+        const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
+        p.append(`f.${f.col}.${f.op}`, v);
+    }
     return `/api/explore/${state.grain}?${p.toString()}`;
+}
+
+// ─── URL persistence ───────────────────────────────────────────────────────
+function syncURL() {
+    const p = new URLSearchParams();
+    p.set('grain', state.grain);
+    if (state.q) p.set('q', state.q);
+    if (state.sort !== 'active_listing_count') p.set('sort', state.sort);
+    if (state.dir !== 'desc') p.set('dir', state.dir);
+    for (const f of state.filters) {
+        const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
+        p.append(`f.${f.col}.${f.op}`, v);
+    }
+    history.replaceState(null, '', '/explore?' + p.toString());
+}
+function loadFromURL() {
+    const p = new URLSearchParams(location.search);
+    if (p.get('grain') === 'zip') state.grain = 'zip';
+    state.q = p.get('q') || '';
+    state.sort = p.get('sort') || 'active_listing_count';
+    state.dir  = p.get('dir')  || 'desc';
+    state.filters = [];
+    for (const [k, v] of p.entries()) {
+        if (!k.startsWith('f.')) continue;
+        const parts = k.split('.', 3); // ["f", col, op]
+        if (parts.length !== 3) continue;
+        const [, col, op] = parts;
+        const value = (op === 'in') ? v.split(',').filter(Boolean) : v;
+        state.filters.push({ col, op, value });
+    }
+    document.getElementById('search').value = state.q;
+    document.getElementById('tab-county').classList.toggle('active', state.grain === 'county');
+    document.getElementById('tab-zip').classList.toggle('active',    state.grain === 'zip');
 }
 
 async function loadInitial() {
@@ -299,6 +457,7 @@ async function loadInitial() {
         state.rows    = d.rows;
         state.total   = d.total;
         state.offset  = d.rows.length;
+        state.appliedFilters = d.applied_filters || [];
         if (state.rows.length >= state.total) state.done = true;
         if (!state.visible.size) {
             state.columns.forEach(c => { if (c.default) state.visible.add(c.key); });
@@ -311,7 +470,8 @@ async function loadInitial() {
         return;
     }
     state.loading = false;
-    renderHeader(); renderRows(); updateStatus();
+    renderHeader(); renderRows(); renderChips(); updateStatus();
+    syncURL();
 }
 
 async function loadMore() {
@@ -408,7 +568,296 @@ function downloadCSV() {
     window.location.href = url;
 }
 
+// ─── Filter chips ──────────────────────────────────────────────────────────
+function chipLabel(f, c) {
+    const meta = state.columns.find(cc => cc.key === f.col);
+    const cl   = meta ? meta.label : f.col;
+    const t    = meta ? meta.type  : 'text';
+    let val = f.value;
+    if (Array.isArray(val)) val = val.join(', ');
+    let opStr;
+    if (f.pct_resolved_from) {
+        const lbl = {t10:'Top 10%', t25:'Top 25%', b25:'Bottom 25%', b10:'Bottom 10%'}[f.pct_resolved_from];
+        return `${cl}: ${lbl} (≥ ${formatNum(f.pct_threshold, t)})`;
+    }
+    switch (f.op) {
+        case 'gte':      opStr = `≥ ${formatNum(val, t)}`; break;
+        case 'gt':       opStr = `> ${formatNum(val, t)}`; break;
+        case 'lte':      opStr = `≤ ${formatNum(val, t)}`; break;
+        case 'lt':       opStr = `< ${formatNum(val, t)}`; break;
+        case 'eq':       opStr = `= ${formatNum(val, t)}`; break;
+        case 'ne':       opStr = `≠ ${formatNum(val, t)}`; break;
+        case 'contains': opStr = `contains "${val}"`; break;
+        case 'starts':   opStr = `starts with "${val}"`; break;
+        case 'equals':   opStr = `= "${val}"`; break;
+        case 'in':       opStr = `in {${val}}`; break;
+        default:         opStr = `${f.op} ${val}`;
+    }
+    return `${cl} ${opStr}`;
+}
+function formatNum(v, type) {
+    if (v === null || v === undefined || v === '') return v;
+    const n = Number(v);
+    if (!isFinite(n)) return v;
+    if (type === 'currency')      return '$' + Math.round(n).toLocaleString();
+    if (type === 'integer')       return Math.round(n).toLocaleString();
+    if (type === 'ratio' || type === 'percent_share') return (n * 100).toFixed(2) + '%';
+    if (type === 'number')        return n.toFixed(2);
+    return v;
+}
+function renderChips() {
+    const bar = document.getElementById('chip-bar');
+    if (!state.appliedFilters.length) { bar.innerHTML = ''; return; }
+    const chips = state.appliedFilters.map((f, i) => {
+        return `<span class="chip">${chipLabel(f, null)}<span class="chip-x" title="Remove" onclick="removeFilter(${i})">✕</span></span>`;
+    }).join('');
+    bar.innerHTML = chips + `<span class="clear-all" onclick="clearAllFilters()">Clear all</span>`;
+}
+function removeFilter(idx) {
+    // appliedFilters is the resolved list from the server; we need to map back to
+    // state.filters by (col, op or pct_resolved_from). Simpler: rebuild state.filters
+    // from appliedFilters minus the removed one, treating pct as the original op.
+    const af = state.appliedFilters.slice();
+    af.splice(idx, 1);
+    state.filters = af.map(f => f.pct_resolved_from
+        ? { col: f.col, op: 'pct', value: f.pct_resolved_from }
+        : { col: f.col, op: f.op, value: f.value });
+    loadInitial();
+}
+function clearAllFilters() {
+    state.filters = []; loadInitial();
+}
+
+// Add or replace a filter for a (col, op) key. For numeric ranges we may have
+// both gte and lte at once — they share col but different op, so they coexist.
+function setFilter(col, op, value) {
+    const isPct = op === 'pct';
+    state.filters = state.filters.filter(f => {
+        if (f.col !== col) return true;
+        // Replace any existing pct filter on this col regardless of op
+        if (isPct || f.op === 'pct') return false;
+        return f.op !== op;
+    });
+    if (value !== '' && value !== null && value !== undefined &&
+        !(Array.isArray(value) && value.length === 0)) {
+        state.filters.push({ col, op, value });
+    }
+    loadInitial();
+}
+function clearFilterForCol(col) {
+    state.filters = state.filters.filter(f => f.col !== col);
+    loadInitial();
+}
+
+// ─── Filter popover ────────────────────────────────────────────────────────
+let _popoverCol = null;
+function openFilter(col, anchor) {
+    const meta = state.columns.find(c => c.key === col);
+    if (!meta) return;
+    const pop = document.getElementById('filter-popover');
+    _popoverCol = col;
+    pop.classList.remove('open-shorthand');
+
+    // Existing filter values for this column
+    const fGte  = state.filters.find(f => f.col === col && f.op === 'gte');
+    const fLte  = state.filters.find(f => f.col === col && f.op === 'lte');
+    const fGt   = state.filters.find(f => f.col === col && f.op === 'gt');
+    const fLt   = state.filters.find(f => f.col === col && f.op === 'lt');
+    const fEq   = state.filters.find(f => f.col === col && f.op === 'eq');
+    const fCont = state.filters.find(f => f.col === col && f.op === 'contains');
+    const fStarts = state.filters.find(f => f.col === col && f.op === 'starts');
+    const fEqT  = state.filters.find(f => f.col === col && f.op === 'equals');
+    const fIn   = state.filters.find(f => f.col === col && f.op === 'in');
+
+    let html = `<h6>${meta.label}</h6>`;
+
+    const isMulti = MULTI_SELECT_COLS.has(col);
+    const numericTypes = ['integer','currency','ratio','percent_share','number'];
+
+    if (isMulti) {
+        html += `<div class="fp-multi-list" id="fp-multi"><div style="padding:10px;color:var(--text-muted);font-size:.72rem">Loading values…</div></div>`;
+        html += `<div class="fp-actions">
+                   <button class="btn-tool" onclick="applyMulti()">Apply</button>
+                   <button class="btn-tool" onclick="clearFilterForCol('${col}'); closeFilter();">Clear</button>
+                 </div>`;
+    } else if (numericTypes.includes(meta.type)) {
+        const isPct = meta.type === 'ratio' || meta.type === 'percent_share';
+        const minVal = fGte ? (isPct ? (fGte.value*100) : fGte.value) : '';
+        const maxVal = fLte ? (isPct ? (fLte.value*100) : fLte.value) : '';
+        const unit = isPct ? '%' : '';
+        html += `<div class="fp-row">
+                   <label class="fp-lbl">Min${unit ? ' ('+unit+')' : ''}</label>
+                   <input id="fp-min" type="number" step="any" placeholder="" value="${minVal}">
+                 </div>
+                 <div class="fp-row">
+                   <label class="fp-lbl">Max${unit ? ' ('+unit+')' : ''}</label>
+                   <input id="fp-max" type="number" step="any" placeholder="" value="${maxVal}">
+                 </div>
+                 <div class="fp-chips">
+                   <button onclick="applyPct('t10')">Top 10%</button>
+                   <button onclick="applyPct('t25')">Top 25%</button>
+                   <button onclick="applyPct('b25')">Bottom 25%</button>
+                   <button onclick="applyPct('b10')">Bottom 10%</button>
+                 </div>
+                 <div class="fp-toggle" onclick="toggleShorthand()">⌄ Power-user: shorthand syntax</div>
+                 <div class="fp-shorthand">
+                   <input id="fp-short" type="text" placeholder="e.g.  >=1000   100-500   <50">
+                   <div class="fp-help">Examples: <code>1000-5000</code> · <code>&gt;=1000</code> · <code>&lt;500</code> · <code>1000+</code></div>
+                 </div>
+                 <div class="fp-actions">
+                   <button class="btn-tool" onclick="applyNumeric()">Apply</button>
+                   <button class="btn-tool" onclick="clearFilterForCol('${col}'); closeFilter();">Clear</button>
+                 </div>`;
+    } else {
+        // text
+        const cVal = fCont ? fCont.value : '';
+        const sVal = fStarts ? fStarts.value : '';
+        const eVal = fEqT ? fEqT.value : '';
+        const op = fStarts ? 'starts' : (fEqT ? 'equals' : 'contains');
+        const val = sVal || eVal || cVal;
+        html += `<div class="fp-row">
+                   <input id="fp-text" type="text" placeholder="Type to filter…" value="${val.replace(/"/g,'&quot;')}">
+                 </div>
+                 <div class="fp-radios">
+                   <label><input type="radio" name="textOp" value="contains" ${op==='contains'?'checked':''}> Contains</label>
+                   <label><input type="radio" name="textOp" value="starts" ${op==='starts'?'checked':''}> Starts with</label>
+                   <label><input type="radio" name="textOp" value="equals" ${op==='equals'?'checked':''}> Equals</label>
+                 </div>
+                 <div class="fp-actions">
+                   <button class="btn-tool" onclick="applyText()">Apply</button>
+                   <button class="btn-tool" onclick="clearFilterForCol('${col}'); closeFilter();">Clear</button>
+                 </div>`;
+    }
+    pop.innerHTML = html;
+    positionPopover(anchor);
+    pop.classList.add('open');
+
+    if (isMulti) loadMultiOptions(col);
+
+    // Auto-focus first input
+    setTimeout(() => {
+        const firstInput = pop.querySelector('input[type="text"], input[type="number"]');
+        if (firstInput) firstInput.focus();
+    }, 30);
+}
+function positionPopover(anchor) {
+    const pop = document.getElementById('filter-popover');
+    const r   = anchor.getBoundingClientRect();
+    pop.style.top  = (window.scrollY + r.bottom + 4) + 'px';
+    // Right-align if it would overflow the viewport
+    const popW = pop.offsetWidth || 280;
+    let left   = window.scrollX + r.left;
+    if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 16;
+    pop.style.left = Math.max(8, left) + 'px';
+}
+function closeFilter() {
+    document.getElementById('filter-popover').classList.remove('open');
+    _popoverCol = null;
+}
+document.addEventListener('click', (e) => {
+    const pop = document.getElementById('filter-popover');
+    if (!pop.classList.contains('open')) return;
+    if (pop.contains(e.target)) return;
+    if (e.target.classList.contains('filter-icon')) return;
+    closeFilter();
+});
+
+function toggleShorthand() {
+    document.getElementById('filter-popover').classList.toggle('open-shorthand');
+}
+
+// ─── Apply handlers ────────────────────────────────────────────────────────
+function applyNumeric() {
+    if (!_popoverCol) return;
+    const meta = state.columns.find(c => c.key === _popoverCol);
+    const isPct = meta.type === 'ratio' || meta.type === 'percent_share';
+    const minRaw = document.getElementById('fp-min').value.trim();
+    const maxRaw = document.getElementById('fp-max').value.trim();
+    const shortRaw = (document.getElementById('fp-short') || {}).value || '';
+
+    // Clear any existing numeric filters on this column first (server side will replace)
+    state.filters = state.filters.filter(f => f.col !== _popoverCol);
+
+    // Shorthand takes precedence if non-empty
+    if (shortRaw.trim()) {
+        const parsed = parseShorthand(shortRaw.trim());
+        for (const f of parsed) {
+            const v = isPct ? (f.value / 100) : f.value;
+            state.filters.push({ col: _popoverCol, op: f.op, value: v });
+        }
+    } else {
+        if (minRaw !== '') {
+            const v = isPct ? (Number(minRaw) / 100) : Number(minRaw);
+            if (isFinite(v)) state.filters.push({ col: _popoverCol, op: 'gte', value: v });
+        }
+        if (maxRaw !== '') {
+            const v = isPct ? (Number(maxRaw) / 100) : Number(maxRaw);
+            if (isFinite(v)) state.filters.push({ col: _popoverCol, op: 'lte', value: v });
+        }
+    }
+    closeFilter();
+    loadInitial();
+}
+function applyPct(which) {
+    if (!_popoverCol) return;
+    setFilter(_popoverCol, 'pct', which);
+    closeFilter();
+}
+function applyText() {
+    if (!_popoverCol) return;
+    const op  = (document.querySelector('input[name="textOp"]:checked') || {}).value || 'contains';
+    const val = document.getElementById('fp-text').value;
+    state.filters = state.filters.filter(f => f.col !== _popoverCol);
+    if (val) state.filters.push({ col: _popoverCol, op, value: val });
+    closeFilter();
+    loadInitial();
+}
+function applyMulti() {
+    if (!_popoverCol) return;
+    const checked = Array.from(document.querySelectorAll('#fp-multi input[type="checkbox"]:checked'))
+        .map(el => el.value);
+    state.filters = state.filters.filter(f => f.col !== _popoverCol);
+    if (checked.length) state.filters.push({ col: _popoverCol, op: 'in', value: checked });
+    closeFilter();
+    loadInitial();
+}
+async function loadMultiOptions(col) {
+    try {
+        const r = await fetch(`/api/explore/${state.grain}/distinct/${col}`);
+        const d = await r.json();
+        const existing = state.filters.find(f => f.col === col && f.op === 'in');
+        const checked  = new Set(existing ? existing.value : []);
+        const list = document.getElementById('fp-multi');
+        if (!list) return;
+        list.innerHTML = (d.values || []).map(v => {
+            const safe = String(v).replace(/"/g,'&quot;');
+            return `<label><input type="checkbox" value="${safe}" ${checked.has(String(v))?'checked':''}> ${v}</label>`;
+        }).join('') || `<div style="padding:10px;color:var(--text-muted)">No values.</div>`;
+    } catch (e) {
+        const list = document.getElementById('fp-multi');
+        if (list) list.innerHTML = `<div style="padding:10px;color:var(--accent-red);font-size:.72rem">Failed to load: ${e.message}</div>`;
+    }
+}
+
+// Parse shorthand like ">=1000", "<500", "100-500", "1000+", "1000".
+function parseShorthand(s) {
+    s = s.trim();
+    if (!s) return [];
+    let m;
+    if ((m = s.match(/^>=\s*(-?[\d.]+)$/)))      return [{op:'gte', value: Number(m[1])}];
+    if ((m = s.match(/^>\s*(-?[\d.]+)$/)))       return [{op:'gt',  value: Number(m[1])}];
+    if ((m = s.match(/^<=\s*(-?[\d.]+)$/)))      return [{op:'lte', value: Number(m[1])}];
+    if ((m = s.match(/^<\s*(-?[\d.]+)$/)))       return [{op:'lt',  value: Number(m[1])}];
+    if ((m = s.match(/^(-?[\d.]+)\+$/)))         return [{op:'gte', value: Number(m[1])}];
+    if ((m = s.match(/^(-?[\d.]+)\s*-\s*(-?[\d.]+)$/))) {
+        return [{op:'gte', value: Number(m[1])}, {op:'lte', value: Number(m[2])}];
+    }
+    if ((m = s.match(/^=?\s*(-?[\d.]+)$/)))      return [{op:'eq',  value: Number(m[1])}];
+    return [];  // unparseable → ignored
+}
+
 // ─── Boot ──────────────────────────────────────────────────────────────────
+loadFromURL();
 loadInitial();
 
 // Hide topbar status pills (those are dashboard-specific; not relevant here)

@@ -7,26 +7,37 @@ latest available month:
   - /api/explore/zip      (28,153 rows max)
 
 Each endpoint supports:
-  ?q=<text>           global search (matches across county_name / zip_name /
-                      county_fips / state / postal_code, case-insensitive)
+  ?q=<text>           global search (county_name / zip_name / county_fips /
+                      postal_code, case-insensitive)
   ?sort=<col>         column key to sort by (whitelisted from COLUMN_META)
   ?dir=asc|desc       default desc
   ?offset=N&limit=N   pagination — default offset=0, limit=100
-  ?format=csv         download response as text/csv (no offset/limit applied)
-  ?cols=a,b,c         optional column subset (CSV export uses this for "visible only")
+  ?format=csv         streamed CSV (no pagination)
+  ?cols=a,b,c         CSV: column subset to include
+  ?f.<col>.<op>=<v>   per-column filter — repeatable, AND-combined.
+                      Operators by type:
+                        numeric  : gte gt lte lt eq ne pct
+                        text     : contains starts equals
+                        multiselect : in   (comma-separated values)
+                      `pct` resolves to a percentile threshold via
+                      PERCENTILE_CONT against all rows of the latest month.
+                      Values: t10 / t25 (top N% of distribution) or
+                              b10 / b25 (bottom N%).
 
 Returns JSON:
   { "rows": [{...}, ...],
-    "total": <int>,             // total rows matching the query (after q filter)
-    "columns": [                 // column metadata for the frontend
-      {"key":"county_fips","label":"FIPS","type":"text","default":true,"sortable":true,"source":"inv"},
-      ...
-    ]
+    "total": N,                  // rows matching all filters
+    "columns": [...],            // column metadata
+    "applied_filters": [...]     // resolved filter list (with thresholds for `pct`)
   }
+
+Distinct values for multi-select dropdowns:
+  GET /api/explore/<grain>/distinct/<col>
 """
 import csv
 import io
 import os
+import re
 from typing import Iterable
 
 import psycopg2
@@ -181,8 +192,181 @@ def _conn():
     return c
 
 
-def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool):
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-column filter parsing — request.args parses to "f.<col>.<op>=<value>"
+# ─────────────────────────────────────────────────────────────────────────────
+
+NUMERIC_TYPES = {"integer", "currency", "ratio", "percent_share", "number"}
+TEXT_TYPES    = {"text"}
+
+NUMERIC_OPS = {"gte", "gt", "lte", "lt", "eq", "ne"}
+NUMERIC_OP_SQL = {"gte": ">=", "gt": ">", "lte": "<=", "lt": "<", "eq": "=", "ne": "<>"}
+TEXT_OPS      = {"contains", "starts", "equals"}
+ALL_OPS       = NUMERIC_OPS | TEXT_OPS | {"pct", "in"}
+
+PCT_VALUES = {"t10": 0.90, "t25": 0.75, "b25": 0.25, "b10": 0.10}
+PCT_DIR    = {"t10": ">=", "t25": ">=", "b25": "<=", "b10": "<="}
+
+
+def _col_meta(grain, key):
+    for c in GRAIN_CONFIG[grain]["columns"]:
+        if c["key"] == key:
+            return c
+    return None
+
+
+def _parse_filters(grain, args):
+    """Return ([validated_filters], [errors]).
+    Each validated_filter is dict {col, op, value, sql_qualifier}."""
+    out = []
+    errors = []
+    for raw_key, raw_val in args.items(multi=True):
+        if not raw_key.startswith("f."):
+            continue
+        # f.<col>.<op>
+        parts = raw_key.split(".", 2)
+        if len(parts) != 3:
+            errors.append(f"bad filter key {raw_key!r}")
+            continue
+        _, col, op = parts
+        meta = _col_meta(grain, col)
+        if not meta:
+            errors.append(f"unknown column {col!r}")
+            continue
+        if op not in ALL_OPS:
+            errors.append(f"unknown op {op!r}")
+            continue
+
+        ctype = meta["type"]
+        # Validate op vs type
+        if op in NUMERIC_OPS and ctype not in NUMERIC_TYPES:
+            errors.append(f"{col} ({ctype}): op {op} only valid for numeric"); continue
+        if op in TEXT_OPS and ctype not in TEXT_TYPES:
+            errors.append(f"{col} ({ctype}): op {op} only valid for text"); continue
+        if op == "pct" and ctype not in NUMERIC_TYPES:
+            errors.append(f"{col} ({ctype}): pct only valid for numeric"); continue
+        if op == "pct" and raw_val not in PCT_VALUES:
+            errors.append(f"pct value must be one of {sorted(PCT_VALUES)}"); continue
+
+        # For numeric: parse value to float; for ratio/percent_share, accept
+        # raw percent (25 → 0.25) since the popover shows percent inputs.
+        if op in NUMERIC_OPS:
+            try:
+                v = float(raw_val)
+            except (TypeError, ValueError):
+                errors.append(f"{col}: {op} requires a number, got {raw_val!r}"); continue
+            if ctype in ("ratio", "percent_share") and abs(v) > 5:
+                # Heuristic: user typed a percent (e.g. "25" for 25%).
+                # If absolute value is suspiciously large (>5), treat as percent and divide.
+                v = v / 100.0
+        elif op == "in":
+            v = [s for s in raw_val.split(",") if s.strip()]
+            if not v:
+                continue
+        else:
+            v = str(raw_val)
+
+        out.append({
+            "col": col,
+            "op":  op,
+            "value": v,
+            "raw":  raw_val,
+            "type": ctype,
+            "source": meta["source"],
+        })
+    return out, errors
+
+
+def _resolve_pct_thresholds(grain, filters):
+    """Replace any 'pct' filter with a 'gte'/'lte' filter using a single
+    multi-PERCENTILE_CONT query against all rows of the latest month."""
+    pct_filters = [f for f in filters if f["op"] == "pct"]
+    if not pct_filters:
+        return filters
+
+    cfg = GRAIN_CONFIG[grain]
+    inv_t, hot_t, key = cfg["inv_table"], cfg["hot_table"], cfg["key"]
+
+    parts = []
+    for i, f in enumerate(pct_filters):
+        pct = PCT_VALUES[f["value"]]
+        qual = "i" if f["source"] == "inv" else ("h" if f["source"] == "hot" else None)
+        if qual is None:
+            # foreclosure_count — pull from the precomputed table inline
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY COALESCE(fc.fc_count, 0)) "
+                f"FROM {inv_t} i "
+                f"LEFT JOIN {cfg['fc_table']} fc ON fc.{cfg['fc_key']} = i.{key} "
+                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
+            ))
+        else:
+            join = ""
+            if qual == "h":
+                join = (f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
+                        f"AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t})")
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY {qual}.{f['col']}) "
+                f"FROM {inv_t} i {join} "
+                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
+            ))
+
+    sql = "SELECT " + ", ".join(f"({s}) AS {n}" for n, s in parts)
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    out = [f for f in filters if f["op"] != "pct"]
+    for i, f in enumerate(pct_filters):
+        thr = row[i]
+        if thr is None:
+            continue
+        thr = float(thr)
+        new_op = "gte" if PCT_DIR[f["value"]] == ">=" else "lte"
+        out.append({**f, "op": new_op, "value": thr,
+                    "pct_resolved_from": f["value"], "pct_threshold": thr})
+    return out
+
+
+def _filter_to_sql(grain, f, qualifier):
+    """Translate one validated filter to (where_clause, params)."""
+    col = f["col"]
+    op  = f["op"]
+    val = f["value"]
+    ctype = f["type"]
+    src   = f["source"]
+
+    if src == "fc":
+        ref = "COALESCE(fc.fc_count, 0)"
+    else:
+        ref = f"{qualifier}.{col}"
+
+    if op in NUMERIC_OPS:
+        return f"{ref} {NUMERIC_OP_SQL[op]} %s", [val]
+    if op == "contains":
+        return f"{ref}::text ILIKE %s", [f"%{val}%"]
+    if op == "starts":
+        return f"{ref}::text ILIKE %s", [f"{val}%"]
+    if op == "equals":
+        return f"LOWER({ref}::text) = LOWER(%s)", [val]
+    if op == "in":
+        if not val:
+            return None, []
+        ph = ", ".join(["%s"] * len(val))
+        return f"{ref}::text IN ({ph})", list(val)
+    return None, []
+
+
+def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None):
     """Return (sql, params, cols_in_order) for the given grain."""
+    filters = filters or []
     cfg = GRAIN_CONFIG[grain]
     cols     = cfg["columns"]
     key      = cfg["key"]
@@ -218,6 +402,15 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool)
         ors = " OR ".join([f"i.{c}::text ILIKE %s" for c in search_cols])
         where.append(f"({ors})")
         params.extend([like] * len(search_cols))
+
+    # Per-column filters — each translates to a clause referencing the
+    # appropriate table alias.
+    for f in filters:
+        qual = "i" if f["source"] == "inv" else ("h" if f["source"] == "hot" else "fc")
+        clause, fparams = _filter_to_sql(grain, f, qual)
+        if clause:
+            where.append(clause)
+            params.extend(fparams)
 
     base_from = (
         f"FROM {inv_t} i "
@@ -256,12 +449,12 @@ def _fmt_for_csv(val):
     return str(val)
 
 
-def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str]):
+def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None):
     cfg = GRAIN_CONFIG[grain]
     visible_cols = list(visible_cols) if visible_cols else [c["key"] for c in cfg["columns"]]
     label_by_key = {c["key"]: c["label"] for c in cfg["columns"]}
 
-    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False)
+    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [])
 
     conn = _conn()
     try:
@@ -299,12 +492,15 @@ def explore(grain):
     sort_dir = request.args.get("dir", "desc")
     fmt      = request.args.get("format", "json").lower()
 
+    raw_filters, filter_errors = _parse_filters(grain, request.args)
+    filters = _resolve_pct_thresholds(grain, raw_filters)
+
     if fmt == "csv":
         visible = request.args.get("cols", "")
         visible_cols = [c for c in visible.split(",") if c] or None
         filename = f"realtor_{grain}_{request.args.get('q','all')}.csv"
         return Response(
-            stream_with_context(_stream_csv(grain, q, sort, sort_dir, visible_cols)),
+            stream_with_context(_stream_csv(grain, q, sort, sort_dir, visible_cols, filters=filters)),
             mimetype="text/csv",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
@@ -321,10 +517,10 @@ def explore(grain):
     except ValueError:
         limit = 100
 
-    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False)
+    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters)
     paged_sql = f"{sql} LIMIT {limit} OFFSET {offset}"
 
-    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True)
+    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters)
 
     conn = _conn()
     try:
@@ -361,4 +557,45 @@ def explore(grain):
         "sort":    sort,
         "dir":     "asc" if sort_dir.lower() == "asc" else "desc",
         "columns": GRAIN_CONFIG[grain]["columns"],
+        "applied_filters": [
+            {"col": f["col"], "op": f["op"], "value": f["value"],
+             "pct_resolved_from": f.get("pct_resolved_from"),
+             "pct_threshold": f.get("pct_threshold")}
+            for f in filters
+        ],
+        "filter_errors": filter_errors,
     })
+
+
+@explore_bp.route("/api/explore/<grain>/distinct/<col>")
+def explore_distinct(grain, col):
+    """Distinct values for a column — feeds the multi-select filter dropdown."""
+    if grain not in GRAIN_CONFIG:
+        return jsonify({"error": f"unknown grain '{grain}'"}), 400
+    meta = _col_meta(grain, col)
+    if not meta:
+        return jsonify({"error": f"unknown column '{col}'"}), 400
+
+    cfg = GRAIN_CONFIG[grain]
+    inv_t, hot_t, key = cfg["inv_table"], cfg["hot_table"], cfg["key"]
+    src = meta["source"]
+
+    if src == "inv":
+        sql = (f"SELECT DISTINCT i.{col} AS v FROM {inv_t} i "
+               f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t}) "
+               f"AND i.{col} IS NOT NULL ORDER BY v ASC LIMIT 500")
+    elif src == "hot":
+        sql = (f"SELECT DISTINCT h.{col} AS v FROM {hot_t} h "
+               f"WHERE h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
+               f"AND h.{col} IS NOT NULL ORDER BY v ASC LIMIT 500")
+    else:
+        return jsonify({"error": "distinct values not supported for this column"}), 400
+
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            values = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify({"col": col, "values": values, "count": len(values)})
