@@ -356,8 +356,25 @@
 #cc-drawer .cc-term {
     display: grid;
     grid-template-columns: 50px 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 6px 6px; align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed rgba(255,255,255,.06);
+}
+#cc-drawer .cc-term:last-of-type { border-bottom: none; }
+#cc-drawer .cc-adjust {
+    grid-column: 2 / 4;
+    display: grid;
+    grid-template-columns: 50px 60px 1fr;
     gap: 6px; align-items: center;
-    margin-bottom: 6px;
+}
+#cc-drawer .cc-adjust-lbl {
+    font-size: .62rem; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--text-muted); text-align: right; padding-right: 4px;
+}
+#cc-drawer .cc-adjust input[disabled] {
+    opacity: .4; cursor: not-allowed;
 }
 #cc-drawer .cc-term .cc-op {
     text-align: center; font-weight: 700; color: var(--accent-cyan);
@@ -530,8 +547,8 @@
     <div class="body">
         <p class="cc-help">
             Build a column with arithmetic over numeric columns and constants.
-            Operators follow standard math precedence (× ÷ before + −).
-            Division by zero becomes empty.
+            Each column can also have a per-term adjustment (e.g. <code>(price - 2) / (pending + 0.1)</code>).
+            Operators follow standard math precedence (× ÷ before + −). Division by zero becomes empty.
         </p>
         <div class="cc-label-row">
             <label for="cc-label-input">Column label</label>
@@ -991,26 +1008,47 @@ async function _ccLoadOperands() {
     }
 }
 function _ccTermsFromExpr(expr) {
-    // Best-effort tokenizer for round-tripping a saved expression into the
-    // chained-term UI. Identifiers, numbers, and operators only — anything
-    // unexpected (like parens) is shown as a single 'raw' fallback.
+    // Round-trip a saved expression into the builder's term list.
+    // Supported shapes per term: bare identifier, bare number, or
+    // `(IDENT OP NUMBER)` — one level of parens. Anything more complex
+    // (nested parens, multi-op groups) returns null → fallback notice.
     if (!expr) return [];
-    const tokens = expr.match(/[A-Za-z_][\w]*|-?\d*\.?\d+|[+\-*/()]/g) || [];
-    if (tokens.some(t => t === '(' || t === ')')) return null;  // signal raw fallback
+    const s = expr.replace(/\s+/g, '');
     const terms = [];
     let i = 0;
-    while (i < tokens.length) {
+    while (i < s.length) {
+        // Outer operator (skipped on first term — defaults to '+')
         let op = '+';
-        if (i === 0 && (tokens[0] === '+' || tokens[0] === '-')) {
-            op = tokens[0]; i++;
-        } else if (i > 0) {
-            if (!'+-*/'.includes(tokens[i])) return null;
-            op = tokens[i]; i++;
+        if (terms.length === 0) {
+            if (s[i] === '+' || s[i] === '-') { op = s[i]; i++; }
+        } else {
+            if (!'+-*/'.includes(s[i])) return null;
+            op = s[i]; i++;
         }
-        const t = tokens[i++];
-        if (t === undefined) return null;
-        if (/^-?\d/.test(t)) terms.push({op, kind: 'num', value: t});
-        else                 terms.push({op, kind: 'col', value: t});
+        // Operand: parenthesized group, identifier, or number
+        if (s[i] === '(') {
+            const close = s.indexOf(')', i);
+            if (close < 0) return null;
+            const inner = s.slice(i + 1, close);
+            // Inner pattern must be IDENT OP NUMBER  (no nested parens)
+            const m = inner.match(/^([A-Za-z_]\w*)([+\-*/])(-?\d*\.?\d+)$/);
+            if (!m) return null;
+            terms.push({op, kind: 'col', value: m[1], adjOp: m[2], adjNum: m[3]});
+            i = close + 1;
+        } else {
+            // Bare identifier or number
+            const idMatch = s.slice(i).match(/^[A-Za-z_]\w*/);
+            const numMatch = s.slice(i).match(/^-?\d*\.?\d+/);
+            if (idMatch) {
+                terms.push({op, kind: 'col', value: idMatch[0], adjOp: null, adjNum: ''});
+                i += idMatch[0].length;
+            } else if (numMatch) {
+                terms.push({op, kind: 'num', value: numMatch[0], adjOp: null, adjNum: ''});
+                i += numMatch[0].length;
+            } else {
+                return null;
+            }
+        }
     }
     return terms;
 }
@@ -1018,12 +1056,14 @@ function _ccTermsToExpr(terms) {
     if (!terms || !terms.length) return '';
     const parts = [];
     terms.forEach((t, i) => {
-        const v = (t.kind === 'num') ? t.value : t.value;
-        if (i === 0) {
-            parts.push(t.op === '-' ? `-${v}` : `${v}`);
+        let body;
+        if (t.kind === 'col' && t.adjOp && t.adjNum !== '' && t.adjNum != null) {
+            body = `(${t.value} ${t.adjOp} ${t.adjNum})`;
         } else {
-            parts.push(`${t.op} ${v}`);
+            body = String(t.value);
         }
+        if (i === 0) parts.push(t.op === '-' ? `-${body}` : body);
+        else         parts.push(`${t.op} ${body}`);
     });
     return parts.join(' ');
 }
@@ -1042,7 +1082,6 @@ function _renderCcTerms() {
                    ${['+','-','*','/'].map(o => `<option ${t.op===o?'selected':''}>${o}</option>`).join('')}
                  </select>
                </div>`;
-        // Operand: dropdown (column) or number input — kind toggle inline
         const isNum = t.kind === 'num';
         const colOptions = ops.map(o => `<option value="${o.key}" ${t.value===o.key?'selected':''}>${o.label}</option>`).join('');
         const operand = `
@@ -1057,9 +1096,28 @@ function _renderCcTerms() {
                 </select>
             </div>`;
         const rmBtn = (draft.terms.length > 1)
-            ? `<button class="cc-rm-btn" onclick="ccRemoveTerm(${i})" title="Remove">−</button>`
+            ? `<button class="cc-rm-btn" onclick="ccRemoveTerm(${i})" title="Remove term">−</button>`
             : `<div></div>`;
-        return `<div class="cc-term">${opBox}${operand}${rmBtn}</div>`;
+        // Per-term adjustment row — only meaningful for column terms.
+        // Shows as `(column op number)`. Defaults to no adjustment ("—").
+        let adjustRow = '';
+        if (!isNum) {
+            const adjOp = t.adjOp || '';
+            const adjNum = (t.adjNum == null) ? '' : t.adjNum;
+            adjustRow = `
+                <div class="cc-adjust">
+                    <span class="cc-adjust-lbl">adjust</span>
+                    <select onchange="ccSetAdjOp(${i}, this.value)">
+                        <option value="" ${!adjOp?'selected':''}>—</option>
+                        ${['+','-','*','/'].map(o => `<option value="${o}" ${adjOp===o?'selected':''}>${o}</option>`).join('')}
+                    </select>
+                    <input type="number" step="any" placeholder="number"
+                           value="${adjNum}"
+                           ${adjOp ? '' : 'disabled'}
+                           oninput="ccSetAdjNum(${i}, this.value)">
+                </div>`;
+        }
+        return `<div class="cc-term">${opBox}${operand}${rmBtn}${adjustRow}</div>`;
     }).join('');
     document.getElementById('cc-preview').textContent = _ccTermsToExpr(draft.terms) || '— enter at least one operand —';
 }
@@ -1073,11 +1131,19 @@ function ccSetKind(i, v)  {
         const ops = _ccOperandsForGrain();
         if (!ops.find(o => o.key === t.value)) t.value = ops[0]?.key || '';
     }
+    if (v === 'num') { t.adjOp = null; t.adjNum = ''; }
     _renderCcTerms();
 }
+function ccSetAdjOp(i, v) {
+    const t = state.ccDraft.terms[i];
+    t.adjOp = v || null;
+    if (!v) t.adjNum = '';
+    _renderCcTerms();
+}
+function ccSetAdjNum(i, v) { state.ccDraft.terms[i].adjNum = v; _renderCcTerms(); }
 function ccAddTerm() {
     const ops = _ccOperandsForGrain();
-    state.ccDraft.terms.push({op: '+', kind: 'col', value: ops[0]?.key || ''});
+    state.ccDraft.terms.push({op: '+', kind: 'col', value: ops[0]?.key || '', adjOp: null, adjNum: ''});
     _renderCcTerms();
 }
 function ccRemoveTerm(i) {
@@ -1091,17 +1157,20 @@ async function openCcDrawer() {
     if (state.customColumn?.expression) {
         terms = _ccTermsFromExpr(state.customColumn.expression);
     }
+    const couldNotParse = state.customColumn?.expression && (terms === null);
     if (!terms || !terms.length) {
-        terms = [{op: '+', kind: 'col', value: ops[0]?.key || ''}];
+        terms = [{op: '+', kind: 'col', value: ops[0]?.key || '', adjOp: null, adjNum: ''}];
     }
+    // Backfill defaults for any older saved terms missing the adjust fields.
+    terms.forEach(t => { if (t.adjOp === undefined) t.adjOp = null; if (t.adjNum === undefined) t.adjNum = ''; });
     state.ccDraft = {
         label: state.customColumn?.label || '',
         terms,
     };
     document.getElementById('cc-label-input').value = state.ccDraft.label;
     _renderCcTerms();
-    _setCcStatus(state.customColumn?.expression && terms.length === 0
-        ? 'Saved expression has parentheses and can\'t be loaded into the builder. Save will overwrite it.'
+    _setCcStatus(couldNotParse
+        ? `Saved expression "${state.customColumn.expression}" is too complex for this builder. Saving will overwrite it.`
         : '');
     document.getElementById('cc-drawer').classList.add('open');
     document.getElementById('cc-backdrop').classList.add('open');
