@@ -34,8 +34,10 @@ Returns JSON:
 Distinct values for multi-select dropdowns:
   GET /api/explore/<grain>/distinct/<col>
 """
+import ast
 import csv
 import io
+import json
 import os
 import re
 from typing import Iterable
@@ -45,6 +47,332 @@ import psycopg2.extras
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 explore_bp = Blueprint("explore", __name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# User-tunable Exit Speed weights.
+#
+# The dashboard's heatmap uses the full 6-signal multi-source formula in
+# app/ingest/market_data.py:compute_exit_score. /explore re-computes the
+# score per request from the 3 Realtor signals that exist in Postgres so
+# the user can tweak weights live (Redfin/Zillow signals are file-only).
+# Defaults renormalize the original {dom: 0.40, pending: 0.30, yoy: 0.03}
+# so the three remaining weights still sum to 1.
+# ─────────────────────────────────────────────────────────────────────────────
+EXIT_WEIGHT_DEFAULTS = {"dom": 0.55, "pending": 0.41, "yoy": 0.04}
+EXIT_WEIGHT_KEYS = ("dom", "pending", "yoy")
+
+# (x, y) breakpoints — same as compute_exit_score in app/ingest/market_data.py.
+DOM_BREAKPOINTS     = [(15, 100), (30, 70), (60, 30), (90, 10), (150, 0)]
+PENDING_BREAKPOINTS = [(0.03, 0), (0.10, 20), (0.25, 65), (0.40, 100)]
+YOY_BREAKPOINTS     = [(-0.05, 0), (0, 50), (0.05, 85), (0.10, 100)]
+
+
+def _piecewise_sql(col_expr: str, points) -> str:
+    """SQL CASE that maps `col_expr` to the piecewise-linear curve through `points`.
+    Flat extrapolation outside the first/last x value."""
+    branches = [f"WHEN ({col_expr}) <= {points[0][0]} THEN {points[0][1]}"]
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        slope = (y1 - y0) / (x1 - x0)
+        branches.append(
+            f"WHEN ({col_expr}) <= {x1} THEN {y0} + (({col_expr}) - {x0}) * {slope}"
+        )
+    branches.append(f"ELSE {points[-1][1]}")
+    return "CASE " + " ".join(branches) + " END"
+
+
+def _exit_score_sql(weights: dict, qualifier: str = "i") -> str:
+    """Build a SQL scalar expression that yields a 0..100 exit score per row,
+    using `weights` for {dom, pending, yoy}. Mirrors the gate bonuses and
+    coverage check in compute_exit_score()."""
+    dom     = f"{qualifier}.median_days_on_market"
+    pending = f"{qualifier}.pending_ratio"
+    yoy     = f"{qualifier}.median_listing_price_yy"
+
+    dom_n     = _piecewise_sql(dom, DOM_BREAKPOINTS)
+    pending_n = _piecewise_sql(pending, PENDING_BREAKPOINTS)
+    yoy_n     = _piecewise_sql(yoy, YOY_BREAKPOINTS)
+
+    w_dom     = float(weights.get("dom",     EXIT_WEIGHT_DEFAULTS["dom"]))
+    w_pending = float(weights.get("pending", EXIT_WEIGHT_DEFAULTS["pending"]))
+    w_yoy     = float(weights.get("yoy",     EXIT_WEIGHT_DEFAULTS["yoy"]))
+
+    # Renormalized weighted sum: if a signal is NULL its weight is excluded
+    # from both numerator and denominator.
+    num = (
+        f"(CASE WHEN {dom} IS NULL THEN 0 ELSE {w_dom}::numeric * ({dom_n}) END) + "
+        f"(CASE WHEN {pending} IS NULL THEN 0 ELSE {w_pending}::numeric * ({pending_n}) END) + "
+        f"(CASE WHEN {yoy} IS NULL THEN 0 ELSE {w_yoy}::numeric * ({yoy_n}) END)"
+    )
+    denom = (
+        f"(CASE WHEN {dom} IS NULL THEN 0 ELSE {w_dom}::numeric END) + "
+        f"(CASE WHEN {pending} IS NULL THEN 0 ELSE {w_pending}::numeric END) + "
+        f"(CASE WHEN {yoy} IS NULL THEN 0 ELSE {w_yoy}::numeric END)"
+    )
+    base = f"(({num}) / NULLIF({denom}, 0))"
+
+    # Gate bonuses (port of compute_exit_score):
+    #   dom < 30 AND pending > 0.40 → ×1.15
+    #   dom < 60 AND pending > 0.25 → ×1.10
+    #   dom > 120                   → ×0.60 (stagnant override)
+    bonus = (
+        "(CASE "
+        f" WHEN {dom} IS NOT NULL AND {pending} IS NOT NULL AND {dom} < 30 AND {pending} > 0.40 THEN 1.15"
+        f" WHEN {dom} IS NOT NULL AND {pending} IS NOT NULL AND {dom} < 60 AND {pending} > 0.25 THEN 1.10"
+        " ELSE 1.0 END) * "
+        f"(CASE WHEN {dom} IS NOT NULL AND {dom} > 120 THEN 0.60 ELSE 1.0 END)"
+    )
+
+    # Coverage gate — if denominator < 0.4 we don't trust the score; return 50.
+    expr = (
+        f"CASE WHEN ({denom}) >= 0.4 "
+        f" THEN LEAST(100, GREATEST(0, ROUND(({base}) * ({bonus}))))::int "
+        f" ELSE 50 END"
+    )
+    return expr
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Settings persistence — single global row in app_settings, no auth.
+# ─────────────────────────────────────────────────────────────────────────────
+_SETTINGS_DDL = """
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+"""
+
+
+def _normalize_weights(raw) -> dict:
+    """Coerce input → {dom, pending, yoy} clamped ≥ 0 and renormalized to sum 1.
+    Falls back to defaults if input is unusable."""
+    if not isinstance(raw, dict):
+        return dict(EXIT_WEIGHT_DEFAULTS)
+    out = {}
+    for k in EXIT_WEIGHT_KEYS:
+        try:
+            v = float(raw.get(k, EXIT_WEIGHT_DEFAULTS[k]))
+        except (TypeError, ValueError):
+            v = EXIT_WEIGHT_DEFAULTS[k]
+        out[k] = max(0.0, v)
+    s = sum(out.values())
+    if s <= 0:
+        return dict(EXIT_WEIGHT_DEFAULTS)
+    return {k: v / s for k, v in out.items()}
+
+
+def _get_exit_weights() -> dict:
+    """Read saved weights from app_settings; return defaults if absent / table missing."""
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SELECT value FROM app_settings WHERE key = 'exit_weights'")
+                row = cur.fetchone()
+            except psycopg2.Error:
+                conn.rollback()
+                return dict(EXIT_WEIGHT_DEFAULTS)
+        if not row:
+            return dict(EXIT_WEIGHT_DEFAULTS)
+        return _normalize_weights(row[0])
+    finally:
+        conn.close()
+
+
+def _save_exit_weights(weights: dict) -> dict:
+    """Upsert weights into app_settings (writable connection). Returns saved value."""
+    norm = _normalize_weights(weights)
+    dsn = (os.getenv("NEON_DB")
+           or os.getenv("PROBATE_DATABASE_URL")
+           or "postgresql://localhost:5432/probate")
+    conn = psycopg2.connect(dsn, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_SETTINGS_DDL)
+            cur.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('exit_weights', %s::jsonb) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+                (json.dumps(norm),),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return norm
+
+
+def _reset_exit_weights() -> dict:
+    """Delete saved weights, falling back to defaults."""
+    dsn = (os.getenv("NEON_DB")
+           or os.getenv("PROBATE_DATABASE_URL")
+           or "postgresql://localhost:5432/probate")
+    conn = psycopg2.connect(dsn, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_SETTINGS_DDL)
+            cur.execute("DELETE FROM app_settings WHERE key = 'exit_weights'")
+        conn.commit()
+    finally:
+        conn.close()
+    return dict(EXIT_WEIGHT_DEFAULTS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom column — user-defined arithmetic over existing numeric columns.
+# Saved globally in app_settings as {"label", "expression"}. Parsed via Python's
+# ast module restricted to + - * / unary +/-, numeric literals, and identifiers
+# that map to numeric columns in the current grain.
+# ─────────────────────────────────────────────────────────────────────────────
+_ALLOWED_BINOPS   = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
+_ALLOWED_UNARYOPS = {ast.USub: "-", ast.UAdd: "+"}
+
+
+def _column_sql(grain: str, col_key: str, exit_expr: str = None):
+    """SQL ref for a numeric column key in the current grain, or None if unknown
+    or non-numeric. Knows about the special source='sc' exit_score override and
+    the COALESCE wrap on foreclosure_count."""
+    for c in GRAIN_CONFIG[grain]["columns"]:
+        if c["key"] != col_key:
+            continue
+        if c["type"] not in NUMERIC_TYPES:
+            return None
+        src = c["source"]
+        if src == "inv":
+            return f"i.{col_key}"
+        if src == "hot":
+            return f"h.{col_key}"
+        if src == "fc" and col_key == "foreclosure_count":
+            return "COALESCE(fc.fc_count, 0)"
+        if src == "sc":
+            if col_key == "exit_score" and exit_expr:
+                return f"({exit_expr})"
+            return f"sc.{col_key}"
+        return None
+    return None
+
+
+def _formula_to_sql(formula: str, grain: str, exit_expr: str = None):
+    """Compile a user formula to a safe SQL expression. Returns (sql, refs).
+    Raises ValueError on any disallowed construct."""
+    if not formula or not formula.strip():
+        raise ValueError("formula is empty")
+    if len(formula) > 500:
+        raise ValueError("formula too long (max 500 chars)")
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"syntax error: {e.msg}")
+
+    refs = []
+
+    def emit(node):
+        if isinstance(node, ast.Expression):
+            return emit(node.body)
+        if isinstance(node, ast.BinOp):
+            op_type = type(node.op)
+            if op_type not in _ALLOWED_BINOPS:
+                raise ValueError(f"operator {op_type.__name__} is not allowed")
+            op = _ALLOWED_BINOPS[op_type]
+            left, right = emit(node.left), emit(node.right)
+            if op == "/":
+                # Cast both sides to numeric (so integer / integer doesn't
+                # truncate) and NULLIF the divisor.
+                return f"(({left})::numeric / NULLIF(({right})::numeric, 0))"
+            return f"(({left}) {op} ({right}))"
+        if isinstance(node, ast.UnaryOp):
+            op_type = type(node.op)
+            if op_type not in _ALLOWED_UNARYOPS:
+                raise ValueError("unary operator not allowed")
+            sign = _ALLOWED_UNARYOPS[op_type]
+            inner = emit(node.operand)
+            return f"({sign}({inner}))" if sign == "-" else f"({inner})"
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValueError(f"only numeric constants allowed, got {type(node.value).__name__}")
+            return str(node.value)
+        if isinstance(node, ast.Name):
+            ref = _column_sql(grain, node.id, exit_expr=exit_expr)
+            if ref is None:
+                raise ValueError(f"unknown or non-numeric column: {node.id!r}")
+            refs.append(node.id)
+            return ref
+        raise ValueError(f"expression element not allowed: {type(node).__name__}")
+
+    return emit(tree), refs
+
+
+def _validate_custom_column(payload):
+    """Validate {label, expression} for both grains. Returns the cleaned dict
+    or raises ValueError."""
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    label = (payload.get("label") or "").strip()
+    expr  = (payload.get("expression") or "").strip()
+    if not expr:
+        raise ValueError("expression is required")
+    if not label:
+        label = "Custom"
+    if len(label) > 60:
+        label = label[:60]
+    # Compile against both grains so a user can switch tabs without surprises.
+    _formula_to_sql(expr, "county")
+    _formula_to_sql(expr, "zip")
+    return {"label": label, "expression": expr}
+
+
+def _get_custom_column():
+    """Return saved {label, expression} or None."""
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SELECT value FROM app_settings WHERE key = 'custom_column'")
+                row = cur.fetchone()
+            except psycopg2.Error:
+                conn.rollback()
+                return None
+        if not row or not row[0]:
+            return None
+        v = row[0]
+        if not isinstance(v, dict) or not v.get("expression"):
+            return None
+        return v
+    finally:
+        conn.close()
+
+
+def _save_custom_column(payload) -> dict:
+    cleaned = _validate_custom_column(payload)
+    dsn = (os.getenv("NEON_DB")
+           or os.getenv("PROBATE_DATABASE_URL")
+           or "postgresql://localhost:5432/probate")
+    conn = psycopg2.connect(dsn, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_SETTINGS_DDL)
+            cur.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('custom_column', %s::jsonb) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+                (json.dumps(cleaned),),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return cleaned
+
+
+def _reset_custom_column():
+    dsn = (os.getenv("NEON_DB")
+           or os.getenv("PROBATE_DATABASE_URL")
+           or "postgresql://localhost:5432/probate")
+    conn = psycopg2.connect(dsn, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_SETTINGS_DDL)
+            cur.execute("DELETE FROM app_settings WHERE key = 'custom_column'")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -219,14 +547,16 @@ PCT_VALUES = {"t10": 0.90, "t25": 0.75, "b25": 0.25, "b10": 0.10}
 PCT_DIR    = {"t10": ">=", "t25": ">=", "b25": "<=", "b10": "<="}
 
 
-def _col_meta(grain, key):
+def _col_meta(grain, key, custom_col_meta=None):
+    if custom_col_meta and key == custom_col_meta["key"]:
+        return custom_col_meta
     for c in GRAIN_CONFIG[grain]["columns"]:
         if c["key"] == key:
             return c
     return None
 
 
-def _parse_filters(grain, args):
+def _parse_filters(grain, args, custom_col_meta=None):
     """Return ([validated_filters], [errors]).
     Each validated_filter is dict {col, op, value, sql_qualifier}."""
     out = []
@@ -240,7 +570,7 @@ def _parse_filters(grain, args):
             errors.append(f"bad filter key {raw_key!r}")
             continue
         _, col, op = parts
-        meta = _col_meta(grain, col)
+        meta = _col_meta(grain, col, custom_col_meta=custom_col_meta)
         if not meta:
             errors.append(f"unknown column {col!r}")
             continue
@@ -288,7 +618,7 @@ def _parse_filters(grain, args):
     return out, errors
 
 
-def _resolve_pct_thresholds(grain, filters):
+def _resolve_pct_thresholds(grain, filters, exit_expr=None, custom_col_sql=None):
     """Replace any 'pct' filter with a 'gte'/'lte' filter using a single
     multi-PERCENTILE_CONT query against all rows of the latest month."""
     pct_filters = [f for f in filters if f["op"] == "pct"]
@@ -309,6 +639,31 @@ def _resolve_pct_thresholds(grain, filters):
                 f"(ORDER BY COALESCE(fc.fc_count, 0)) "
                 f"FROM {inv_t} i "
                 f"LEFT JOIN {cfg['fc_table']} fc ON fc.{cfg['fc_key']} = i.{key} "
+                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
+            ))
+        elif src == "custom" and custom_col_sql:
+            # Custom column references multiple sources — walk inventory + LEFT
+            # JOIN whichever side tables it might touch. Score table joined for
+            # exit_score / buy_score / golden_score cases.
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY ({custom_col_sql})) "
+                f"FROM {inv_t} i "
+                f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
+                f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
+                f"LEFT JOIN {cfg['fc_table']} fc ON fc.{cfg['fc_key']} = i.{key} "
+                f"LEFT JOIN {cfg['score_table']} sc ON sc.{cfg['score_key']} = i.{key} "
+                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
+            ))
+        elif src == "sc" and f["col"] == "exit_score" and exit_expr:
+            # exit_score is computed on-the-fly from current weights — percentile
+            # has to walk inventory rows, not the precomputed score table.
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY ({exit_expr})) "
+                f"FROM {inv_t} i "
                 f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t})"
             ))
         elif src == "sc":
@@ -444,7 +799,7 @@ def _build_fc_count_cte(grain: str, fc_filters):
     return cte, params
 
 
-def _filter_to_sql(grain, f, qualifier):
+def _filter_to_sql(grain, f, qualifier, exit_expr=None, custom_col_sql=None):
     """Translate one validated filter to (where_clause, params)."""
     col = f["col"]
     op  = f["op"]
@@ -454,6 +809,10 @@ def _filter_to_sql(grain, f, qualifier):
 
     if src == "fc":
         ref = "COALESCE(fc.fc_count, 0)"
+    elif src == "custom" and custom_col_sql:
+        ref = f"({custom_col_sql})"
+    elif src == "sc" and col == "exit_score" and exit_expr:
+        ref = f"({exit_expr})"
     elif src == "sc":
         ref = f"sc.{col}"
     else:
@@ -475,7 +834,7 @@ def _filter_to_sql(grain, f, qualifier):
     return None, []
 
 
-def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None):
+def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None):
     """Return (sql, params, cols_in_order) for the given grain."""
     filters = filters or []
     fc_filters = fc_filters or []
@@ -503,7 +862,12 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     if "foreclosure_count" in fc_cols:
         select_parts.append("COALESCE(fc.fc_count, 0) AS foreclosure_count")
     for k in sc_cols:
-        select_parts.append(f"sc.{k} AS {k}")
+        if k == "exit_score" and exit_expr:
+            select_parts.append(f"({exit_expr}) AS {k}")
+        else:
+            select_parts.append(f"sc.{k} AS {k}")
+    if custom_col_sql:
+        select_parts.append(f"({custom_col_sql}) AS custom_col")
 
     # WHERE clause — pin to latest month and apply optional global search.
     where = [
@@ -518,10 +882,10 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     # Per-column filters — each translates to a clause referencing the
     # appropriate table alias.
-    SRC_QUALIFIER = {"inv": "i", "hot": "h", "fc": "fc", "sc": "sc"}
+    SRC_QUALIFIER = {"inv": "i", "hot": "h", "fc": "fc", "sc": "sc", "custom": "i"}
     for f in filters:
         qual = SRC_QUALIFIER.get(f["source"], "i")
-        clause, fparams = _filter_to_sql(grain, f, qual)
+        clause, fparams = _filter_to_sql(grain, f, qual, exit_expr=exit_expr, custom_col_sql=custom_col_sql)
         if clause:
             where.append(clause)
             params.extend(fparams)
@@ -553,6 +917,8 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     # Validate sort column against the whitelist
     valid_sort_keys = {c["key"] for c in cols if c.get("sortable", True)}
+    if custom_col_sql:
+        valid_sort_keys.add("custom_col")
     if sort not in valid_sort_keys:
         sort = cfg["default_sort"]
     sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
@@ -560,6 +926,10 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     # Pick the right SQL alias for ORDER BY based on which table the column came from
     if sort == "foreclosure_count":
         order_sort = "COALESCE(fc.fc_count, 0)"
+    elif sort == "custom_col" and custom_col_sql:
+        order_sort = f"({custom_col_sql})"
+    elif sort == "exit_score" and exit_expr:
+        order_sort = f"({exit_expr})"
     elif sort in sc_cols:
         order_sort = f"sc.{sort}"
     elif sort in (inv_cols + [key]):
@@ -569,6 +939,8 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
 
     cols_in_order = [key] + inv_cols + hot_cols + fc_cols + sc_cols
+    if custom_col_sql:
+        cols_in_order.append("custom_col")
     sql = f"{fc_prefix}SELECT {', '.join(select_parts)} {base_from} {order_sql}"
     return sql, fc_params_pre + params, cols_in_order
 
@@ -579,12 +951,15 @@ def _fmt_for_csv(val):
     return str(val)
 
 
-def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None, fc_filters=None):
+def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None):
     cfg = GRAIN_CONFIG[grain]
-    visible_cols = list(visible_cols) if visible_cols else [c["key"] for c in cfg["columns"]]
-    label_by_key = {c["key"]: c["label"] for c in cfg["columns"]}
+    base_cols = list(cfg["columns"])
+    if custom_col_sql:
+        base_cols.append({"key": "custom_col", "label": custom_col_label or "Custom"})
+    visible_cols = list(visible_cols) if visible_cols else [c["key"] for c in base_cols]
+    label_by_key = {c["key"]: c["label"] for c in base_cols}
 
-    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [], fc_filters=fc_filters or [])
+    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [], fc_filters=fc_filters or [], exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=custom_col_label)
 
     conn = _conn()
     try:
@@ -622,10 +997,35 @@ def explore(grain):
     sort_dir = request.args.get("dir", "desc")
     fmt      = request.args.get("format", "json").lower()
 
-    raw_filters, filter_errors = _parse_filters(grain, request.args)
+    weights = _get_exit_weights()
+    exit_expr = _exit_score_sql(weights, qualifier="i")
+
+    custom_col      = _get_custom_column()
+    custom_col_sql  = None
+    custom_col_meta = None
+    custom_col_err  = None
+    if custom_col and custom_col.get("expression"):
+        try:
+            custom_col_sql, _ = _formula_to_sql(custom_col["expression"], grain, exit_expr=exit_expr)
+            custom_col_meta = {
+                "key":    "custom_col",
+                "label":  custom_col.get("label") or "Custom",
+                "type":   "number",
+                "default": True,
+                "source":  "custom",
+                "expression": custom_col["expression"],
+                "is_custom":  True,
+            }
+        except ValueError as e:
+            custom_col_err = f"custom column disabled: {e}"
+
+    raw_filters, filter_errors = _parse_filters(grain, request.args, custom_col_meta=custom_col_meta)
     fc_filters,  fc_errors      = _parse_fc_filters(request.args)
     filter_errors.extend(fc_errors)
-    filters = _resolve_pct_thresholds(grain, raw_filters)
+    if custom_col_err:
+        filter_errors.append(custom_col_err)
+
+    filters = _resolve_pct_thresholds(grain, raw_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql)
 
     if fmt == "csv":
         visible = request.args.get("cols", "")
@@ -633,7 +1033,10 @@ def explore(grain):
         filename = f"realtor_{grain}_{request.args.get('q','all')}.csv"
         return Response(
             stream_with_context(_stream_csv(grain, q, sort, sort_dir, visible_cols,
-                                            filters=filters, fc_filters=fc_filters)),
+                                            filters=filters, fc_filters=fc_filters,
+                                            exit_expr=exit_expr,
+                                            custom_col_sql=custom_col_sql,
+                                            custom_col_label=(custom_col_meta or {}).get("label"))),
             mimetype="text/csv",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
@@ -650,10 +1053,10 @@ def explore(grain):
     except ValueError:
         limit = 100
 
-    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters, fc_filters=fc_filters)
+    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"))
     paged_sql = f"{sql} LIMIT {limit} OFFSET {offset}"
 
-    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters)
+    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"))
 
     conn = _conn()
     try:
@@ -689,7 +1092,10 @@ def explore(grain):
         "limit":   limit,
         "sort":    sort,
         "dir":     "asc" if sort_dir.lower() == "asc" else "desc",
-        "columns": GRAIN_CONFIG[grain]["columns"],
+        "columns": GRAIN_CONFIG[grain]["columns"] + ([custom_col_meta] if custom_col_meta else []),
+        "exit_weights":          weights,
+        "exit_weights_defaults": dict(EXIT_WEIGHT_DEFAULTS),
+        "custom_column":         custom_col_meta,
         "applied_filters": [
             {"col": f["col"], "op": f["op"], "value": f["value"],
              "pct_resolved_from": f.get("pct_resolved_from"),
@@ -759,3 +1165,75 @@ def explore_distinct(grain, col):
     finally:
         conn.close()
     return jsonify({"col": col, "values": values, "count": len(values)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Exit Speed weight settings — global (single-tenant app, no per-user auth).
+# ─────────────────────────────────────────────────────────────────────────────
+@explore_bp.route("/api/settings/exit-weights", methods=["GET"])
+def get_exit_weights():
+    return jsonify({
+        "weights":  _get_exit_weights(),
+        "defaults": dict(EXIT_WEIGHT_DEFAULTS),
+        "keys":     list(EXIT_WEIGHT_KEYS),
+    })
+
+
+@explore_bp.route("/api/settings/exit-weights", methods=["PUT"])
+def put_exit_weights():
+    body = request.get_json(silent=True) or {}
+    raw  = body.get("weights", body)
+    saved = _save_exit_weights(raw)
+    return jsonify({
+        "weights":  saved,
+        "defaults": dict(EXIT_WEIGHT_DEFAULTS),
+        "saved":    True,
+    })
+
+
+@explore_bp.route("/api/settings/exit-weights", methods=["DELETE"])
+def delete_exit_weights():
+    return jsonify({
+        "weights":  _reset_exit_weights(),
+        "defaults": dict(EXIT_WEIGHT_DEFAULTS),
+        "reset":    True,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom column settings.
+# ─────────────────────────────────────────────────────────────────────────────
+def _numeric_columns_list(grain):
+    return [
+        {"key": c["key"], "label": c["label"], "type": c["type"], "source": c["source"]}
+        for c in GRAIN_CONFIG[grain]["columns"]
+        if c["type"] in NUMERIC_TYPES
+    ]
+
+
+@explore_bp.route("/api/settings/custom-column", methods=["GET"])
+def get_custom_column():
+    return jsonify({
+        "custom_column": _get_custom_column(),
+        "operands": {
+            "county": _numeric_columns_list("county"),
+            "zip":    _numeric_columns_list("zip"),
+        },
+        "operators": ["+", "-", "*", "/"],
+    })
+
+
+@explore_bp.route("/api/settings/custom-column", methods=["PUT"])
+def put_custom_column():
+    body = request.get_json(silent=True) or {}
+    try:
+        saved = _save_custom_column(body)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"custom_column": saved, "saved": True})
+
+
+@explore_bp.route("/api/settings/custom-column", methods=["DELETE"])
+def delete_custom_column():
+    _reset_custom_column()
+    return jsonify({"custom_column": None, "reset": True})

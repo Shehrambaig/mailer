@@ -246,6 +246,181 @@
     background: rgba(0,0,0,.4); z-index: 49; display: none;
 }
 #col-drawer-backdrop.open { display: block; }
+
+/* Exit Speed weights drawer — same shell as #col-drawer */
+#exit-drawer {
+    position: fixed; top: 52px; right: -380px;
+    width: 380px; height: calc(100vh - 52px);
+    background: rgba(8,8,20,0.96);
+    border-left: 1px solid var(--border-glass);
+    backdrop-filter: blur(20px);
+    transition: right .25s ease; z-index: 50;
+    display: flex; flex-direction: column;
+}
+#exit-drawer.open { right: 0; }
+#exit-drawer .head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border-glass);
+    display: flex; justify-content: space-between; align-items: center;
+}
+#exit-drawer .head h6 { margin: 0; font-weight: 700; font-size: .9rem; }
+#exit-drawer .body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+#exit-drawer .actions {
+    padding: 12px 18px; border-top: 1px solid var(--border-glass);
+    display: flex; gap: 8px;
+}
+#exit-drawer .exit-help {
+    font-size: .72rem; color: var(--text-muted); line-height: 1.55;
+    margin: 0 0 16px;
+}
+#exit-drawer .exit-row { margin-bottom: 18px; }
+#exit-drawer .exit-row-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px;
+}
+#exit-drawer .exit-label {
+    font-size: .8rem; color: var(--text-primary); font-weight: 600;
+}
+#exit-drawer .exit-pct {
+    font-size: .9rem; color: var(--accent-cyan);
+    font-variant-numeric: tabular-nums; font-weight: 700;
+}
+#exit-drawer input[type="range"] {
+    width: 100%; accent-color: var(--accent-cyan);
+}
+#exit-drawer .exit-hint {
+    font-size: .65rem; color: var(--text-muted); margin-top: 2px;
+}
+#exit-drawer .exit-status {
+    margin-top: 12px; padding: 8px 10px;
+    background: rgba(0,240,255,.06);
+    border: 1px solid rgba(0,240,255,.18);
+    border-radius: 6px;
+    font-size: .7rem; color: var(--accent-cyan);
+    min-height: 16px; opacity: 0; transition: opacity .2s;
+}
+#exit-drawer .exit-status.show { opacity: 1; }
+#exit-drawer .exit-status.error {
+    background: rgba(239,68,68,.10);
+    border-color: rgba(239,68,68,.30);
+    color: var(--accent-red);
+}
+#exit-backdrop {
+    position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.4); z-index: 49; display: none;
+}
+#exit-backdrop.open { display: block; }
+
+/* Custom column drawer — same shell as #exit-drawer */
+#cc-drawer {
+    position: fixed; top: 52px; right: -440px;
+    width: 440px; height: calc(100vh - 52px);
+    background: rgba(8,8,20,0.96);
+    border-left: 1px solid var(--border-glass);
+    backdrop-filter: blur(20px);
+    transition: right .25s ease; z-index: 50;
+    display: flex; flex-direction: column;
+}
+#cc-drawer.open { right: 0; }
+#cc-drawer .head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border-glass);
+    display: flex; justify-content: space-between; align-items: center;
+}
+#cc-drawer .head h6 { margin: 0; font-weight: 700; font-size: .9rem; }
+#cc-drawer .body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+#cc-drawer .actions {
+    padding: 12px 18px; border-top: 1px solid var(--border-glass);
+    display: flex; gap: 8px;
+}
+#cc-drawer .cc-help {
+    font-size: .72rem; color: var(--text-muted); line-height: 1.55;
+    margin: 0 0 14px;
+}
+#cc-drawer .cc-label-row {
+    margin-bottom: 14px;
+}
+#cc-drawer .cc-label-row label {
+    font-size: .68rem; font-weight: 700; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: .5px;
+    display: block; margin-bottom: 4px;
+}
+#cc-drawer input[type="text"], #cc-drawer select, #cc-drawer input[type="number"] {
+    width: 100%;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border-glass);
+    border-radius: 6px;
+    padding: 6px 9px;
+    color: var(--text-primary);
+    font-size: .82rem;
+}
+#cc-drawer input:focus, #cc-drawer select:focus { outline: none; border-color: var(--accent-cyan); }
+#cc-drawer .cc-term {
+    display: grid;
+    grid-template-columns: 50px 1fr auto;
+    gap: 6px; align-items: center;
+    margin-bottom: 6px;
+}
+#cc-drawer .cc-term .cc-op {
+    text-align: center; font-weight: 700; color: var(--accent-cyan);
+}
+#cc-drawer .cc-term .cc-op select {
+    text-align: center; font-weight: 700; color: var(--accent-cyan);
+    padding: 6px 4px;
+}
+#cc-drawer .cc-term-leading { color: var(--text-muted); font-size: .7rem; }
+#cc-drawer .cc-row-with-num {
+    display: grid;
+    grid-template-columns: 1fr 90px;
+    gap: 6px;
+}
+#cc-drawer .cc-rm-btn {
+    background: rgba(239,68,68,.10);
+    border: 1px solid rgba(239,68,68,.25);
+    color: var(--accent-red);
+    border-radius: 6px;
+    width: 28px; height: 28px;
+    cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .85rem;
+}
+#cc-drawer .cc-rm-btn:hover { background: rgba(239,68,68,.20); }
+#cc-drawer .cc-add-btn {
+    margin-top: 4px;
+    background: rgba(0,240,255,.06);
+    border: 1px dashed rgba(0,240,255,.30);
+    color: var(--accent-cyan);
+    border-radius: 6px;
+    width: 100%; padding: 6px 12px;
+    cursor: pointer; font-size: .76rem;
+}
+#cc-drawer .cc-add-btn:hover { background: rgba(0,240,255,.12); }
+#cc-drawer .cc-preview {
+    margin-top: 14px; padding: 8px 10px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border-glass);
+    border-radius: 6px;
+    font-family: 'Consolas', 'Menlo', monospace;
+    font-size: .72rem; color: var(--text-secondary);
+    word-break: break-all;
+}
+#cc-drawer .cc-status {
+    margin-top: 12px; padding: 8px 10px;
+    background: rgba(0,240,255,.06);
+    border: 1px solid rgba(0,240,255,.18);
+    border-radius: 6px;
+    font-size: .7rem; color: var(--accent-cyan);
+    min-height: 16px; opacity: 0; transition: opacity .2s;
+}
+#cc-drawer .cc-status.show { opacity: 1; }
+#cc-drawer .cc-status.error {
+    background: rgba(239,68,68,.10);
+    border-color: rgba(239,68,68,.30);
+    color: var(--accent-red);
+}
+#cc-backdrop {
+    position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.4); z-index: 49; display: none;
+}
+#cc-backdrop.open { display: block; }
 </style>
 {% endblock %}
 
@@ -257,6 +432,14 @@
             <button id="tab-zip" onclick="setGrain('zip')">ZIP</button>
         </div>
         <input type="search" class="search-box" id="search" placeholder="Search by FIPS / county / ZIP / city / state…" autocomplete="off">
+        <button class="btn-tool" onclick="openExitDrawer()" title="Customize the Exit Speed scoring weights">
+            <i class="bi bi-sliders"></i>
+            <span>Exit Speed</span> <span class="badge" id="exit-badge" style="display:none;">custom</span>
+        </button>
+        <button class="btn-tool" onclick="openCcDrawer()" title="Add a custom column with a math formula">
+            <i class="bi bi-calculator"></i>
+            <span>Custom Column</span> <span class="badge" id="cc-badge" style="display:none;">on</span>
+        </button>
         <button class="btn-tool" onclick="openColDrawer()">
             <i class="bi bi-layout-three-columns"></i>
             <span>Columns</span> <span class="badge" id="col-badge">7</span>
@@ -295,6 +478,76 @@
     </div>
 </div>
 
+<div id="exit-backdrop" onclick="closeExitDrawer()"></div>
+<div id="exit-drawer">
+    <div class="head">
+        <h6>Customize Exit Speed</h6>
+        <button class="btn-tool" onclick="closeExitDrawer()" style="padding: 4px 10px;">✕</button>
+    </div>
+    <div class="body">
+        <p class="exit-help">
+            Exit Speed (0–100) blends three Realtor signals. Adjust how much each signal counts.
+            Sliders auto-renormalize to sum to 100%. Saved values become the new default for all users.
+        </p>
+        <div class="exit-row" data-key="dom">
+            <div class="exit-row-head">
+                <span class="exit-label">Days on Market</span>
+                <span class="exit-pct" id="exit-pct-dom">55%</span>
+            </div>
+            <input type="range" min="0" max="100" step="1" value="55" oninput="onExitSlider('dom', this.value)">
+            <div class="exit-hint">Lower DOM → faster exit. (raw: <span id="exit-raw-dom">0.550</span>)</div>
+        </div>
+        <div class="exit-row" data-key="pending">
+            <div class="exit-row-head">
+                <span class="exit-label">Pending Ratio</span>
+                <span class="exit-pct" id="exit-pct-pending">41%</span>
+            </div>
+            <input type="range" min="0" max="100" step="1" value="41" oninput="onExitSlider('pending', this.value)">
+            <div class="exit-hint">Higher pending share → stronger demand. (raw: <span id="exit-raw-pending">0.410</span>)</div>
+        </div>
+        <div class="exit-row" data-key="yoy">
+            <div class="exit-row-head">
+                <span class="exit-label">List Price YoY</span>
+                <span class="exit-pct" id="exit-pct-yoy">4%</span>
+            </div>
+            <input type="range" min="0" max="100" step="1" value="4" oninput="onExitSlider('yoy', this.value)">
+            <div class="exit-hint">Positive YoY price change → momentum. (raw: <span id="exit-raw-yoy">0.040</span>)</div>
+        </div>
+        <div class="exit-status" id="exit-status"></div>
+    </div>
+    <div class="actions">
+        <button class="btn-tool" style="flex:1;" onclick="resetExitWeights()">Reset to default</button>
+        <button class="btn-tool" id="exit-save-btn" style="flex:1;" onclick="saveExitWeights()">Save as default</button>
+    </div>
+</div>
+
+<div id="cc-backdrop" onclick="closeCcDrawer()"></div>
+<div id="cc-drawer">
+    <div class="head">
+        <h6>Custom Column</h6>
+        <button class="btn-tool" onclick="closeCcDrawer()" style="padding: 4px 10px;">✕</button>
+    </div>
+    <div class="body">
+        <p class="cc-help">
+            Build a column with arithmetic over numeric columns and constants.
+            Operators follow standard math precedence (× ÷ before + −).
+            Division by zero becomes empty.
+        </p>
+        <div class="cc-label-row">
+            <label for="cc-label-input">Column label</label>
+            <input type="text" id="cc-label-input" placeholder="e.g. FC per 100 listings" maxlength="60">
+        </div>
+        <div id="cc-terms"></div>
+        <button class="cc-add-btn" onclick="ccAddTerm()">+ Add term</button>
+        <div class="cc-preview" id="cc-preview">— enter at least one operand —</div>
+        <div class="cc-status" id="cc-status"></div>
+    </div>
+    <div class="actions">
+        <button class="btn-tool" style="flex:1;" onclick="ccRemove()">Remove</button>
+        <button class="btn-tool" id="cc-save-btn" style="flex:1;" onclick="ccSave()">Save</button>
+    </div>
+</div>
+
 <script>
 // ─── State ─────────────────────────────────────────────────────────────────
 let state = {
@@ -314,6 +567,12 @@ let state = {
     fcFilters: [],           // foreclosure-record-level: [{field, op, value}]
     appliedFilters: [],      // server response (with resolved pct thresholds)
     appliedFcFilters: [],
+    exitWeights:         {dom: 0.55, pending: 0.41, yoy: 0.04},  // current saved
+    exitWeightsDefaults: {dom: 0.55, pending: 0.41, yoy: 0.04},  // factory defaults
+    exitDraft:           null,                                    // unsaved slider state
+    customColumn:        null,             // {key,label,expression,...} or null
+    ccDraft:             null,             // {label, terms:[...]}
+    ccOperands:          {county: [], zip: []},  // numeric column metadata for builder dropdowns
 };
 
 // Multi-select columns (low-cardinality, fetched via /distinct/)
@@ -497,6 +756,11 @@ async function loadInitial() {
         state.offset  = d.rows.length;
         state.appliedFilters   = d.applied_filters    || [];
         state.appliedFcFilters = d.applied_fc_filters || [];
+        if (d.exit_weights)          state.exitWeights         = d.exit_weights;
+        if (d.exit_weights_defaults) state.exitWeightsDefaults = d.exit_weights_defaults;
+        state.customColumn = d.custom_column || null;
+        renderExitBadge();
+        renderCcBadge();
         if (state.rows.length >= state.total) state.done = true;
         if (!state.visible.size) {
             state.columns.forEach(c => { if (c.default) state.visible.add(c.key); });
@@ -599,6 +863,304 @@ function setAllCols(showAll) {
         if (showAll || c.default) state.visible.add(c.key);
     });
     renderColDrawer(); renderHeader(); renderRows(); updateStatus();
+}
+
+// ─── Exit Speed weight customization ────────────────────────────────────────
+function _exitIsCustom(w) {
+    const d = state.exitWeightsDefaults;
+    return ['dom','pending','yoy'].some(k => Math.abs((w[k]||0) - (d[k]||0)) > 0.005);
+}
+function renderExitBadge() {
+    const el = document.getElementById('exit-badge');
+    if (!el) return;
+    el.style.display = _exitIsCustom(state.exitWeights) ? '' : 'none';
+}
+function _renderExitDrawer(weights) {
+    state.exitDraft = {...weights};
+    const total = Math.max(1e-9, weights.dom + weights.pending + weights.yoy);
+    ['dom','pending','yoy'].forEach(k => {
+        const pct = Math.round((weights[k] / total) * 100);
+        const slider = document.querySelector(`#exit-drawer .exit-row[data-key="${k}"] input[type="range"]`);
+        if (slider) slider.value = pct;
+        document.getElementById(`exit-pct-${k}`).textContent = pct + '%';
+        document.getElementById(`exit-raw-${k}`).textContent = weights[k].toFixed(3);
+    });
+    _setExitStatus('');
+}
+function openExitDrawer() {
+    _renderExitDrawer(state.exitWeights);
+    document.getElementById('exit-drawer').classList.add('open');
+    document.getElementById('exit-backdrop').classList.add('open');
+}
+function closeExitDrawer() {
+    document.getElementById('exit-drawer').classList.remove('open');
+    document.getElementById('exit-backdrop').classList.remove('open');
+}
+function onExitSlider(key, value) {
+    // Treat slider value as the user's NEW desired share for this key (in %).
+    // Distribute the remaining (100 - value)% across the other two in proportion
+    // to their previous shares. If both were zero, split evenly.
+    const v = Math.max(0, Math.min(100, parseFloat(value) || 0)) / 100;
+    const others = ['dom','pending','yoy'].filter(k => k !== key);
+    const prev = state.exitDraft || {...state.exitWeights};
+    const otherSum = others.reduce((s,k) => s + (prev[k]||0), 0);
+    const remaining = 1 - v;
+    const next = {[key]: v};
+    if (otherSum > 1e-9) {
+        others.forEach(k => { next[k] = (prev[k] / otherSum) * remaining; });
+    } else {
+        others.forEach(k => { next[k] = remaining / 2; });
+    }
+    state.exitDraft = next;
+    // Update displayed percentages + raw values, but DON'T move the live slider
+    // the user is still dragging.
+    ['dom','pending','yoy'].forEach(k => {
+        const pct = Math.round(next[k] * 100);
+        document.getElementById(`exit-pct-${k}`).textContent = pct + '%';
+        document.getElementById(`exit-raw-${k}`).textContent = next[k].toFixed(3);
+        if (k !== key) {
+            const slider = document.querySelector(`#exit-drawer .exit-row[data-key="${k}"] input[type="range"]`);
+            if (slider) slider.value = pct;
+        }
+    });
+}
+function _setExitStatus(msg, kind) {
+    const el = document.getElementById('exit-status');
+    el.textContent = msg || '';
+    el.classList.toggle('show', !!msg);
+    el.classList.toggle('error', kind === 'error');
+}
+async function saveExitWeights() {
+    const draft = state.exitDraft || state.exitWeights;
+    const btn = document.getElementById('exit-save-btn');
+    btn.disabled = true;
+    _setExitStatus('Saving…');
+    try {
+        const r = await fetch('/api/settings/exit-weights', {
+            method:  'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({weights: draft}),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        state.exitWeights = d.weights;
+        state.exitDraft   = null;
+        renderExitBadge();
+        _setExitStatus('Saved as default. Reloading data…');
+        await loadInitial();
+        setTimeout(() => _setExitStatus(''), 1500);
+    } catch (e) {
+        _setExitStatus(`Save failed: ${e.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+async function resetExitWeights() {
+    _setExitStatus('Resetting…');
+    try {
+        const r = await fetch('/api/settings/exit-weights', {method: 'DELETE'});
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        state.exitWeights = d.weights;
+        state.exitDraft   = null;
+        _renderExitDrawer(state.exitWeights);
+        renderExitBadge();
+        _setExitStatus('Reset to default. Reloading data…');
+        await loadInitial();
+        setTimeout(() => _setExitStatus(''), 1500);
+    } catch (e) {
+        _setExitStatus(`Reset failed: ${e.message}`, 'error');
+    }
+}
+
+// ─── Custom column builder ─────────────────────────────────────────────────
+function renderCcBadge() {
+    const el = document.getElementById('cc-badge');
+    if (!el) return;
+    el.style.display = state.customColumn ? '' : 'none';
+}
+async function _ccLoadOperands() {
+    // Fetch numeric column lists for the builder dropdowns. Cached after first load.
+    if (state.ccOperands.county.length && state.ccOperands.zip.length) return;
+    try {
+        const r = await fetch('/api/settings/custom-column');
+        const d = await r.json();
+        state.ccOperands = d.operands || {county: [], zip: []};
+    } catch (e) {
+        console.warn('cc operands load failed', e);
+    }
+}
+function _ccTermsFromExpr(expr) {
+    // Best-effort tokenizer for round-tripping a saved expression into the
+    // chained-term UI. Identifiers, numbers, and operators only — anything
+    // unexpected (like parens) is shown as a single 'raw' fallback.
+    if (!expr) return [];
+    const tokens = expr.match(/[A-Za-z_][\w]*|-?\d*\.?\d+|[+\-*/()]/g) || [];
+    if (tokens.some(t => t === '(' || t === ')')) return null;  // signal raw fallback
+    const terms = [];
+    let i = 0;
+    while (i < tokens.length) {
+        let op = '+';
+        if (i === 0 && (tokens[0] === '+' || tokens[0] === '-')) {
+            op = tokens[0]; i++;
+        } else if (i > 0) {
+            if (!'+-*/'.includes(tokens[i])) return null;
+            op = tokens[i]; i++;
+        }
+        const t = tokens[i++];
+        if (t === undefined) return null;
+        if (/^-?\d/.test(t)) terms.push({op, kind: 'num', value: t});
+        else                 terms.push({op, kind: 'col', value: t});
+    }
+    return terms;
+}
+function _ccTermsToExpr(terms) {
+    if (!terms || !terms.length) return '';
+    const parts = [];
+    terms.forEach((t, i) => {
+        const v = (t.kind === 'num') ? t.value : t.value;
+        if (i === 0) {
+            parts.push(t.op === '-' ? `-${v}` : `${v}`);
+        } else {
+            parts.push(`${t.op} ${v}`);
+        }
+    });
+    return parts.join(' ');
+}
+function _ccOperandsForGrain() {
+    return state.ccOperands[state.grain] || [];
+}
+function _renderCcTerms() {
+    const host = document.getElementById('cc-terms');
+    const ops = _ccOperandsForGrain();
+    const draft = state.ccDraft;
+    host.innerHTML = draft.terms.map((t, i) => {
+        const opBox = (i === 0)
+            ? `<div class="cc-op cc-term-leading">first</div>`
+            : `<div class="cc-op">
+                 <select onchange="ccSetOp(${i}, this.value)">
+                   ${['+','-','*','/'].map(o => `<option ${t.op===o?'selected':''}>${o}</option>`).join('')}
+                 </select>
+               </div>`;
+        // Operand: dropdown (column) or number input — kind toggle inline
+        const isNum = t.kind === 'num';
+        const colOptions = ops.map(o => `<option value="${o.key}" ${t.value===o.key?'selected':''}>${o.label}</option>`).join('');
+        const operand = `
+            <div class="cc-row-with-num">
+                ${ isNum
+                    ? `<input type="number" step="any" value="${t.value}" placeholder="number" oninput="ccSetValue(${i}, this.value)">`
+                    : `<select onchange="ccSetValue(${i}, this.value)">${colOptions}</select>`
+                }
+                <select onchange="ccSetKind(${i}, this.value)">
+                    <option value="col" ${t.kind==='col'?'selected':''}>Column</option>
+                    <option value="num" ${t.kind==='num'?'selected':''}>Number</option>
+                </select>
+            </div>`;
+        const rmBtn = (draft.terms.length > 1)
+            ? `<button class="cc-rm-btn" onclick="ccRemoveTerm(${i})" title="Remove">−</button>`
+            : `<div></div>`;
+        return `<div class="cc-term">${opBox}${operand}${rmBtn}</div>`;
+    }).join('');
+    document.getElementById('cc-preview').textContent = _ccTermsToExpr(draft.terms) || '— enter at least one operand —';
+}
+function ccSetOp(i, v)    { state.ccDraft.terms[i].op    = v; _renderCcTerms(); }
+function ccSetValue(i, v) { state.ccDraft.terms[i].value = v; _renderCcTerms(); }
+function ccSetKind(i, v)  {
+    const t = state.ccDraft.terms[i];
+    t.kind = v;
+    if (v === 'num' && !/^-?\d/.test(String(t.value))) t.value = '0';
+    if (v === 'col') {
+        const ops = _ccOperandsForGrain();
+        if (!ops.find(o => o.key === t.value)) t.value = ops[0]?.key || '';
+    }
+    _renderCcTerms();
+}
+function ccAddTerm() {
+    const ops = _ccOperandsForGrain();
+    state.ccDraft.terms.push({op: '+', kind: 'col', value: ops[0]?.key || ''});
+    _renderCcTerms();
+}
+function ccRemoveTerm(i) {
+    state.ccDraft.terms.splice(i, 1);
+    _renderCcTerms();
+}
+async function openCcDrawer() {
+    await _ccLoadOperands();
+    const ops = _ccOperandsForGrain();
+    let terms = null;
+    if (state.customColumn?.expression) {
+        terms = _ccTermsFromExpr(state.customColumn.expression);
+    }
+    if (!terms || !terms.length) {
+        terms = [{op: '+', kind: 'col', value: ops[0]?.key || ''}];
+    }
+    state.ccDraft = {
+        label: state.customColumn?.label || '',
+        terms,
+    };
+    document.getElementById('cc-label-input').value = state.ccDraft.label;
+    _renderCcTerms();
+    _setCcStatus(state.customColumn?.expression && terms.length === 0
+        ? 'Saved expression has parentheses and can\'t be loaded into the builder. Save will overwrite it.'
+        : '');
+    document.getElementById('cc-drawer').classList.add('open');
+    document.getElementById('cc-backdrop').classList.add('open');
+}
+function closeCcDrawer() {
+    document.getElementById('cc-drawer').classList.remove('open');
+    document.getElementById('cc-backdrop').classList.remove('open');
+}
+function _setCcStatus(msg, kind) {
+    const el = document.getElementById('cc-status');
+    el.textContent = msg || '';
+    el.classList.toggle('show', !!msg);
+    el.classList.toggle('error', kind === 'error');
+}
+async function ccSave() {
+    const label = document.getElementById('cc-label-input').value.trim() || 'Custom';
+    const expr  = _ccTermsToExpr(state.ccDraft.terms);
+    if (!expr) { _setCcStatus('Add at least one operand.', 'error'); return; }
+    const btn = document.getElementById('cc-save-btn');
+    btn.disabled = true;
+    _setCcStatus('Saving…');
+    try {
+        const r = await fetch('/api/settings/custom-column', {
+            method:  'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({label, expression: expr}),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        state.customColumn = d.custom_column;
+        // Make sure the new column is visible after save
+        state.visible.add('custom_col');
+        renderCcBadge();
+        _setCcStatus('Saved. Reloading data…');
+        await loadInitial();
+        renderColDrawer();
+        setTimeout(() => _setCcStatus(''), 1500);
+    } catch (e) {
+        _setCcStatus(`Save failed: ${e.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+async function ccRemove() {
+    if (!state.customColumn) { closeCcDrawer(); return; }
+    _setCcStatus('Removing…');
+    try {
+        const r = await fetch('/api/settings/custom-column', {method: 'DELETE'});
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        state.customColumn = null;
+        state.visible.delete('custom_col');
+        renderCcBadge();
+        _setCcStatus('Removed. Reloading data…');
+        await loadInitial();
+        renderColDrawer();
+        setTimeout(() => { _setCcStatus(''); closeCcDrawer(); }, 1000);
+    } catch (e) {
+        _setCcStatus(`Remove failed: ${e.message}`, 'error');
+    }
 }
 
 // CSV download
