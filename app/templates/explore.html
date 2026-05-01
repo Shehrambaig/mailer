@@ -146,6 +146,41 @@
     border-color: var(--accent-cyan);
     box-shadow: 0 0 6px rgba(0,240,255,.30);
 }
+.grid-table thead th .pin-icon {
+    cursor: pointer; opacity: .35;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; padding: 0; border-radius: 4px;
+    line-height: 1; margin-left: 3px;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(255,255,255,.04);
+    transition: all .12s;
+}
+.grid-table thead th .pin-icon i { font-size: .7rem; line-height: 1; }
+.grid-table thead th .pin-icon:hover {
+    opacity: 1; background: rgba(0,240,255,.14);
+    border-color: rgba(0,240,255,.40); color: var(--accent-cyan);
+}
+.grid-table thead th .pin-icon.active {
+    opacity: 1; color: var(--accent-cyan);
+    background: rgba(0,240,255,.18);
+    border-color: var(--accent-cyan);
+}
+
+/* Frozen columns — sticky horizontally. JS computes the cumulative left
+   offset and applies it inline; this stylesheet only handles look + z-index. */
+.grid-table th.frozen-col,
+.grid-table td.frozen-col {
+    position: sticky;
+    background: rgba(8,8,20,0.98);
+    z-index: 3;
+}
+.grid-table thead th.frozen-col { z-index: 7; }
+.grid-table tbody tr:hover td.frozen-col { background: rgba(8,15,28,1); }
+.grid-table th.frozen-edge,
+.grid-table td.frozen-edge {
+    border-right: 1px solid rgba(0,240,255,.30);
+    box-shadow: 4px 0 6px -4px rgba(0,0,0,.4);
+}
 
 /* Filter popover */
 #filter-popover {
@@ -642,6 +677,7 @@ let state = {
     rows:     [],            // accumulated rows
     totals:   null,          // {col_key: sum} — only populated when filters applied
     distinctStates: null,    // count of distinct states in filtered set
+    frozenThrough: null,     // key of last frozen column (null = no freeze)
     total:    0,
     offset:   0,
     limit:    100,
@@ -715,11 +751,16 @@ function renderHeader() {
     const tr = document.getElementById('grid-head');
     const cols = state.columns.filter(c => state.visible.has(c.key));
     const t = state.totals || {};
-    tr.innerHTML = cols.map(c => {
+    const frozenIdx = state.frozenThrough
+        ? cols.findIndex(c => c.key === state.frozenThrough)
+        : -1;
+    tr.innerHTML = cols.map((c, i) => {
         const sorted = c.key === state.sort;
         const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
         const hasFilter = state.filters.some(f => f.col === c.key)
             || (c.key === 'foreclosure_count' && state.fcFilters.length > 0);
+        const isFrozen = frozenIdx >= 0 && i <= frozenIdx;
+        const isFreezeAnchor = c.key === state.frozenThrough;
         // Inline aggregate next to the column label (when filters are applied
         // and the server returned a value for this column).
         let aggHtml = '';
@@ -732,7 +773,15 @@ function renderHeader() {
                 aggHtml = `<span class="agg-inline"><span class="agg-prefix">${prefix}</span>${v}</span>`;
             }
         }
-        return `<th class="${sorted?'sorted':''}" data-key="${c.key}">
+        const cls = [
+            sorted ? 'sorted' : '',
+            isFrozen ? 'frozen-col' : '',
+            isFreezeAnchor ? 'frozen-edge' : '',
+        ].filter(Boolean).join(' ');
+        const pinTitle = isFreezeAnchor
+            ? 'Unfreeze this column'
+            : (isFrozen ? 'Already frozen — click to freeze through here instead' : `Freeze through ${c.label}`);
+        return `<th class="${cls}" data-key="${c.key}">
                   <span class="th-inner" onclick="sortBy('${c.key}')">
                     <span class="label">${c.label}</span>
                     ${aggHtml}
@@ -743,8 +792,14 @@ function renderHeader() {
                         onclick="event.stopPropagation(); openFilter('${c.key}', this);">
                     <i class="bi bi-funnel${hasFilter?'-fill':''}"></i>
                   </span>
+                  <span class="pin-icon ${isFreezeAnchor?'active':''}"
+                        title="${pinTitle}"
+                        onclick="event.stopPropagation(); toggleFreeze('${c.key}');">
+                    <i class="bi bi-pin-angle${isFreezeAnchor?'-fill':''}"></i>
+                  </span>
                 </th>`;
     }).join('');
+    applyFreezeOffsets();
 }
 
 function renderFcCell(r) {
@@ -765,20 +820,68 @@ function renderFcCell(r) {
 function renderRows() {
     const tbody = document.getElementById('grid-body');
     const cols = state.columns.filter(c => state.visible.has(c.key));
+    const frozenIdx = state.frozenThrough
+        ? cols.findIndex(c => c.key === state.frozenThrough)
+        : -1;
     if (!state.rows.length) {
         tbody.innerHTML = `<tr><td colspan="${cols.length}" class="empty-state">No results. Try clearing the search.</td></tr>`;
+        applyFreezeOffsets();
         return;
     }
     tbody.innerHTML = state.rows.map(r => {
-        return '<tr>' + cols.map(c => {
+        return '<tr>' + cols.map((c, i) => {
             const v   = r[c.key];
-            const cls = cellClass(v, c.type).join(' ');
+            const baseCls = cellClass(v, c.type);
+            if (frozenIdx >= 0 && i <= frozenIdx) {
+                baseCls.push('frozen-col');
+                if (i === frozenIdx) baseCls.push('frozen-edge');
+            }
+            const cls = baseCls.join(' ');
             if (c.key === 'foreclosure_count') {
                 return `<td class="${cls}">${renderFcCell(r)}</td>`;
             }
             return `<td class="${cls}">${fmt(v, c.type)}</td>`;
         }).join('') + '</tr>';
     }).join('');
+    applyFreezeOffsets();
+}
+
+// Freeze: pin columns from the start through state.frozenThrough so they
+// stay visible while horizontally scrolling. After every header/row render
+// we measure the actual rendered widths of the frozen <th>s and apply
+// cumulative `left` offsets to every frozen <th>/<td>. Pure-CSS won't work
+// because column widths are auto-sized.
+function applyFreezeOffsets() {
+    if (!state.frozenThrough) return;
+    const headRow = document.getElementById('grid-head');
+    if (!headRow) return;
+    const ths = headRow.querySelectorAll('th.frozen-col');
+    if (!ths.length) return;
+    let offset = 0;
+    const offsets = [];
+    ths.forEach(th => {
+        offsets.push(offset);
+        th.style.left = offset + 'px';
+        offset += th.offsetWidth;
+    });
+    // Apply same offsets to tbody cells in those columns
+    const rows = document.querySelectorAll('#grid-body tr');
+    rows.forEach(tr => {
+        const cells = tr.children;
+        for (let i = 0; i < offsets.length && i < cells.length; i++) {
+            cells[i].style.left = offsets[i] + 'px';
+        }
+    });
+}
+
+function toggleFreeze(key) {
+    if (state.frozenThrough === key) {
+        state.frozenThrough = null;
+    } else {
+        state.frozenThrough = key;
+    }
+    try { localStorage.setItem('explore.frozenThrough', state.frozenThrough || ''); } catch(_){}
+    renderHeader(); renderRows();
 }
 
 function updateStatus() {
@@ -1903,12 +2006,20 @@ function parseShorthand(s) {
 
 // ─── Boot ──────────────────────────────────────────────────────────────────
 loadFromURL();
+try {
+    const saved = localStorage.getItem('explore.frozenThrough');
+    if (saved) state.frozenThrough = saved;
+} catch(_) {}
 loadInitial();
 
 // Hide topbar status pills (those are dashboard-specific; not relevant here)
 ['ds-realtor','ds-zillow','ds-census'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
 });
+
+// Recompute frozen-column offsets after the viewport resizes, since column
+// widths are auto-sized.
+window.addEventListener('resize', () => applyFreezeOffsets());
 </script>
 
 {% endblock %}
