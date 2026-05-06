@@ -121,6 +121,32 @@
     margin-bottom: 8px;
 }
 
+.scr-collapsible       { padding: 10px 16px; }
+.scr-collapsible[open] { padding: 12px 16px 14px; }
+.scr-summary {
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 0;
+    list-style: none;
+    transition: color .12s;
+}
+.scr-summary:hover { color: var(--accent-cyan); }
+.scr-summary::-webkit-details-marker { display: none; }
+.scr-summary::before {
+    content: '▸'; display: inline-block;
+    color: var(--text-muted); font-size: .7rem; line-height: 1;
+    transition: transform .15s;
+}
+.scr-collapsible[open] > .scr-summary::before {
+    transform: rotate(90deg); color: var(--accent-cyan);
+}
+.scr-summary-meta {
+    margin-left: auto;
+    font-size: .6rem; letter-spacing: .8px;
+    color: var(--text-muted); text-transform: none;
+    font-weight: 500;
+}
+
 .scr-buckets {
     display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;
 }
@@ -437,11 +463,14 @@
                     <div data-chart-for="{{ s.key }}"></div>
                 </div>
 
-                {# 5. County breakdown #}
+                {# 5. County breakdown — collapsible #}
                 {% if s.counties %}
-                <div class="scr-section">
-                    <div class="scr-section-title">County breakdown</div>
-                    <div style="overflow-x: auto;">
+                <details class="scr-section scr-collapsible">
+                    <summary class="scr-section-title scr-summary">
+                        County breakdown
+                        <span class="scr-summary-meta">{{ s.counties|length }} counties</span>
+                    </summary>
+                    <div style="overflow-x: auto; margin-top: 8px;">
                     <table class="scr-county-tbl">
                         <thead>
                             <tr>
@@ -471,7 +500,7 @@
                         </tbody>
                     </table>
                     </div>
-                </div>
+                </details>
                 {% endif %}
 
                 {# 6. Doc-type playbook #}
