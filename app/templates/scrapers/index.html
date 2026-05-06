@@ -499,8 +499,21 @@
                 </div>
                 {% endif %}
 
+                {# Guardianship-excluded note for NC #}
+                {% if s.guardianship_excluded and s.guardianship_excluded > 0 %}
+                <div class="scr-section" style="border-color: rgba(245,158,11,.2);">
+                    <div class="scr-section-title" style="color: #fcd34d;">Excluded — guardianship</div>
+                    <div style="font-size: .78rem; color: var(--text-secondary); line-height: 1.55;">
+                        <strong style="color: #fcd34d;">{{ "{:,}".format(s.guardianship_excluded) }}</strong>
+                        guardianship case{{ '' if s.guardianship_excluded == 1 else 's' }} (Ward / Guardian roles)
+                        scraped from this source are excluded from every count, list, and chart on this card.
+                        They are not estate matters.
+                    </div>
+                </div>
+                {% endif %}
+
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york'] %}
+                {% if s.key in ['new_york', 'north_carolina'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -677,8 +690,9 @@ async function openRow(key, rid) {
         const r = await fetch(`/scrapers/${encodeURIComponent(key)}/row/` + encodeURIComponent(rid), { credentials: 'same-origin' });
         const c = await r.json();
         if (c.error) { showModal(`<h3>${c.error}</h3>`); return; }
-        if (key === 'new_york') renderNyRow(c);
-        else                     renderGenericRow(key, c);
+        if (key === 'new_york')         renderNyRow(c);
+        else if (key === 'north_carolina') renderNcRow(c);
+        else                            renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
     }
@@ -786,6 +800,132 @@ function renderNyRow(c) {
             </div>` : ''}
     `);
 }
+
+/* ───────── NC-specific row renderer ───────── */
+
+const NC_PR_ROLES   = new Set(['Applicant','Executor','Co-Executor','Administrator','Co-Administrator','Petitioner','Affiant','Administrator CTA','Ancillary Executor','Ancillary Administrator','Public Administrator','Collector']);
+const NC_HEIR_ROLES = new Set(['Beneficiary','Next of Kin','Interested Person','Trust','Minor']);
+
+function ncBucketOf(party) {
+    const roles = (party.roles || []);
+    if (roles.includes('Decedent')) return 'decedent';
+    for (const r of roles) if (NC_PR_ROLES.has(r))   return 'pr';
+    for (const r of roles) if (NC_HEIR_ROLES.has(r)) return 'heir';
+    return 'other';
+}
+
+function renderNcParty(party, idx) {
+    const fmtAddrObj = a => [a.line1, a.line2, a.city, a.state, a.zip].filter(Boolean).join(', ');
+    const addrs = (party.addresses || []).filter(a => fmtAddrObj(a));
+    const roles = (party.roles || party.connection_types || []);
+    const dob = party.date_of_birth;
+    const dod = party.date_of_death;
+    const pid = party.party_id;
+    const bucket = ncBucketOf(party);
+
+    const rolePillClass = bucket === 'decedent' ? 'minor'
+                       : bucket === 'pr'        ? 'petitioner'
+                       : bucket === 'heir'      ? 'heir' : '';
+
+    const addrHtml = addrs.length
+        ? addrs.map(a => `<div class="addr">${fmtAddrObj(a)}</div>`).join('')
+        : '<div class="addr"><em style="color:var(--text-muted);">no address on file</em></div>';
+
+    const dobBit = dob ? `DOB ${dob}` : '';
+    const dodBit = dod ? `DOD ${dod}` : '';
+    const meta = [dobBit, dodBit, pid ? `party #${pid}` : ''].filter(Boolean).join(' • ');
+
+    return `
+    <div class="scr-person">
+        <div class="role-line">
+            <span class="role-pill ${rolePillClass}">${roles.join(', ') || '?'}</span>
+            <span class="name">${party.formatted_name || [party.first, party.middle, party.last, party.suffix].filter(Boolean).join(' ') || '—'}</span>
+            ${party.gender ? `<span class="rel">${party.gender}</span>` : ''}
+        </div>
+        ${addrHtml}
+        ${meta ? `<div class="meta">${meta}</div>` : ''}
+    </div>`;
+}
+
+function renderNcRow(c) {
+    const parties = Array.isArray(c.parties) ? c.parties : [];
+    const documents = Array.isArray(c.documents) ? c.documents : [];
+
+    const decedents = parties.filter(p => ncBucketOf(p) === 'decedent');
+    const prs       = parties.filter(p => ncBucketOf(p) === 'pr');
+    const heirs     = parties.filter(p => ncBucketOf(p) === 'heir');
+    const others    = parties.filter(p => ncBucketOf(p) === 'other');
+
+    const dec = decedents[0] || {};
+    const decAddr = (dec.addresses || [])[0] || {};
+    const decAddrStr = [decAddr.line1, decAddr.city, decAddr.state, decAddr.zip].filter(Boolean).join(', ');
+
+    const sectionHtml = (label, list) => list.length
+        ? `<h4>${label} (${list.length})</h4>${list.map(renderNcParty).join('')}`
+        : '';
+
+    // Documents — chronological list with event_type, document_name, page count, link.
+    const docsList = documents.length
+        ? `<div style="max-height: 280px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+          documents.map(d => {
+              const dn = d.document_name || d.event_type || '—';
+              const et = d.event_type || '';
+              const dt = d.event_date || '';
+              const pages = d.page_count ? ` • ${d.page_count}p` : '';
+              const link = d.pdf_url ? `<a href="${d.pdf_url}" target="_blank" rel="noopener" style="color:var(--accent-cyan); margin-left:auto;">PDF</a>` : '';
+              return `
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .75rem;">
+                      <span style="color: var(--text-muted); min-width: 78px; font-variant-numeric: tabular-nums;">${dt}</span>
+                      <span style="color: var(--text-primary); flex: 1;">${dn}${pages}</span>
+                      ${et && et !== dn ? `<span style="font-size:.65rem; color: var(--text-muted); padding: 2px 6px; border-radius: 3px; background: rgba(255,255,255,.03);">${et}</span>` : ''}
+                      ${link}
+                  </div>`;
+          }).join('') +
+          '</div>'
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No documents on file.</div>';
+
+    const dsBadge = c.derived_status ? `<span class="scr-pill ${
+        c.derived_status === 'closed_by_doc' ? 'closed-doc' :
+        c.derived_status === 'closed' ? 'closed' :
+        c.derived_status === 'active_pending' || c.derived_status === 'active_qualified' || c.derived_status === 'active' ? 'active' :
+        c.derived_status === 'guardianship' ? 'unknown' : 'unknown'
+    }" style="margin-left: 8px;">${c.derived_status}</span>` : '';
+
+    const decHeader = decedents.length
+        ? `${dec.formatted_name || '—'} ${dec.suffix || ''}`.trim()
+        : '— no decedent on file';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decHeader} ${dsBadge}</h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.location_name || c.county || ''} ${c.case_type ? '• ' + c.case_type : ''} • filed ${c.file_date ? String(c.file_date).slice(0,10) : '—'}
+        </div>
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Case type</span><span class="val">${c.case_type || '—'} ${c.case_type_code ? '<span style="color:var(--text-muted)">('+c.case_type_code+')</span>' : ''}</span></div>
+            <div><span class="lbl">Court / location</span><span class="val">${c.location_name || '—'}</span></div>
+            <div><span class="lbl">Style</span><span class="val">${c.style || '—'}</span></div>
+            <div><span class="lbl">Decedent address</span><span class="val">${decAddrStr || '—'}</span></div>
+            <div><span class="lbl">Decedent DOD</span><span class="val">${dec.date_of_death || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Fetch status</span><span class="val">${c.fetch_status || '—'}</span></div>
+            <div><span class="lbl">PDF extracted</span><span class="val">${c.extraction_status || '—'} ${c.extracted_at ? '<span style="color:var(--text-muted); font-size:.7rem;">'+c.extracted_at.replace('T',' ').slice(0,16)+'</span>' : ''}</span></div>
+        </div>
+
+        ${sectionHtml('Decedent', decedents)}
+        ${sectionHtml('Personal Representatives', prs)}
+        ${sectionHtml('Heirs / Beneficiaries', heirs)}
+        ${sectionHtml('Other parties', others)}
+
+        <h4>Documents on file (${documents.length})</h4>
+        ${docsList}
+
+        <details style="margin-top: 18px;">
+            <summary style="cursor: pointer; color: var(--text-muted); font-size: .72rem; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">Raw Tyler payload</summary>
+            <pre style="font-size: .68rem; color: var(--text-muted); overflow-x: auto; max-height: 360px; background: rgba(0,0,0,.3); padding: 10px; border-radius: 4px; margin-top: 6px;">${JSON.stringify({parties: c.parties, raw_case_summary: c.raw_case_summary, raw_case_events: c.raw_case_events, raw_disposition_events: c.raw_disposition_events, pdf_extractions: c.pdf_extractions}, null, 2)}</pre>
+        </details>
+    `);
+}
+
 
 /* ───────── Generic row renderer for sources without a custom visualizer ───────── */
 function renderGenericRow(key, c) {

@@ -112,6 +112,48 @@ def api_one(key: str):
 #                       visualizer).
 #   search_cols  : columns to OR-match against the q= search param (scalar).
 #   order_by     : ORDER BY clause for the list query.
+_NC_PR_ROLES = (
+    "'Applicant','Executor','Co-Executor','Administrator',"
+    "'Co-Administrator','Petitioner','Affiant','Administrator CTA',"
+    "'Ancillary Executor','Ancillary Administrator',"
+    "'Public Administrator','Collector'"
+)
+_NC_HEIR_ROLES = "'Beneficiary','Next of Kin','Interested Person','Trust','Minor'"
+
+# `decedent_full` is the formatted_name of any party whose roles[] contains
+# 'Decedent'. Same pattern for petitioner_full and counts.
+_NC_DECEDENT_FULL = (
+    "(SELECT p->>'formatted_name' "
+    " FROM jsonb_array_elements(parties) p "
+    " WHERE jsonb_typeof(p->'roles')='array' AND p->'roles' ? 'Decedent' "
+    " LIMIT 1)"
+)
+_NC_PETITIONER_FULL = (
+    "(SELECT p->>'formatted_name' "
+    " FROM jsonb_array_elements(parties) p "
+    f" WHERE jsonb_typeof(p->'roles')='array' AND (p->'roles' ?| array[{_NC_PR_ROLES}]) "
+    " LIMIT 1)"
+)
+_NC_DECEDENT_CITY_STATE = (
+    "(SELECT TRIM(BOTH ', ' FROM CONCAT_WS(', ', a->>'city', a->>'state')) "
+    " FROM jsonb_array_elements(parties) p, jsonb_array_elements(p->'addresses') a "
+    " WHERE jsonb_typeof(p->'roles')='array' AND p->'roles' ? 'Decedent' "
+    " LIMIT 1)"
+)
+_NC_N_PR = (
+    "(SELECT COUNT(*) FROM jsonb_array_elements(parties) p "
+    f" WHERE jsonb_typeof(p->'roles')='array' AND (p->'roles' ?| array[{_NC_PR_ROLES}]))"
+)
+_NC_N_BENEF = (
+    "(SELECT COUNT(*) FROM jsonb_array_elements(parties) p "
+    f" WHERE jsonb_typeof(p->'roles')='array' AND (p->'roles' ?| array[{_NC_HEIR_ROLES}]))"
+)
+_NC_N_DOCS = (
+    "(CASE WHEN jsonb_typeof(documents)='array' "
+    " THEN jsonb_array_length(documents) ELSE 0 END)"
+)
+
+
 SOURCES_INSPECTOR: dict[str, dict] = {
     "new_york": {
         "table": "records",
@@ -158,6 +200,46 @@ SOURCES_INSPECTOR: dict[str, dict] = {
         ],
         "order_by": "scrape_timestamp DESC NULLS LAST",
     },
+    "north_carolina": {
+        "table": "north_carolina",
+        "id_col": "case_number",
+        "list_cols": [
+            ("case_number",                "case_number",      "Case #"),
+            ("county",                     "county",           "County"),
+            ("case_type",                  "case_type",        "Type"),
+            ("file_date::text",            "file_date",        "Filed"),
+            (_NC_DECEDENT_FULL,            "decedent_full",    "Decedent"),
+            (_NC_DECEDENT_CITY_STATE,      "decedent_csz",     "Decedent loc"),
+            (_NC_PETITIONER_FULL,          "petitioner_full",  "PR (first)"),
+            ("derived_status",             "derived_status",   "Status"),
+            (_NC_N_PR,                     "n_pr",             "PR"),
+            (_NC_N_BENEF,                  "n_benef",          "Benef"),
+            (_NC_N_DOCS,                   "n_docs",           "Docs"),
+            ("scraped_at::date::text",     "scraped_on",       "Scraped"),
+        ],
+        "detail_scalar_cols": [
+            "case_number", "case_type", "case_type_code",
+            "location_name", "county", "style", "file_date",
+            "url", "fetch_status", "extraction_status", "extracted_at",
+            "scraped_at", "derived_status",
+        ],
+        "detail_json_cols": [
+            "parties",            # the canonical view rendered in the modal
+            "documents",
+            "raw_case_summary",
+            "raw_case_events",
+            "raw_disposition_events",
+            "pdf_extractions",
+        ],
+        "search_cols": [
+            "case_number", "county", "case_type",
+            # parties::text gives a fast ILIKE on the formatted_name string
+            "parties::text",
+        ],
+        "order_by": "scraped_at DESC NULLS LAST",
+        # Exclude guardianship rows from the inspector too.
+        "where_filter": "derived_status IS DISTINCT FROM 'guardianship'",
+    },
 }
 
 
@@ -175,13 +257,16 @@ def rows(key: str):
     limit = min(int(request.args.get("limit") or 50), 200)
     offset = max(int(request.args.get("offset") or 0), 0)
 
-    where, params = "", []
+    clauses, params = [], []
     if q and cfg["search_cols"]:
-        clauses = []
+        or_parts = []
         for col in cfg["search_cols"]:
-            clauses.append(f"COALESCE({col}::text,'') ILIKE %s")
+            or_parts.append(f"COALESCE({col}::text,'') ILIKE %s")
             params.append(f"%{q}%")
-        where = "WHERE (" + " OR ".join(clauses) + ")"
+        clauses.append("(" + " OR ".join(or_parts) + ")")
+    if cfg.get("where_filter"):
+        clauses.append(cfg["where_filter"])
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
     select_parts = [f'{expr} AS "{alias}"' for expr, alias, _ in cfg["list_cols"]]
     select_parts.append(f'{cfg["id_col"]}::text AS "_id"')

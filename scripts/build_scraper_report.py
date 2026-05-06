@@ -81,6 +81,7 @@ NC = {
     "key": "north_carolina",
     "name": "North Carolina e-Courts",
     "level": "State",
+    "state": "North Carolina",
     "table": "north_carolina",
     "date_col": "file_date",
     "ts_col": "scraped_at",
@@ -100,6 +101,30 @@ NC = {
         "Final Account",
         "Order Closing",
     ],
+    "active_field": "documents[].event_type / document_name (proxy)",
+    "active_values": "OAIL + LEFC = active_qualified; otherwise active_pending",
+    "closed_values": "AFDD or close-marker doc present → closed_by_doc",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "NC parties[] carries decedent + PR addresses directly when the case "
+        "has been scraped to detail. Match decedent_address (parties[].roles "
+        "= Decedent → addresses[0]) to BatchLeads first; if missing, fall "
+        "back to Full+Middle+Last name match within the same county. "
+        "Beneficiary addresses are also captured per party and become a "
+        "post-distribution mail bucket once a closure doc fires."
+    ),
+    "scraping_notes": (
+        "Single statewide Tyler Technologies portal "
+        "(portal-nc.tylertech.cloud) covers 100 counties. Guardianship "
+        "cases (Ward / Guardian roles) are pulled by the same scraper but "
+        "are filtered out everywhere on this page — they are not estate "
+        "matters. NC has no top-level case_status; status is derived "
+        "from documents[].event_type and document_name."
+    ),
+    # Filter expression appended as ` WHERE <exclude_sql>` everywhere we
+    # aggregate. Guardianship rows are tagged 'guardianship' in
+    # derived_status by src_nc(); we drop them here.
+    "exclude_sql": "derived_status IS DISTINCT FROM 'guardianship'",
 }
 
 GA_COUNTY = {
@@ -359,32 +384,44 @@ def src_ny():
 def src_nc():
     """NC — north_carolina.
 
-    No source status. Closure detection from documents JSONB by document_name
-    or event_type matching close_markers. Active sub-bucket from active_markers.
-    Tier-1 from parties[]: decedent.line1 + (executor|administrator|petitioner|applicant).line1.
+    Guardianship cases (parties[].roles contains Ward or any Guardian* role)
+    are tagged 'guardianship' and excluded from active/closed aggregations.
+
+    For estate cases:
+      - close_marker doc present (AFDD etc.)        → closed_by_doc
+      - active_marker doc present (OAIL/Letters/…)  → active_qualified
+      - else                                          → active_pending
+
+    parties[] is a richer object than I originally assumed:
+      {first, middle, last, suffix, roles[], addresses[{line1,city,state,zip}],
+       formatted_name, party_id, date_of_death, …}.
+    Tier-1: decedent has an address.line1 AND any PR-role party has line1.
+    PR roles considered: Applicant, Executor, Co-Executor, Administrator,
+    Co-Administrator, Petitioner, Affiant, Administrator CTA, Ancillary
+    Executor/Administrator, Public Administrator, Collector.
     """
+    guardianship_check = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+        "        WHERE jsonb_typeof(p->'roles')='array' "
+        "          AND (p->'roles' ?| array['Ward','Guardian of the Person',"
+        "                                   'General Guardian','Guardian of the Estate',"
+        "                                   'Limited Guardian of the Person','Guardian ad Litem']))"
+    )
     close_doc_check = (
-        "EXISTS ("
-        "  SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d"
-        "  WHERE EXISTS ("
-        f"    SELECT 1 FROM unnest({_array_lit(NC['close_markers'])}) m"
-        "      WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%'"
-        "         OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'"
-        "  )"
-        ")"
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+        f"        WHERE EXISTS (SELECT 1 FROM unnest({_array_lit(NC['close_markers'])}) m "
+        "               WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%' "
+        "                  OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'))"
     )
     active_marker_check = (
-        "EXISTS ("
-        "  SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d"
-        "  WHERE EXISTS ("
-        f"    SELECT 1 FROM unnest({_array_lit(NC['active_markers'])}) m"
-        "      WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%'"
-        "         OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'"
-        "  )"
-        ")"
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+        f"        WHERE EXISTS (SELECT 1 FROM unnest({_array_lit(NC['active_markers'])}) m "
+        "               WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%' "
+        "                  OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'))"
     )
     bucket = (
         "CASE "
+        f"  WHEN {guardianship_check} THEN 'guardianship' "
         f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
         f"  WHEN {active_marker_check} THEN 'active_qualified' "
         "   ELSE 'active_pending' "
@@ -392,18 +429,28 @@ def src_nc():
     )
     tier1 = (
         "("
-        "  EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "          WHERE LOWER(COALESCE(p->>'role',''))='decedent' "
-        "            AND COALESCE(p->>'line1','') <> '')"
-        "  AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "          WHERE LOWER(COALESCE(p->>'role','')) IN ('executor','administrator','petitioner','applicant') "
-        "            AND COALESCE(p->>'line1','') <> '')"
+        "  EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+        "                       jsonb_array_elements(p->'addresses') a "
+        "          WHERE jsonb_typeof(p->'roles')='array' "
+        "            AND p->'roles' ? 'Decedent' "
+        "            AND COALESCE(a->>'line1','') <> '') "
+        "  AND EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+        "                          jsonb_array_elements(p->'addresses') a "
+        "          WHERE jsonb_typeof(p->'roles')='array' "
+        "            AND (p->'roles' ?| array['Applicant','Executor','Co-Executor',"
+        "                                     'Administrator','Co-Administrator','Petitioner',"
+        "                                     'Affiant','Administrator CTA','Ancillary Executor',"
+        "                                     'Ancillary Administrator','Public Administrator',"
+        "                                     'Collector']) "
+        "            AND COALESCE(a->>'line1','') <> '')"
         ")"
     )
     heir = (
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','distributee','beneficiary') "
-        "          AND COALESCE(p->>'line1','') <> '')"
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+        "                    jsonb_array_elements(p->'addresses') a "
+        "        WHERE jsonb_typeof(p->'roles')='array' "
+        "          AND (p->'roles' ?| array['Beneficiary','Next of Kin','Interested Person','Trust','Minor']) "
+        "          AND COALESCE(a->>'line1','') <> '')"
     )
     return bucket, tier1, heir
 
@@ -602,6 +649,11 @@ def compute_source(cur, src: dict) -> dict:
         print(f"[snapshot]   {src['key']} UPDATE derived_status -> {cur.rowcount} rows")
         cur.connection.commit()  # commit DDL+UPDATE before later SELECTs in same txn
 
+    # Optional WHERE filter — used to exclude row classes that should not be
+    # counted in this source's report (NC guardianship, etc).
+    exclude_sql = src.get("exclude_sql", "")
+    where_clause = f" WHERE {exclude_sql} " if exclude_sql else " "
+
     # Bucket aggregates: count, tier-1 complete, tier-1+heir complete.
     cur.execute(f"""
         SELECT
@@ -610,6 +662,7 @@ def compute_source(cur, src: dict) -> dict:
             COUNT(*) FILTER (WHERE {tier1_sql})::bigint   AS tier1,
             COUNT(*) FILTER (WHERE {tier1_sql} AND {heir_sql})::bigint AS tier1_heir
         FROM "{table}"
+        {where_clause}
         GROUP BY 1
         ORDER BY 1
     """)
@@ -624,7 +677,7 @@ def compute_source(cur, src: dict) -> dict:
         }
 
     # Total + last_scraped + scrape window.
-    cur.execute(f'SELECT COUNT(*), MAX("{ts_col}") FROM "{table}"')
+    cur.execute(f'SELECT COUNT(*), MAX("{ts_col}") FROM "{table}" {where_clause}')
     total, last_scraped = cur.fetchone()
     total = int(total or 0)
 
@@ -632,13 +685,14 @@ def compute_source(cur, src: dict) -> dict:
     try:
         cur.execute(
             f'SELECT MIN("{date_col}"::date)::text, MAX("{date_col}"::date)::text '
-            f'FROM "{table}" WHERE "{date_col}" IS NOT NULL'
+            f'FROM "{table}" {where_clause if exclude_sql else "WHERE"} '
+            f'{"AND" if exclude_sql else ""} "{date_col}" IS NOT NULL'
         )
         scrape_window = cur.fetchone()
     except psycopg2.Error:
         cur.connection.rollback()
         try:
-            cur.execute(f'SELECT MIN("{date_col}"), MAX("{date_col}") FROM "{table}"')
+            cur.execute(f'SELECT MIN("{date_col}"), MAX("{date_col}") FROM "{table}" {where_clause}')
             r = cur.fetchone()
             scrape_window = (str(r[0]) if r[0] else None, str(r[1]) if r[1] else None)
         except psycopg2.Error:
@@ -646,10 +700,11 @@ def compute_source(cur, src: dict) -> dict:
             scrape_window = (None, None)
 
     # Daily timeline — count of rows per scrape day (uses ts_col).
+    timeline_where = f" {where_clause} AND " if exclude_sql else " WHERE "
     cur.execute(f"""
         SELECT DATE("{ts_col}") AS d, COUNT(*)::bigint
         FROM "{table}"
-        WHERE "{ts_col}" IS NOT NULL
+        {timeline_where} "{ts_col}" IS NOT NULL
         GROUP BY 1 ORDER BY 1
     """)
     timeline = [{"day": d.isoformat(), "count": int(n)} for d, n in cur.fetchall()]
@@ -666,6 +721,7 @@ def compute_source(cur, src: dict) -> dict:
             COUNT(*) FILTER (WHERE {tier1_sql})::bigint                                        AS tier1,
             MAX("{ts_col}")                                                                    AS last_scraped
         FROM "{table}"
+        {where_clause}
         GROUP BY 1
         ORDER BY rows DESC, county ASC
     """)
@@ -688,7 +744,18 @@ def compute_source(cur, src: dict) -> dict:
     doc_counts = _doc_playbook_counts(cur, src)
 
     # Field coverage — per-source list of {label, present, present_pct} rows.
+    # `total` here is the filtered-set total so percentages are honest.
     field_coverage = _field_coverage(cur, src, total)
+
+    # Track guardianship rows separately (NC) so the user can see how many
+    # were excluded.
+    guardianship_excluded = 0
+    if src["key"] == "north_carolina":
+        cur.execute(
+            f'SELECT COUNT(*) FROM "{table}" WHERE derived_status = %s',
+            ("guardianship",),
+        )
+        guardianship_excluded = int(cur.fetchone()[0] or 0)
 
     profile = {
         "state":              src.get("state"),
@@ -717,6 +784,7 @@ def compute_source(cur, src: dict) -> dict:
         "doc_playbook_counts": doc_counts,
         "field_coverage": field_coverage,
         "profile": profile,
+        "guardianship_excluded": guardianship_excluded,
     }
 
 
@@ -758,6 +826,9 @@ def _doc_playbook_counts(cur, src: dict) -> list[dict]:
     else:
         return []
 
+    exclude_sql = src.get("exclude_sql", "")
+    extra_filter = f" AND ({exclude_sql})" if exclude_sql else ""
+
     out = []
     for label, patterns in PLAYBOOK_PATTERNS:
         # Build OR of UPPER(name) LIKE '%PAT%'
@@ -766,7 +837,7 @@ def _doc_playbook_counts(cur, src: dict) -> list[dict]:
         cur.execute(
             f'SELECT COUNT(DISTINCT t.id) FROM "{table}" t, '
             f'LATERAL (SELECT {names_expr} AS n) x '
-            f'WHERE x.n IS NOT NULL AND ({cond})',
+            f'WHERE x.n IS NOT NULL AND ({cond}){extra_filter}',
             params,
         )
         n = cur.fetchone()[0] or 0
@@ -841,6 +912,105 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
         ]
+    elif key == "north_carolina":
+        # PR-equivalent role list reused below.
+        pr_roles = (
+            "'Applicant','Executor','Co-Executor','Administrator',"
+            "'Co-Administrator','Petitioner','Affiant','Administrator CTA',"
+            "'Ancillary Executor','Ancillary Administrator',"
+            "'Public Administrator','Collector'"
+        )
+        heir_roles = "'Beneficiary','Next of Kin','Interested Person','Trust','Minor'"
+
+        decedent_p = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(p->'roles')='array' "
+            "          AND p->'roles' ? 'Decedent' "
+            "          AND COALESCE(p->>'formatted_name','') <> '')"
+        )
+        decedent_addr = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+            "                    jsonb_array_elements(p->'addresses') a "
+            "        WHERE jsonb_typeof(p->'roles')='array' "
+            "          AND p->'roles' ? 'Decedent' "
+            "          AND COALESCE(a->>'line1','') <> '')"
+        )
+        decedent_csz = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+            "                    jsonb_array_elements(p->'addresses') a "
+            "        WHERE jsonb_typeof(p->'roles')='array' "
+            "          AND p->'roles' ? 'Decedent' "
+            "          AND COALESCE(a->>'city','') <> '' "
+            "          AND COALESCE(a->>'state','') <> '' "
+            "          AND COALESCE(a->>'zip','') <> '')"
+        )
+        decedent_dod = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(p->'roles')='array' "
+            "          AND p->'roles' ? 'Decedent' "
+            "          AND COALESCE(p->>'date_of_death','') <> '')"
+        )
+        pr_name = (
+            f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            f"        WHERE jsonb_typeof(p->'roles')='array' "
+            f"          AND (p->'roles' ?| array[{pr_roles}]) "
+            f"          AND COALESCE(p->>'formatted_name','') <> '')"
+        )
+        pr_addr = (
+            f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+            f"                    jsonb_array_elements(p->'addresses') a "
+            f"        WHERE jsonb_typeof(p->'roles')='array' "
+            f"          AND (p->'roles' ?| array[{pr_roles}]) "
+            f"          AND COALESCE(a->>'line1','') <> '')"
+        )
+        pr_csz = (
+            f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+            f"                    jsonb_array_elements(p->'addresses') a "
+            f"        WHERE jsonb_typeof(p->'roles')='array' "
+            f"          AND (p->'roles' ?| array[{pr_roles}]) "
+            f"          AND COALESCE(a->>'city','') <> '' "
+            f"          AND COALESCE(a->>'state','') <> '' "
+            f"          AND COALESCE(a->>'zip','') <> '')"
+        )
+        heir_name = (
+            f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            f"        WHERE jsonb_typeof(p->'roles')='array' "
+            f"          AND (p->'roles' ?| array[{heir_roles}]) "
+            f"          AND COALESCE(p->>'formatted_name','') <> '')"
+        )
+        heir_addr = (
+            f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p, "
+            f"                    jsonb_array_elements(p->'addresses') a "
+            f"        WHERE jsonb_typeof(p->'roles')='array' "
+            f"          AND (p->'roles' ?| array[{heir_roles}]) "
+            f"          AND COALESCE(a->>'line1','') <> '')"
+        )
+        rows = [
+            ("Decedent name",          decedent_p,     "parties[roles=Decedent].formatted_name"),
+            ("Decedent street",        decedent_addr,  "parties[roles=Decedent].addresses[].line1"),
+            ("Decedent city/state/zip",decedent_csz,   "parties[roles=Decedent].addresses[].{city,state,zip}"),
+            ("Decedent date of death", decedent_dod,   "parties[roles=Decedent].date_of_death"),
+            ("PR name",                pr_name,        "parties[roles in PR set].formatted_name"),
+            ("PR street",              pr_addr,        "parties[roles in PR set].addresses[].line1"),
+            ("PR city/state/zip",      pr_csz,         "parties[roles in PR set].addresses[].{city,state,zip}"),
+            ("PR phone",               "FALSE",        "(NC parties payload does not carry phone — would require PDF extraction)"),
+            ("PR email",               "FALSE",        "(NC parties payload does not carry email — would require PDF extraction)"),
+            ("≥1 heir/beneficiary with name",   heir_name,  "parties[roles in heir set].formatted_name"),
+            ("≥1 heir/beneficiary with street", heir_addr,  "parties[roles in heir set].addresses[].line1"),
+            ("≥1 document on file",
+             "jsonb_typeof(documents)='array' AND jsonb_array_length(documents) > 0",
+             "documents[]"),
+            ("≥1 active-marker doc (Letters/OAIL)",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+             "        WHERE UPPER(COALESCE(d->>'event_type','')) LIKE '%LETTERS%' "
+             "           OR UPPER(COALESCE(d->>'document_name','')) LIKE '%LETTERS%' "
+             "           OR UPPER(COALESCE(d->>'event_type','')) LIKE '%OAIL%' "
+             "           OR UPPER(COALESCE(d->>'document_name','')) LIKE '%OAIL%')",
+             "documents[event_type/document_name LIKE %LETTERS%/%OAIL%]"),
+            ("PDF tier-extracted",
+             "jsonb_typeof(pdf_extractions)='array' AND jsonb_array_length(pdf_extractions) > 0",
+             "pdf_extractions[]"),
+        ]
     else:
         # Other sources will be filled in source-by-source as we move through
         # them. Returning [] is fine — the UI just hides the section.
@@ -849,11 +1019,14 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
     if not rows:
         return []
 
+    exclude_sql = src.get("exclude_sql", "")
+    where_clause = f" WHERE {exclude_sql}" if exclude_sql else ""
+
     # One round-trip: SELECT COUNT(*) FILTER (WHERE …) per row, aliased.
     parts = []
     for i, (_, sql, _) in enumerate(rows):
         parts.append(f"COUNT(*) FILTER (WHERE {sql})::bigint AS f{i}")
-    cur.execute(f'SELECT {", ".join(parts)} FROM "{table}"')
+    cur.execute(f'SELECT {", ".join(parts)} FROM "{table}"{where_clause}')
     counts = cur.fetchone()
 
     out = []
