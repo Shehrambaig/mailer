@@ -41,6 +41,7 @@ NY = {
     "key": "new_york",
     "name": "New York Surrogate's Court",
     "level": "State",
+    "state": "New York",
     "table": "records",
     "date_col": "filed_date",
     "ts_col": "scrape_timestamp",
@@ -54,9 +55,26 @@ NY = {
     "close_markers": [
         "REPORT AND ACCOUNT IN SETTLEMENT OF ESTATE",
         "ORDER REVOKING LETTERS",
-        # "RECEIPT" is too generic to match safely — skip; final receipt detection
-        # would need richer doc metadata than document_names alone.
+        # "RECEIPT" is too generic to match safely on document_names alone.
     ],
+    "active_field": "petitioner_active",
+    "active_values": "Y",
+    "closed_values": "N",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "If the filing exposes a decedent address, match it to BatchLeads as "
+        "decedent_address = property (push to Tool 3 with match_tier='decedent_address'). "
+        "When decedent address is missing (~33% of NY rows), fall back to strict "
+        "Full+Middle+Last name match against propstream/elitress within the same "
+        "county (match_tier='full_name_match')."
+    ),
+    "scraping_notes": (
+        "Single statewide portal (NYSCEF) covers all 62 surrogate's courts. "
+        "After scrape, an Anthropic-powered tier-extraction step parses each "
+        "case's PDF bundle into tiered_extraction jsonb (decedent, persons[], "
+        "real_property[]). petitioner_active is set during this step: 'Y' if "
+        "Letters were granted, 'N' if revoked/denied, '' if undetectable."
+    ),
 }
 
 NC = {
@@ -581,6 +599,8 @@ def compute_source(cur, src: dict) -> dict:
     if src["key"] in ("new_york", "north_carolina", "ga_probate", "gwinnett", "oklahoma"):
         _ensure_derived_status(cur, table)
         cur.execute(f'UPDATE "{table}" SET derived_status = ({bucket_sql})')
+        print(f"[snapshot]   {src['key']} UPDATE derived_status -> {cur.rowcount} rows")
+        cur.connection.commit()  # commit DDL+UPDATE before later SELECTs in same txn
 
     # Bucket aggregates: count, tier-1 complete, tier-1+heir complete.
     cur.execute(f"""
@@ -667,6 +687,19 @@ def compute_source(cur, src: dict) -> dict:
     # playbook category (best-effort; the source may not surface doc names).
     doc_counts = _doc_playbook_counts(cur, src)
 
+    # Field coverage — per-source list of {label, present, present_pct} rows.
+    field_coverage = _field_coverage(cur, src, total)
+
+    profile = {
+        "state":              src.get("state"),
+        "active_field":       src.get("active_field"),
+        "active_values":      src.get("active_values"),
+        "closed_values":      src.get("closed_values"),
+        "non_owner":          src.get("non_owner"),
+        "address_match_rule": src.get("address_match_rule"),
+        "scraping_notes":     src.get("scraping_notes"),
+    }
+
     return {
         "key": src["key"],
         "name": src["name"],
@@ -682,6 +715,8 @@ def compute_source(cur, src: dict) -> dict:
         "timeline": timeline,
         "counties": counties,
         "doc_playbook_counts": doc_counts,
+        "field_coverage": field_coverage,
+        "profile": profile,
     }
 
 
@@ -744,6 +779,93 @@ def _playbook_yields(label: str) -> str:
         if any(part.strip().lower() in entry["doc"].lower() for part in label.split("/")):
             return entry["yields"]
     return ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Field coverage — per-source presence stats for the fields the campaign cares
+# about (decedent + PR + heir name/address/phone/email).
+
+def _field_coverage(cur, src: dict, total: int) -> list[dict]:
+    """Return [{label, present, present_pct, source}] for each tracked field.
+
+    The exact SQL boolean varies per source. Keep the label list stable so the
+    UI table is consistent across sources; sources that don't capture a field
+    return present=0.
+    """
+    if not total:
+        return []
+    key = src["key"]
+    table = src["table"]
+
+    # Each (label, sql_bool, source_path) — sql_bool counted via FILTER.
+    rows: list[tuple[str, str, str]] = []
+
+    if key == "new_york":
+        rows = [
+            ("Decedent name",        "decedent->>'full_name' IS NOT NULL AND decedent->>'full_name' <> ''",
+                                     "decedent.full_name"),
+            ("Decedent street",      "COALESCE(decedent_address->>'street','') <> ''",
+                                     "decedent_address.street"),
+            ("Decedent city/state/zip","COALESCE(decedent_address->>'city','') <> '' "
+                                       "AND COALESCE(decedent_address->>'state','') <> '' "
+                                       "AND COALESCE(decedent_address->>'zip','') <> ''",
+                                     "decedent_address.{city,state,zip}"),
+            ("Decedent date of death","death_date IS NOT NULL AND death_date <> ''",
+                                     "death_date"),
+            ("PR name",              "COALESCE(petitioner->>'full_name','') <> ''",
+                                     "petitioner.full_name"),
+            ("PR street",            "COALESCE(petitioner_address->>'street','') <> ''",
+                                     "petitioner_address.street"),
+            ("PR city/state/zip",    "COALESCE(petitioner_address->>'city','') <> '' "
+                                     "AND COALESCE(petitioner_address->>'state','') <> '' "
+                                     "AND COALESCE(petitioner_address->>'zip','') <> ''",
+                                     "petitioner_address.{city,state,zip}"),
+            ("PR phone",             "COALESCE(petitioner_phone,'') <> ''",
+                                     "petitioner_phone"),
+            ("PR email",             "COALESCE(petitioner_email,'') <> ''",
+                                     "petitioner_email"),
+            ("≥1 heir with name",    "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(tiered_extraction->'persons','[]'::jsonb)) p "
+                                     "        WHERE p->>'role'='heir' AND COALESCE(p->>'full_name','') <> '')",
+                                     "tiered_extraction.persons[role=heir].full_name"),
+            ("≥1 heir with street",  "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(tiered_extraction->'persons','[]'::jsonb)) p "
+                                     "        WHERE p->>'role'='heir' AND COALESCE(p->'address'->>'street','') <> '')",
+                                     "tiered_extraction.persons[role=heir].address.street"),
+            ("≥1 heir with phone",   "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(tiered_extraction->'persons','[]'::jsonb)) p "
+                                     "        WHERE p->>'role'='heir' AND COALESCE(p->>'phone','') <> '')",
+                                     "tiered_extraction.persons[role=heir].phone"),
+            ("≥1 heir with email",   "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(tiered_extraction->'persons','[]'::jsonb)) p "
+                                     "        WHERE p->>'role'='heir' AND COALESCE(p->>'email','') <> '')",
+                                     "tiered_extraction.persons[role=heir].email"),
+            ("≥1 real property",     "jsonb_array_length(COALESCE(tiered_extraction->'real_property','[]'::jsonb)) > 0",
+                                     "tiered_extraction.real_property[]"),
+            ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
+                                     "tiered_extraction"),
+        ]
+    else:
+        # Other sources will be filled in source-by-source as we move through
+        # them. Returning [] is fine — the UI just hides the section.
+        return []
+
+    if not rows:
+        return []
+
+    # One round-trip: SELECT COUNT(*) FILTER (WHERE …) per row, aliased.
+    parts = []
+    for i, (_, sql, _) in enumerate(rows):
+        parts.append(f"COUNT(*) FILTER (WHERE {sql})::bigint AS f{i}")
+    cur.execute(f'SELECT {", ".join(parts)} FROM "{table}"')
+    counts = cur.fetchone()
+
+    out = []
+    for (label, _, source_path), n in zip(rows, counts):
+        n = int(n or 0)
+        out.append({
+            "label":   label,
+            "present": n,
+            "present_pct": round(100.0 * n / total, 1),
+            "source":  source_path,
+        })
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

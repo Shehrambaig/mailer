@@ -1,14 +1,13 @@
 """Scrapers status page — reads from `scraper_report_snapshot`.
 
 Endpoints:
-  /scrapers/                              page (snapshot summary + per-source report)
-  /scrapers/api/all                       JSON list of every snapshot row (drives the page)
-  /scrapers/api/<key>                     JSON for one source's snapshot
-  /scrapers/ny/cases                      paged NY case list (search by name / case_number)
-  /scrapers/ny/case/<case_number>         tiered_extraction for one NY case (drill-in)
+  /scrapers/                          page (snapshot summary + per-source report)
+  /scrapers/api/all                   JSON list of every snapshot row
+  /scrapers/api/<key>                 JSON for one source's snapshot
+  /scrapers/<key>/rows                paged + searchable row list (scalar cols)
+  /scrapers/<key>/row/<rid>           full row including JSON columns
 
 Snapshot is built by `scripts/build_scraper_report.py` — we only read here.
-Foreclosure/auction sources are intentionally not on this page anymore.
 """
 from __future__ import annotations
 import os
@@ -34,7 +33,6 @@ def _connect():
 
 
 def _load_snapshot() -> list[dict]:
-    """Return all snapshot rows ordered by total descending."""
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT to_regclass('public.scraper_report_snapshot') IS NOT NULL AS ok")
@@ -59,11 +57,13 @@ def _load_snapshot() -> list[dict]:
 def index():
     sources = _load_snapshot()
     total_records  = sum(int(s.get("total") or 0) for s in sources)
-    total_active   = sum((s.get("buckets", {}).get("active", {}) or {}).get("count", 0) for s in sources)
-    total_active  += sum((s.get("buckets", {}).get("active_pending", {}) or {}).get("count", 0) for s in sources)
-    total_active  += sum((s.get("buckets", {}).get("active_qualified", {}) or {}).get("count", 0) for s in sources)
-    total_closed   = sum((s.get("buckets", {}).get("closed", {}) or {}).get("count", 0) for s in sources)
-    total_closed  += sum((s.get("buckets", {}).get("closed_by_doc", {}) or {}).get("count", 0) for s in sources)
+    total_active = total_closed = 0
+    for s in sources:
+        b = s.get("buckets", {}) or {}
+        for k in ("active", "active_pending", "active_qualified"):
+            total_active += int((b.get(k) or {}).get("count", 0))
+        for k in ("closed", "closed_by_doc"):
+            total_closed += int((b.get(k) or {}).get("count", 0))
     summary = {
         "total_records":  total_records,
         "total_active":   total_active,
@@ -99,77 +99,134 @@ def api_one(key: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NY drill-in
+# Row inspector — generic, per-source config
 
-@scrapers_bp.route("/ny/cases")
-def ny_cases():
+# Each source declares:
+#   table        : SQL table name
+#   id_col       : primary identifier (used in /row/<id> URLs)
+#   list_cols    : ordered list of (sql_expr, alias, label) tuples shown in
+#                  the table list. SQL expressions only — no JSON columns.
+#   detail_scalar_cols: scalar columns to show in the detail modal header.
+#   detail_json_cols  : JSON columns to return verbatim in the detail (the UI
+#                       picks them up by name and renders with a custom
+#                       visualizer).
+#   search_cols  : columns to OR-match against the q= search param (scalar).
+#   order_by     : ORDER BY clause for the list query.
+SOURCES_INSPECTOR: dict[str, dict] = {
+    "new_york": {
+        "table": "records",
+        "id_col": "case_number",
+        "list_cols": [
+            ("case_number",                       "case_number",     "Case #"),
+            ("county",                            "county",          "County"),
+            ("filed_date",                        "filed_date",      "Filed"),
+            ("death_date",                        "death_date",      "Died"),
+            ("proceeding",                        "proceeding",      "Proceeding"),
+            ("decedent->>'full_name'",            "decedent_name",   "Decedent"),
+            ("petitioner->>'full_name'",          "petitioner_name", "Petitioner"),
+            ("petitioner_active",                 "petitioner_active","Active?"),
+            ("petitioner_phone",                  "petitioner_phone","PR phone"),
+            ("petitioner_email",                  "petitioner_email","PR email"),
+            ("(tiered_extraction IS NOT NULL)",   "has_extraction",  "Extracted"),
+            ("jsonb_array_length(COALESCE(tiered_extraction->'persons','[]'::jsonb))",
+                                                  "persons_n",       "Ppl"),
+            ("jsonb_array_length(COALESCE(tiered_extraction->'real_property','[]'::jsonb))",
+                                                  "props_n",         "Prop"),
+            ("scrape_timestamp::date::text",      "scraped_on",      "Scraped"),
+        ],
+        "detail_scalar_cols": [
+            "case_number", "court", "county", "filed_date", "death_date",
+            "proceeding", "estate_closed",
+            "petitioner_phone", "petitioner_email", "petitioner_role",
+            "petitioner_active", "petitioner_appointed_date",
+            "pdf_url", "pdf_status", "pdf_last_attempted_at", "pdf_error",
+            "scrape_timestamp", "tiered_extracted_at", "derived_status",
+        ],
+        "detail_json_cols": [
+            "decedent", "decedent_address",
+            "petitioner", "petitioner_address",
+            "other_parties",
+            "document_names",
+            "tiered_extraction",
+        ],
+        "search_cols": [
+            "case_number",
+            "county",
+            "decedent->>'full_name'",
+            "petitioner->>'full_name'",
+            "proceeding",
+        ],
+        "order_by": "scrape_timestamp DESC NULLS LAST",
+    },
+}
+
+
+def _inspector(key: str) -> dict | None:
+    return SOURCES_INSPECTOR.get(key)
+
+
+@scrapers_bp.route("/<key>/rows")
+def rows(key: str):
+    cfg = _inspector(key)
+    if not cfg:
+        return jsonify({"error": f"row inspector not configured for: {key}"}), 404
+
     q = (request.args.get("q") or "").strip()
     limit = min(int(request.args.get("limit") or 50), 200)
     offset = max(int(request.args.get("offset") or 0), 0)
 
-    where = []
-    params: list = []
-    if q:
-        where.append(
-            "(case_number ILIKE %s "
-            " OR COALESCE(decedent->>'full_name','') ILIKE %s "
-            " OR COALESCE(petitioner->>'full_name','') ILIKE %s)"
-        )
-        params.extend([f"%{q}%"] * 3)
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    where, params = "", []
+    if q and cfg["search_cols"]:
+        clauses = []
+        for col in cfg["search_cols"]:
+            clauses.append(f"COALESCE({col}::text,'') ILIKE %s")
+            params.append(f"%{q}%")
+        where = "WHERE (" + " OR ".join(clauses) + ")"
+
+    select_parts = [f'{expr} AS "{alias}"' for expr, alias, _ in cfg["list_cols"]]
+    select_parts.append(f'{cfg["id_col"]}::text AS "_id"')
+    select_sql = ", ".join(select_parts)
 
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                f"""
-                SELECT
-                    case_number,
-                    county,
-                    filed_date,
-                    death_date,
-                    proceeding,
-                    petitioner_active,
-                    decedent->>'full_name'     AS decedent_name,
-                    petitioner->>'full_name'   AS petitioner_name,
-                    (tiered_extraction IS NOT NULL) AS has_extraction,
-                    jsonb_array_length(COALESCE(tiered_extraction->'persons','[]'::jsonb)) AS persons_n,
-                    jsonb_array_length(COALESCE(tiered_extraction->'real_property','[]'::jsonb)) AS props_n
-                FROM records
-                {where_sql}
-                ORDER BY scrape_timestamp DESC NULLS LAST
-                LIMIT %s OFFSET %s
-                """,
+                f'SELECT {select_sql} FROM "{cfg["table"]}" {where} '
+                f'ORDER BY {cfg["order_by"]} LIMIT %s OFFSET %s',
                 params + [limit, offset],
             )
-            rows = [dict(r) for r in cur.fetchall()]
+            data = [dict(r) for r in cur.fetchall()]
 
-            cur.execute(f"SELECT COUNT(*) FROM records {where_sql}", params)
-            total = cur.fetchone()["count"]
+            cur.execute(f'SELECT COUNT(*) AS n FROM "{cfg["table"]}" {where}', params)
+            total = cur.fetchone()["n"]
 
-    return jsonify({"total": total, "limit": limit, "offset": offset, "cases": rows})
+    return jsonify({
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "cols": [{"alias": alias, "label": label} for _, alias, label in cfg["list_cols"]],
+        "rows": data,
+    })
 
 
-@scrapers_bp.route("/ny/case/<path:case_number>")
-def ny_case_detail(case_number: str):
-    case_number = unquote(case_number)
+@scrapers_bp.route("/<key>/row/<path:rid>")
+def row_detail(key: str, rid: str):
+    cfg = _inspector(key)
+    if not cfg:
+        return jsonify({"error": f"row inspector not configured for: {key}"}), 404
+
+    rid = unquote(rid)
+    cols = list(cfg["detail_scalar_cols"]) + list(cfg["detail_json_cols"])
+    cols_sql = ", ".join(f'"{c}"' for c in cols)
+
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """
-                SELECT
-                    case_number, court, county, filed_date, death_date, proceeding,
-                    decedent, decedent_address,
-                    petitioner, petitioner_address, petitioner_phone, petitioner_email,
-                    petitioner_role, petitioner_active, petitioner_appointed_date,
-                    other_parties,
-                    document_names, pdf_url,
-                    tiered_extraction, tiered_extracted_at
-                FROM records
-                WHERE case_number = %s
-                """,
-                (case_number,),
+                f'SELECT {cols_sql} FROM "{cfg["table"]}" WHERE {cfg["id_col"]}::text = %s',
+                (rid,),
             )
             row = cur.fetchone()
     if not row:
-        return jsonify({"error": f"unknown case: {case_number}"}), 404
-    return jsonify(dict(row))
+        return jsonify({"error": f"row not found: {rid}"}), 404
+
+    out = {k: row[k] for k in row.keys()}
+    return jsonify(out)

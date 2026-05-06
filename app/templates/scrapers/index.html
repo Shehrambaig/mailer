@@ -322,21 +322,38 @@
             </div>
             <div class="scr-panel">
 
-                {# 1. Header / overview #}
+                {# 1. Source profile (filled-in template) #}
                 <div class="scr-section">
-                    <div class="scr-section-title">Overview</div>
+                    <div class="scr-section-title">Source profile</div>
                     <div class="scr-modal-meta">
                         <div><span class="lbl">Source level</span><span class="val">{{ s.level or '—' }}</span></div>
+                        <div><span class="lbl">State</span><span class="val">{{ (s.profile or {}).get('state') or '—' }}</span></div>
                         <div><span class="lbl">Table</span><span class="val">{{ s.table }}</span></div>
-                        <div><span class="lbl">Date field</span><span class="val">{{ s.date_field or '—' }}</span></div>
-                        <div><span class="lbl">Scrape window</span>
+                        <div><span class="lbl">Scrape date field</span><span class="val">{{ s.date_field or '—' }}</span></div>
+                        <div><span class="lbl">Scrape range</span>
                             <span class="val">
                                 {% if s.scrape_window and s.scrape_window[0] %}{{ s.scrape_window[0] }} → {{ s.scrape_window[1] }}{% else %}—{% endif %}
                             </span>
                         </div>
-                        <div><span class="lbl">Last scraped</span><span class="val">{{ s.last_scraped[:16].replace('T',' ') if s.last_scraped else '—' }}</span></div>
+                        <div><span class="lbl">Last scrape run</span><span class="val">{{ s.last_scraped[:16].replace('T',' ') if s.last_scraped else '—' }}</span></div>
                         <div><span class="lbl">Counties seen</span><span class="val">{{ (s.counties or [])|length }}</span></div>
+                        <div><span class="lbl">Active field</span><span class="val">{{ (s.profile or {}).get('active_field') or '—' }}</span></div>
+                        <div><span class="lbl">Active values</span><span class="val">{{ (s.profile or {}).get('active_values') or '—' }}</span></div>
+                        <div><span class="lbl">Closed values</span><span class="val">{{ (s.profile or {}).get('closed_values') or '—' }}</span></div>
+                        <div><span class="lbl">Non-Owner</span><span class="val">{{ (s.profile or {}).get('non_owner') or '—' }}</span></div>
                     </div>
+                    {% if (s.profile or {}).get('address_match_rule') %}
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.06);">
+                        <div style="font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; margin-bottom: 4px;">Address-match rule</div>
+                        <div style="font-size:.78rem; color: var(--text-secondary); line-height: 1.55;">{{ s.profile.address_match_rule }}</div>
+                    </div>
+                    {% endif %}
+                    {% if (s.profile or {}).get('scraping_notes') %}
+                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,.06);">
+                        <div style="font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; margin-bottom: 4px;">Scraping process</div>
+                        <div style="font-size:.78rem; color: var(--text-secondary); line-height: 1.55;">{{ s.profile.scraping_notes }}</div>
+                    </div>
+                    {% endif %}
                 </div>
 
                 {# 2. Buckets #}
@@ -365,6 +382,33 @@
                         {% endfor %}
                     </div>
                 </div>
+
+                {# 2b. Field coverage #}
+                {% if s.field_coverage %}
+                <div class="scr-section">
+                    <div class="scr-section-title">Field coverage (% of rows that have each field populated)</div>
+                    <table class="scr-playbook">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Source path</th>
+                                <th style="text-align:right;">Present</th>
+                                <th style="text-align:right;">%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for f in s.field_coverage %}
+                            <tr>
+                                <td class="doc-name">{{ f.label }}</td>
+                                <td class="yields" style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: .72rem;">{{ f.source }}</td>
+                                <td class="count{% if not f.present %} zero{% endif %}">{{ "{:,}".format(f.present) }}</td>
+                                <td class="count{% if not f.present %} zero{% endif %}">{{ f.present_pct }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
 
                 {# 3. Active / Close markers reference #}
                 {% if s.active_markers or s.close_markers %}
@@ -455,15 +499,15 @@
                 </div>
                 {% endif %}
 
-                {# 7. NY-only drill-in #}
-                {% if s.key == 'new_york' %}
+                {# 7. Records inspector — paged + searchable #}
+                {% if s.key in ['new_york'] %}
                 <div class="scr-section">
-                    <div class="scr-section-title">NY cases — tiered extraction drill-in</div>
+                    <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
-                        <input type="search" placeholder="Search by case number or decedent / petitioner name…" data-ny-search/>
+                        <input type="search" placeholder="Search by case #, county, decedent, petitioner…" data-rows-search="{{ s.key }}"/>
                     </div>
-                    <div class="scr-ny-cases" data-ny-cases>
-                        <div class="scr-ny-empty">Click a row to load extracted persons & real property.</div>
+                    <div class="scr-rows-wrap" data-rows-for="{{ s.key }}">
+                        <div class="scr-ny-empty">Loading…</div>
                     </div>
                 </div>
                 {% endif %}
@@ -499,9 +543,9 @@ function toggleScraper(key) {
         .then(data => renderChart(dataEl, data.timeline || []))
         .catch(() => { dataEl.innerHTML = '<div style="font-size:.75rem; color: var(--text-muted);">Failed to load timeline.</div>'; });
 
-    if (key === 'new_york') {
-        wireNySearch(card);
-        loadNyCases(card, '');
+    if (card.querySelector(`[data-rows-for="${key}"]`)) {
+        wireRowsSearch(card, key);
+        loadRows(card, key, '');
     }
 }
 
@@ -566,112 +610,186 @@ function renderChart(wrap, pts) {
     `;
 }
 
-/* ───────── NY drill-in ───────── */
-let _nySearchTimer = null;
-function wireNySearch(card) {
-    const input = card.querySelector('[data-ny-search]');
+/* ───────── Generic records inspector ───────── */
+const _rowsSearchTimers = {};
+
+function wireRowsSearch(card, key) {
+    const input = card.querySelector(`[data-rows-search="${key}"]`);
     if (!input || input.dataset.wired) return;
     input.dataset.wired = '1';
     input.addEventListener('input', () => {
-        clearTimeout(_nySearchTimer);
-        _nySearchTimer = setTimeout(() => loadNyCases(card, input.value.trim()), 250);
+        clearTimeout(_rowsSearchTimers[key]);
+        _rowsSearchTimers[key] = setTimeout(() => loadRows(card, key, input.value.trim()), 250);
     });
 }
 
-async function loadNyCases(card, q) {
-    const wrap = card.querySelector('[data-ny-cases]');
+async function loadRows(card, key, q) {
+    const wrap = card.querySelector(`[data-rows-for="${key}"]`);
     wrap.innerHTML = '<div class="scr-ny-empty">Loading…</div>';
     try {
-        const url = '/scrapers/ny/cases?limit=80' + (q ? '&q=' + encodeURIComponent(q) : '');
+        const url = `/scrapers/${encodeURIComponent(key)}/rows?limit=80` + (q ? '&q=' + encodeURIComponent(q) : '');
         const r = await fetch(url, { credentials: 'same-origin' });
         const data = await r.json();
-        if (!data.cases || !data.cases.length) {
-            wrap.innerHTML = '<div class="scr-ny-empty">No matching cases.</div>';
+        if (!data.rows || !data.rows.length) {
+            wrap.innerHTML = '<div class="scr-ny-empty">No matching records.</div>';
             return;
         }
-        const rows = data.cases.map(c => `
-            <div class="scr-ny-case-row" onclick="openNyCase(${JSON.stringify(c.case_number).replace(/'/g, '&apos;')})">
-                <span class="cn">${c.case_number || '—'}</span>
-                <span class="who">${c.decedent_name || '—'}<small>${c.county || ''} • filed ${c.filed_date || '—'}</small></span>
-                <span class="pill ${c.petitioner_active === 'Y' ? 'y' : (c.petitioner_active === 'N' ? 'n' : '')}">${c.petitioner_active || '—'}</span>
-                <span class="num">${c.persons_n || 0} ppl</span>
-                <span class="num">${c.props_n || 0} prop</span>
-            </div>
-        `).join('');
-        const hdr = `<div style="font-size:.7rem; color: var(--text-muted); margin-bottom: 4px;">Showing ${data.cases.length} of ${Number(data.total).toLocaleString()} matching cases.</div>`;
-        wrap.innerHTML = hdr + rows;
+        renderRowsTable(wrap, key, data);
     } catch (e) {
-        wrap.innerHTML = '<div class="scr-ny-empty">Failed to load cases.</div>';
+        wrap.innerHTML = '<div class="scr-ny-empty">Failed to load records.</div>';
     }
 }
 
-async function openNyCase(caseNumber) {
+function renderRowsTable(wrap, key, data) {
+    const cols = data.cols;
+    const fmt = v => {
+        if (v === null || v === undefined || v === '') return '<span style="color:var(--text-muted)">—</span>';
+        if (v === true)  return '<span style="color:#86efac">✓</span>';
+        if (v === false) return '<span style="color:var(--text-muted)">✗</span>';
+        return String(v);
+    };
+    const head = '<tr>' + cols.map(c => `<th>${c.label}</th>`).join('') + '</tr>';
+    const body = data.rows.map(row => {
+        const cells = cols.map(c => `<td>${fmt(row[c.alias])}</td>`).join('');
+        const id = String(row._id || '').replace(/'/g, '&apos;');
+        return `<tr style="cursor:pointer;" onclick="openRow('${key}', ${JSON.stringify(id)})">${cells}</tr>`;
+    }).join('');
+    wrap.innerHTML = `
+        <div style="font-size:.7rem; color: var(--text-muted); margin-bottom: 6px;">
+            Showing ${data.rows.length} of ${Number(data.total).toLocaleString()} records.
+        </div>
+        <div style="overflow-x: auto;">
+        <table class="scr-county-tbl scr-rows-tbl">
+            <thead>${head}</thead>
+            <tbody>${body}</tbody>
+        </table>
+        </div>
+    `;
+}
+
+async function openRow(key, rid) {
     showModal('<div style="color: var(--text-muted); font-size:.85rem;">Loading…</div>');
     try {
-        const r = await fetch('/scrapers/ny/case/' + encodeURIComponent(caseNumber), { credentials: 'same-origin' });
+        const r = await fetch(`/scrapers/${encodeURIComponent(key)}/row/` + encodeURIComponent(rid), { credentials: 'same-origin' });
         const c = await r.json();
         if (c.error) { showModal(`<h3>${c.error}</h3>`); return; }
-        renderNyCase(c);
+        if (key === 'new_york') renderNyRow(c);
+        else                     renderGenericRow(key, c);
     } catch (e) {
-        showModal('<h3>Failed to load case</h3>');
+        showModal('<h3>Failed to load record</h3>');
     }
 }
 
-function renderNyCase(c) {
+/* ───────── NY-specific row renderer (rich tiered_extraction visualizer) ───────── */
+function renderNyRow(c) {
     const t = c.tiered_extraction || {};
     const persons = t.persons || [];
     const props = t.real_property || [];
     const decedent = c.decedent || {};
     const decAddr = c.decedent_address || {};
+    const petAddr = c.petitioner_address || {};
     const docs = c.document_names || [];
+    const totals = t.totals || {};
+
+    const fmtAddr = a => [a.street, a.city, a.state, a.zip].filter(Boolean).join(', ');
 
     const personHtml = persons.map(p => {
         const addr = p.address || {};
-        const addrStr = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
-        const roleClass = p.is_petitioner ? 'petitioner' : (p.role === 'heir' ? 'heir' : (p.is_minor ? 'minor' : ''));
-        const sigBit = p.signature_present ? ' • signed' : '';
+        const addrStr = fmtAddr(addr);
+        const roleKey = p.is_petitioner ? 'petitioner' : (p.role === 'heir' ? 'heir' : (p.is_minor ? 'minor' : ''));
+        const tags = [];
+        if (p.is_petitioner) tags.push('petitioner');
+        if (p.signature_present) tags.push('signed');
+        if (p.is_minor) tags.push('minor');
+        if (p.legibility && p.legibility !== 'clear') tags.push(p.legibility);
+        const phone = p.phone ? ` • ${p.phone}` : '';
+        const email = p.email ? ` • ${p.email}` : '';
+        const srcDocs = (p.source_docs || []).join(', ');
         return `
         <div class="scr-person">
             <div class="role-line">
-                <span class="role-pill ${roleClass}">${p.role || '?'}</span>
+                <span class="role-pill ${roleKey}">${p.role || '?'}</span>
                 <span class="name">${p.full_name || '—'}</span>
                 <span class="rel">${p.relationship_to_decedent || ''}</span>
             </div>
-            <div class="addr">${addrStr || '<em style="color:var(--text-muted);">no address</em>'}</div>
-            <div class="meta">
-                ${(p.source_docs || []).join(', ')}${sigBit} ${p.legibility ? '• ' + p.legibility : ''}
-            </div>
+            <div class="addr">${addrStr || '<em style="color:var(--text-muted);">no address</em>'}${phone}${email}</div>
+            <div class="meta">${srcDocs}${tags.length ? ' • ' + tags.join(' / ') : ''}${p.source_field ? ' • <span style="color:var(--text-muted)">'+p.source_field+'</span>' : ''}</div>
         </div>`;
     }).join('') || '<div style="color: var(--text-muted); font-size:.78rem;">No persons extracted.</div>';
 
     const propHtml = props.length
-        ? props.map(rp => `<div class="scr-prop">${JSON.stringify(rp)}</div>`).join('')
+        ? props.map(rp => {
+            const addr = rp.address || rp;
+            const a = fmtAddr(addr) || rp.description || '—';
+            const ptype = rp.type || rp.property_type || '';
+            const val = rp.estimated_value ? ` • $${Number(rp.estimated_value).toLocaleString()}` : '';
+            return `<div class="scr-prop"><strong style="color:var(--text-primary);">${a}</strong>${ptype ? ' <span style="color:var(--text-muted)">• '+ptype+'</span>' : ''}${val}</div>`;
+          }).join('')
         : '<div style="color: var(--text-muted); font-size:.78rem;">No real property extracted.</div>';
 
     const docsHtml = docs.length
-        ? docs.map(d => `<span style="display:inline-block; font-size:.7rem; padding:2px 8px; margin:2px; border-radius:3px; background:rgba(255,255,255,.05); color:var(--text-secondary);">${d}</span>`).join('')
+        ? docs.map(d => `<span style="display:inline-block; font-size:.7rem; padding:3px 9px; margin:2px; border-radius:3px; background:rgba(0,240,255,.06); color:var(--text-secondary); border:1px solid rgba(0,240,255,.12);">${d}</span>`).join('')
         : '<span style="color: var(--text-muted); font-size:.78rem;">No documents listed.</span>';
 
+    const otherParties = c.other_parties || [];
+    const otherHtml = otherParties.length
+        ? otherParties.map(p => {
+            const addr = p.address || {};
+            const a = fmtAddr(addr);
+            return `<div class="scr-prop"><strong style="color:var(--text-primary);">${p.full_name || '—'}</strong>${p.role ? ' <span style="color:var(--text-muted)">('+p.role+')</span>' : ''}${a ? ' • ' + a : ''}</div>`;
+          }).join('')
+        : '';
+
+    const dsBadge = c.derived_status ? `<span class="scr-pill ${c.derived_status === 'closed' ? 'closed' : c.derived_status === 'closed_by_doc' ? 'closed-doc' : c.derived_status === 'article13' ? 'article13' : c.derived_status === 'unknown' ? 'unknown' : 'active'}" style="margin-left: 8px;">${c.derived_status}</span>` : '';
+
     showModal(`
-        <h3>${c.case_number || '—'} — ${decedent.full_name || '—'}</h3>
+        <h3>${c.case_number || '—'} — ${decedent.full_name || '—'} ${dsBadge}</h3>
         <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
             ${c.court || ''} ${c.county ? '• ' + c.county : ''} • filed ${c.filed_date || '—'} ${c.death_date ? '• died ' + c.death_date : ''}
         </div>
         <div class="scr-modal-meta">
             <div><span class="lbl">Proceeding</span><span class="val">${c.proceeding || '—'}</span></div>
             <div><span class="lbl">Petitioner</span><span class="val">${(c.petitioner||{}).full_name || '—'}</span></div>
+            <div><span class="lbl">Petitioner role</span><span class="val">${c.petitioner_role || '—'}</span></div>
             <div><span class="lbl">Petitioner active</span><span class="val">${c.petitioner_active || '—'}</span></div>
             <div><span class="lbl">Appointed</span><span class="val">${c.petitioner_appointed_date || '—'}</span></div>
-            <div><span class="lbl">Decedent address</span><span class="val">${[decAddr.street, decAddr.city, decAddr.state, decAddr.zip].filter(Boolean).join(', ') || '—'}</span></div>
-            <div><span class="lbl">PDF</span><span class="val">${c.pdf_url ? '<a href="'+c.pdf_url+'" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>' : '—'}</span></div>
+            <div><span class="lbl">PR phone</span><span class="val">${c.petitioner_phone || '—'}</span></div>
+            <div><span class="lbl">PR email</span><span class="val">${c.petitioner_email || '—'}</span></div>
+            <div><span class="lbl">Decedent address</span><span class="val">${fmtAddr(decAddr) || '—'}</span></div>
+            <div><span class="lbl">Petitioner address</span><span class="val">${fmtAddr(petAddr) || '—'}</span></div>
+            <div><span class="lbl">PDF</span><span class="val">${c.pdf_url ? '<a href="'+c.pdf_url+'" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>' : '—'} ${c.pdf_status ? '<span style="color:var(--text-muted); font-size:.7rem;">('+c.pdf_status+')</span>' : ''}</span></div>
+            <div><span class="lbl">Tier-extracted at</span><span class="val">${c.tiered_extracted_at ? c.tiered_extracted_at.replace('T',' ').slice(0,16) : '—'}</span></div>
         </div>
+
         <h4>Documents on file (${docs.length})</h4>
         <div>${docsHtml}</div>
+
         <h4>Persons extracted (${persons.length})</h4>
         <div>${personHtml}</div>
+
         <h4>Real property (${props.length})</h4>
         <div>${propHtml}</div>
+
+        ${otherHtml ? `<h4>Other parties (${otherParties.length})</h4><div>${otherHtml}</div>` : ''}
+
+        ${totals && (totals.docs_processed || totals.input_tokens || totals.output_tokens) ? `
+            <h4>Extraction telemetry</h4>
+            <div style="font-size:.74rem; color: var(--text-secondary);">
+                ${totals.docs_processed || 0} doc${totals.docs_processed === 1 ? '' : 's'} processed
+                ${totals.docs_failed ? ', '+totals.docs_failed+' failed' : ''}
+                • input ${Number(totals.input_tokens || 0).toLocaleString()} / output ${Number(totals.output_tokens || 0).toLocaleString()} tokens
+                ${totals.cache_read_tokens ? ' • cache reads ' + Number(totals.cache_read_tokens).toLocaleString() : ''}
+            </div>` : ''}
     `);
+}
+
+/* ───────── Generic row renderer for sources without a custom visualizer ───────── */
+function renderGenericRow(key, c) {
+    const items = Object.entries(c).map(([k, v]) => {
+        const vs = v == null ? '—' : (typeof v === 'object' ? `<pre style="font-size:.7rem; color:var(--text-muted); overflow-x: auto;">${JSON.stringify(v, null, 2)}</pre>` : String(v));
+        return `<div><span class="lbl">${k}</span><span class="val">${vs}</span></div>`;
+    }).join('');
+    showModal(`<h3>${key}</h3><div class="scr-modal-meta">${items}</div>`);
 }
 
 function showModal(html) {
