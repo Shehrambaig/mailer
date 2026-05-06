@@ -642,17 +642,17 @@ async function loadRows(card, key, q) {
 
 function renderRowsTable(wrap, key, data) {
     const cols = data.cols;
+    const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const fmt = v => {
         if (v === null || v === undefined || v === '') return '<span style="color:var(--text-muted)">—</span>';
         if (v === true)  return '<span style="color:#86efac">✓</span>';
         if (v === false) return '<span style="color:var(--text-muted)">✗</span>';
-        return String(v);
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     };
     const head = '<tr>' + cols.map(c => `<th>${c.label}</th>`).join('') + '</tr>';
     const body = data.rows.map(row => {
         const cells = cols.map(c => `<td>${fmt(row[c.alias])}</td>`).join('');
-        const id = String(row._id || '').replace(/'/g, '&apos;');
-        return `<tr style="cursor:pointer;" onclick="openRow('${key}', ${JSON.stringify(id)})">${cells}</tr>`;
+        return `<tr data-row-id="${escAttr(row._id)}" style="cursor:pointer;">${cells}</tr>`;
     }).join('');
     wrap.innerHTML = `
         <div style="font-size:.7rem; color: var(--text-muted); margin-bottom: 6px;">
@@ -665,6 +665,10 @@ function renderRowsTable(wrap, key, data) {
         </table>
         </div>
     `;
+    // Event delegation — avoids the inline-onclick quoting trap.
+    wrap.querySelectorAll('tr[data-row-id]').forEach(tr => {
+        tr.addEventListener('click', () => openRow(key, tr.dataset.rowId));
+    });
 }
 
 async function openRow(key, rid) {
