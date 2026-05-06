@@ -127,10 +127,48 @@ NC = {
     "exclude_sql": "derived_status IS DISTINCT FROM 'guardianship'",
 }
 
-GA_COUNTY = {
-    "key": "ga_probate",
-    "name": "Georgia (Cobb + Rockdale)",
+GA_COBB = {
+    "key": "ga_cobb",
+    "name": "Cobb County, Georgia (Benchmark)",
     "level": "County",
+    "state": "Georgia",
+    "table": "ga_probate_cases",
+    "date_col": "filed_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+    # Cobb's pdf_refs only carries {cid, digest} — there are no doc names to
+    # match against. So no doc-override fires here; every row defaults to
+    # active_pending.
+    "active_markers": [],
+    "close_markers": [],
+    "active_field": "(none — Cobb's Benchmark portal has no status field and pdf_refs lacks doc names)",
+    "active_values": "All rows default to active_pending — Cobb does not expose closure events",
+    "closed_values": "Not detectable — Cobb's pdf_refs only carries {cid, digest} (no doc titles)",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Cobb does not capture decedent or PR addresses in any structured "
+        "form (decedent_street + petitioner_street are populated for 1 of "
+        "464 rows, both column and parties payload). DOD is captured "
+        "(death_date, 90% coverage). Match strategy is name-only: "
+        "Full + Middle + Last + DOD against propstream / elitress in Cobb "
+        "County."
+    ),
+    "scraping_notes": (
+        "County-specific Benchmark portal at probateonline.cobbcounty.gov "
+        "(separate vendor from Tyler). parties[] payload is rich: includes "
+        "EXECUTOR, ATTORNEY, JUDGE, CLERK, OTHER responsibilities — but "
+        "without addresses. pdf_refs[] documents lack titles, so closure "
+        "detection requires a separate PDF-fetch + name-extraction step "
+        "that is not yet wired in."
+    ),
+    "exclude_sql": "county = 'Cobb'",
+}
+
+GA_ROCKDALE = {
+    "key": "ga_rockdale",
+    "name": "Rockdale County, Georgia (Tyler)",
+    "level": "County",
+    "state": "Georgia",
     "table": "ga_probate_cases",
     "date_col": "filed_date",
     "ts_col": "scraped_at",
@@ -150,6 +188,25 @@ GA_COUNTY = {
         "NAN Final Order",
         "No Administration Necessary",
     ],
+    "active_field": "pdf_refs[].name (no top-level status)",
+    "active_values": "'ORDER ADMITTING WILL' / 'ORDER APPOINTING ADMINISTRATOR' / 'ORDER, OATH, & LETTERS' / 'Letters Testamentary' / 'Letters of Administration' = active_qualified; otherwise active_pending",
+    "closed_values": "'Discharge Order' / 'Petition for Discharge' / 'Final Order for Year's Support' / 'PYS Final Order' / 'NAN Final Order' / 'No Administration Necessary' = closed_by_doc",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Rockdale captures no addresses anywhere — every street column is "
+        "blank. DOD is also missing. Match strategy is name-only: "
+        "Full + Middle + Last against propstream / elitress in Rockdale "
+        "County."
+    ),
+    "scraping_notes": (
+        "Tyler Technologies us-gov-west-1 portal (portal-garockdale.tyler"
+        "tech.cloud) — different vendor from Cobb. parties[] is empty for "
+        "every Rockdale row but pdf_refs[] carries doc names ('Original "
+        "Petition', 'Oath', 'Selection by Heirs', 'Notice for Petition for "
+        "Letters of Administration', etc.) which drive the active_qualified "
+        "/ closed_by_doc detection."
+    ),
+    "exclude_sql": "county = 'Rockdale'",
 }
 
 GWINNETT = {
@@ -337,7 +394,7 @@ GPR = {
     "county_col": "county",
 }
 
-ALL_SOURCES = [NY, NC, GA_COUNTY, GWINNETT, OK, CT, IN_SRC, MD, MI, MN, WI, GPR]
+ALL_SOURCES = [NY, NC, GA_COBB, GA_ROCKDALE, GWINNETT, OK, CT, IN_SRC, MD, MI, MN, WI, GPR]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -535,17 +592,39 @@ def src_nc():
     return bucket, tier1, heir
 
 
-def src_ga_county():
-    """GA Cobb+Rockdale — ga_probate_cases.
+def src_ga_cobb():
+    """Cobb County GA — Benchmark portal.
 
-    Cobb has no source status; Rockdale has 'active' or NULL.
-    pdf_refs.name is sometimes present (Rockdale), sometimes only {cid,digest} (Cobb).
+    No status field, no doc names in pdf_refs (only {cid,digest}). Default
+    every row to active_pending. Tier-1 from structured columns
+    (essentially 0% — county doesn't expose addresses).
+    """
+    bucket = "'active_pending'::text"
+    tier1 = "(COALESCE(decedent_street,'') <> '' AND COALESCE(petitioner_street,'') <> '')"
+    heir = "FALSE"  # Cobb parties[] has no address fields at all.
+    return bucket, tier1, heir
+
+
+def src_ga_rockdale():
+    """Rockdale County GA — Tyler us-gov-west-1 portal.
+
+    No status field but pdf_refs[].name carries doc titles, so the
+    active/close marker overrides apply.
     """
     close_doc_check = (
         "EXISTS ("
         "  SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb)) d"
         "  WHERE EXISTS ("
-        f"    SELECT 1 FROM unnest({_array_lit(GA_COUNTY['close_markers'])}) m"
+        f"    SELECT 1 FROM unnest({_array_lit(GA_ROCKDALE['close_markers'])}) m"
+        "      WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    active_marker_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(GA_ROCKDALE['active_markers'])}) m"
         "      WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'"
         "  )"
         ")"
@@ -553,18 +632,12 @@ def src_ga_county():
     bucket = (
         "CASE "
         f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
-        "   WHEN raw->>'status' IN ('active') THEN 'active' "
-        "   ELSE 'unknown' "
+        f"  WHEN {active_marker_check} THEN 'active_qualified' "
+        "   ELSE 'active_pending' "
         "END"
     )
-    tier1 = (
-        "(COALESCE(decedent_street,'') <> '' AND COALESCE(petitioner_street,'') <> '')"
-    )
-    heir = (
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary','distributee') "
-        "          AND COALESCE(p->>'street','') <> '')"
-    )
+    tier1 = "(COALESCE(decedent_street,'') <> '' AND COALESCE(petitioner_street,'') <> '')"
+    heir = "FALSE"
     return bucket, tier1, heir
 
 
@@ -650,7 +723,8 @@ def src_simple_status(table: str, status_col: str, mapping: dict[str, str], tier
 SRC_LOGIC = {
     "new_york": src_ny,
     "north_carolina": src_nc,
-    "ga_probate": src_ga_county,
+    "ga_cobb": src_ga_cobb,
+    "ga_rockdale": src_ga_rockdale,
     "gwinnett": src_gwinnett,
     "oklahoma": src_ok,
     "connecticut": lambda: (
@@ -723,17 +797,23 @@ def compute_source(cur, src: dict) -> dict:
     ts_col = src["ts_col"]
     county_col = src["county_col"]
 
-    # Materialize derived_status for sources that have a doc-override rule.
-    if src["key"] in ("new_york", "north_carolina", "ga_probate", "gwinnett", "oklahoma"):
-        _ensure_derived_status(cur, table)
-        cur.execute(f'UPDATE "{table}" SET derived_status = ({bucket_sql})')
-        print(f"[snapshot]   {src['key']} UPDATE derived_status -> {cur.rowcount} rows")
-        cur.connection.commit()  # commit DDL+UPDATE before later SELECTs in same txn
-
-    # Optional WHERE filter — used to exclude row classes that should not be
-    # counted in this source's report (NC guardianship, etc).
+    # Optional WHERE filter — used to scope the source's report to a subset
+    # of rows in the table. NC uses it to drop guardianship; GA splits the
+    # `ga_probate_cases` table into ga_cobb and ga_rockdale by county.
     exclude_sql = src.get("exclude_sql", "")
     where_clause = f" WHERE {exclude_sql} " if exclude_sql else " "
+
+    # Materialize derived_status for sources that have a doc-override rule.
+    # The UPDATE is also scoped to the source's exclude_sql so two sources
+    # sharing a table (Cobb / Rockdale) do not overwrite each other's rows.
+    if src["key"] in ("new_york", "north_carolina", "ga_cobb", "ga_rockdale",
+                       "gwinnett", "oklahoma"):
+        _ensure_derived_status(cur, table)
+        cur.execute(
+            f'UPDATE "{table}" SET derived_status = ({bucket_sql}){where_clause if exclude_sql else ""}'
+        )
+        print(f"[snapshot]   {src['key']} UPDATE derived_status -> {cur.rowcount} rows")
+        cur.connection.commit()  # commit DDL+UPDATE before later SELECTs in same txn
 
     # Bucket aggregates: count, tier-1 complete, tier-1+heir complete.
     cur.execute(f"""
@@ -898,7 +978,7 @@ def _doc_playbook_counts(cur, src: dict) -> list[dict]:
         names_expr = "jsonb_array_elements_text(COALESCE(document_names,'[]'::jsonb))"
     elif key == "north_carolina":
         names_expr = "(jsonb_array_elements(COALESCE(documents,'[]'::jsonb))->>'document_name')"
-    elif key == "ga_probate":
+    elif key in ("ga_cobb", "ga_rockdale"):
         names_expr = "(jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb))->>'name')"
     elif key == "gwinnett":
         names_expr = "(jsonb_array_elements(COALESCE(events,'[]'::jsonb))->>'name')"
@@ -992,6 +1072,47 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "ga_cobb":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_full,'') <> ''", "decedent_full"),
+            ("Decedent date of death", "death_date IS NOT NULL",            "death_date"),
+            ("Decedent street",        "COALESCE(decedent_street,'') <> ''", "decedent_street"),
+            ("PR name",                "COALESCE(petitioner_first,'') <> '' OR COALESCE(petitioner_last,'') <> ''", "petitioner_{first,middle,last}"),
+            ("PR street",              "COALESCE(petitioner_street,'') <> ''", "petitioner_street"),
+            ("PR city/state/zip",      "COALESCE(petitioner_city,'') <> '' AND COALESCE(petitioner_state,'') <> '' AND COALESCE(petitioner_zip,'') <> ''", "petitioner_{city,state,zip}"),
+            ("PR phone",               "COALESCE(petitioner_phone,'') <> ''", "petitioner_phone"),
+            ("PR email",               "COALESCE(petitioner_email,'') <> ''", "petitioner_email"),
+            ("Parties[] populated",    "jsonb_typeof(parties)='array' AND jsonb_array_length(parties) > 0",
+                                       "parties[] (carries EXECUTOR/ATTORNEY/JUDGE/CLERK/OTHER responsibilities — no addresses)"),
+            ("≥1 PDF ref captured",    "jsonb_typeof(pdf_refs)='array' AND jsonb_array_length(pdf_refs) > 0",
+                                       "pdf_refs[] ({cid, digest} only — no doc names)"),
+            ("PDF tier-extracted",     "pdf_extracted_at IS NOT NULL",       "pdf_extracted_at"),
+            ("File date",              "filed_date IS NOT NULL",             "filed_date"),
+        ]
+    elif key == "ga_rockdale":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_full,'') <> ''", "decedent_full"),
+            ("Decedent date of death", "death_date IS NOT NULL",            "(Rockdale does not capture DOD)"),
+            ("Decedent street",        "COALESCE(decedent_street,'') <> ''", "(Rockdale does not capture decedent residence)"),
+            ("PR name",                "COALESCE(petitioner_first,'') <> '' OR COALESCE(petitioner_last,'') <> ''", "petitioner_{first,middle,last}"),
+            ("PR street",              "COALESCE(petitioner_street,'') <> ''", "(Rockdale does not capture PR residence)"),
+            ("PR city/state/zip",      "COALESCE(petitioner_city,'') <> '' AND COALESCE(petitioner_state,'') <> '' AND COALESCE(petitioner_zip,'') <> ''", "(not captured)"),
+            ("PR phone",               "COALESCE(petitioner_phone,'') <> ''", "(not captured)"),
+            ("PR email",               "COALESCE(petitioner_email,'') <> ''", "(not captured)"),
+            ("Parties[] populated",    "jsonb_typeof(parties)='array' AND jsonb_array_length(parties) > 0",
+                                       "(Rockdale parties[] is empty for every row)"),
+            ("≥1 PDF ref captured",    "jsonb_typeof(pdf_refs)='array' AND jsonb_array_length(pdf_refs) > 0",
+                                       "pdf_refs[] (with doc names — drives bucket detection)"),
+            ("≥1 active-marker doc",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb)) d "
+             "        WHERE UPPER(COALESCE(d->>'name','')) LIKE '%LETTERS%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER ADMITTING WILL%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER APPOINTING%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER, OATH%')",
+             "pdf_refs[].name LIKE %LETTERS%/%ORDER ADMITTING WILL%/%ORDER APPOINTING%/%ORDER, OATH%"),
+            ("PDF tier-extracted",     "pdf_extracted_at IS NOT NULL",       "pdf_extracted_at"),
+            ("File date",              "filed_date IS NOT NULL",             "filed_date"),
         ]
     elif key == "connecticut":
         any_party_with_street = (

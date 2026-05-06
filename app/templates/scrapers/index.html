@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -724,6 +724,7 @@ async function openRow(key, rid) {
         else if (key === 'maryland')       renderMdRow(c);
         else if (key === 'oklahoma')       renderOkRow(c);
         else if (key === 'connecticut')    renderCtRow(c);
+        else if (key === 'ga_cobb' || key === 'ga_rockdale') renderGaRow(key, c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1251,6 +1252,130 @@ function renderCtRow(c) {
             <summary style="cursor: pointer; color: var(--text-muted); font-size: .72rem; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">Raw CT portal payload</summary>
             <pre style="font-size: .68rem; color: var(--text-muted); overflow-x: auto; max-height: 360px; background: rgba(0,0,0,.3); padding: 10px; border-radius: 4px; margin-top: 6px;">${JSON.stringify(c.raw, null, 2)}</pre>
         </details>
+    `);
+}
+
+
+/* ───────── GA Cobb + Rockdale row renderer (same table, different shapes) ───────── */
+const GA_RESPONSIBILITY_PILL = {
+    EXECUTOR:  'petitioner',
+    PETITIONER:'petitioner',
+    HEIR:      'heir',
+    BENEFICIARY:'heir',
+    ATTORNEY:  '',     // grey default
+    JUDGE:     '',
+    CLERK:     '',
+    OTHER:     '',
+};
+
+function renderGaRow(key, c) {
+    const decFull = c.decedent_full
+        || [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim()
+        || '—';
+    const petFull = [c.petitioner_first, c.petitioner_middle, c.petitioner_last, c.petitioner_suffix].filter(Boolean).join(' ').trim();
+
+    const status = c.derived_status || 'active_pending';
+    const statusClass = status === 'closed_by_doc'    ? 'closed-doc'
+                      : status === 'active_qualified' ? 'active'
+                      : status === 'active'           ? 'active'
+                      : status === 'active_pending'   ? 'active'
+                      :                                  'unknown';
+
+    const isCobb = key === 'ga_cobb' || c.county === 'Cobb';
+    const portalLabel = isCobb ? 'Cobb Benchmark portal' : 'Rockdale Tyler portal';
+
+    const parties = Array.isArray(c.parties) ? c.parties : [];
+    const pdfRefs = Array.isArray(c.pdf_refs) ? c.pdf_refs : [];
+
+    // Decedent block — DOD only present for Cobb.
+    const decBlock = `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill minor">Decedent</span>
+                <span class="name">${decFull}</span>
+                ${c.death_date ? `<span class="rel">DOD ${String(c.death_date).slice(0,10)}</span>` : ''}
+            </div>
+            <div class="addr"><em style="color:var(--text-muted)">decedent address not captured by ${portalLabel}</em></div>
+        </div>`;
+
+    const prBlock = petFull
+        ? `<div class="scr-person">
+                <div class="role-line">
+                    <span class="role-pill petitioner">Personal Representative</span>
+                    <span class="name">${petFull}</span>
+                </div>
+                <div class="addr"><em style="color:var(--text-muted)">PR address not captured</em>${c.petitioner_phone ? ' • ' + c.petitioner_phone : ''}${c.petitioner_email ? ' • ' + c.petitioner_email : ''}</div>
+           </div>`
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No PR on file.</div>';
+
+    // Cobb parties[] carries EXECUTOR/ATTORNEY/JUDGE/CLERK/OTHER. Rockdale's
+    // is empty.
+    const partyCard = (p) => {
+        const name = p.full || [p.first, p.middle, p.last, p.suffix].filter(Boolean).join(' ').trim() || '—';
+        const resp = (p.responsibility || '').toUpperCase();
+        const pill = GA_RESPONSIBILITY_PILL[resp] ?? '';
+        return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${pill}">${resp || 'party'}</span>
+                <span class="name">${name}</span>
+            </div>
+        </div>`;
+    };
+    const partiesBlock = parties.length
+        ? parties.map(partyCard).join('')
+        : `<div style="color: var(--text-muted); font-size:.78rem;">${isCobb ? 'No parties on file.' : 'Rockdale parties[] is empty for every row — see PDF list below.'}</div>`;
+
+    // PDF refs — Cobb has only {cid, digest}, Rockdale has {url, kind, name}.
+    const pdfList = pdfRefs.length
+        ? `<div style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+          pdfRefs.map(d => {
+              const name = d.name || '';
+              const link = d.url
+                  ? `<a href="${d.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan); margin-left:auto; flex-shrink:0;">${d.kind ? d.kind.toUpperCase() : 'PDF'}</a>`
+                  : '';
+              const blob = !d.name && d.cid
+                  ? `<span style="font-family: 'JetBrains Mono', monospace; font-size:.7rem; color: var(--text-muted);">cid ${d.cid}</span>`
+                  : '';
+              return `
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                      <span style="color: var(--text-primary); flex: 1;">${name || '<em style="color:var(--text-muted)">(no doc title — Cobb pdf_refs only carries cid/digest)</em>'}</span>
+                      ${blob}
+                      ${link}
+                  </div>`;
+          }).join('') +
+          '</div>'
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No PDF refs on file.</div>';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} • ${portalLabel} • filed ${c.filed_date ? String(c.filed_date).slice(0,10) : '—'}
+            ${c.last_updated ? '• updated ' + String(c.last_updated).slice(0,10) : ''}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Filed</span><span class="val">${c.filed_date ? String(c.filed_date).slice(0,10) : '—'}</span></div>
+            <div><span class="lbl">DOD</span><span class="val">${c.death_date ? String(c.death_date).slice(0,10) : '— not captured by Rockdale'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">PDF tier-extracted</span><span class="val">${c.pdf_extracted_at ? c.pdf_extracted_at.replace('T',' ').slice(0,16) : '— pending'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        <h4>Decedent</h4>
+        ${decBlock}
+
+        <h4>Personal Representative</h4>
+        ${prBlock}
+
+        <h4>Parties on file (${parties.length})</h4>
+        ${partiesBlock}
+
+        <h4>PDF refs (${pdfRefs.length})</h4>
+        ${pdfList}
     `);
 }
 
