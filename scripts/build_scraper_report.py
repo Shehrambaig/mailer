@@ -221,10 +221,32 @@ MD = {
     "key": "maryland",
     "name": "Maryland Register of Wills",
     "level": "State",
+    "state": "Maryland",
     "table": "maryland",
     "date_col": "file_date",
     "ts_col": "scraped_at",
     "county_col": "county",
+    "active_field": "case_status (set directly by the Register of Wills portal)",
+    "active_values": "'OPEN' = active",
+    "closed_values": "'CLOSED' = closed; NULL = unknown (failed scrape)",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Maryland source captures rep (PR) address but NOT decedent "
+        "residence in structured columns — decedent residence is buried in "
+        "raw_detail_html (3,149 of 3,160 rows have unparsed HTML). Until "
+        "an HTML extractor backfills decedent residence, match strategy "
+        "is: (1) rep_address → BatchLeads — many PRs are surviving "
+        "spouses living at the decedent's property; (2) fall back to "
+        "Full+Middle+Last name match against propstream/elitress within "
+        "the same county."
+    ),
+    "scraping_notes": (
+        "Single statewide portal (registers.maryland.gov / Estates) covers "
+        "24 jurisdictions including Baltimore City as a separate locality. "
+        "case_type codes — SE (small estate), RE (regular estate), UN, LO, "
+        "MA, RJ, SJ, FP, NP — describe the filing path. Reliable "
+        "case_status field (OPEN / CLOSED) means no doc-override is needed."
+    ),
 }
 
 MI = {
@@ -921,6 +943,25 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "maryland":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_full,'') <> ''",            "decedent_full"),
+            ("Decedent date of death", "COALESCE(decedent_dod,'') <> ''",             "decedent_dod"),
+            ("Decedent aliases",       "COALESCE(aliases,'') NOT IN ('','None')",     "aliases"),
+            ("Decedent street",        "FALSE",  "(MD source does not expose decedent residence — buried in raw_detail_html)"),
+            ("PR name",                "COALESCE(rep_full,'') <> ''",                 "rep_full"),
+            ("PR street",              "COALESCE(rep_street,'') <> ''",               "rep_street"),
+            ("PR city/state/zip",      "COALESCE(rep_city,'') <> '' AND COALESCE(rep_state,'') <> '' AND COALESCE(rep_zip,'') <> ''",  "rep_{city,state,zip}"),
+            ("PR phone",               "FALSE",  "(MD source does not capture phone)"),
+            ("PR email",               "FALSE",  "(MD source does not capture email)"),
+            ("File date",              "COALESCE(file_date,'') <> ''",                "file_date"),
+            ("Date opened",            "COALESCE(date_opened,'') <> ''",              "date_opened"),
+            ("Date closed",            "COALESCE(date_closed,'') <> ''",              "date_closed"),
+            ("Will status set",        "COALESCE(will,'') NOT IN ('','None','none')", "will (NO WILL / UNPROBATED / PROBATED / FOREIGN WILL)"),
+            ("Probate date",           "COALESCE(probate_date,'') <> ''",             "probate_date"),
+            ("Raw detail HTML cached", "raw_detail_html IS NOT NULL AND raw_detail_html <> ''",
+                                       "raw_detail_html  (decedent residence parser pending)"),
         ]
     elif key == "north_carolina":
         # PR-equivalent role list reused below.

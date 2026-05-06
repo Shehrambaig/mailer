@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -719,9 +719,10 @@ async function openRow(key, rid) {
         const r = await fetch(`/scrapers/${encodeURIComponent(key)}/row/` + encodeURIComponent(rid), { credentials: 'same-origin' });
         const c = await r.json();
         if (c.error) { showModal(`<h3>${c.error}</h3>`); return; }
-        if (key === 'new_york')         renderNyRow(c);
+        if (key === 'new_york')            renderNyRow(c);
         else if (key === 'north_carolina') renderNcRow(c);
-        else                            renderGenericRow(key, c);
+        else if (key === 'maryland')       renderMdRow(c);
+        else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
     }
@@ -952,6 +953,78 @@ function renderNcRow(c) {
             <summary style="cursor: pointer; color: var(--text-muted); font-size: .72rem; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">Raw Tyler payload</summary>
             <pre style="font-size: .68rem; color: var(--text-muted); overflow-x: auto; max-height: 360px; background: rgba(0,0,0,.3); padding: 10px; border-radius: 4px; margin-top: 6px;">${JSON.stringify({parties: c.parties, raw_case_summary: c.raw_case_summary, raw_case_events: c.raw_case_events, raw_disposition_events: c.raw_disposition_events, pdf_extractions: c.pdf_extractions}, null, 2)}</pre>
         </details>
+    `);
+}
+
+
+/* ───────── MD-specific row renderer (flat columns, no JSON) ───────── */
+function renderMdRow(c) {
+    const decFull = c.decedent_full || [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim();
+    const repFull = c.rep_full      || [c.rep_first, c.rep_middle, c.rep_last, c.rep_suffix].filter(Boolean).join(' ').trim();
+    const repAddr = c.rep_address_raw
+                  || [c.rep_street, c.rep_city, c.rep_state, c.rep_zip].filter(Boolean).join(', ');
+
+    const status = c.case_status || '—';
+    const statusClass = status === 'OPEN'   ? 'active'
+                      : status === 'CLOSED' ? 'closed'
+                      :                       'unknown';
+
+    const willClass = c.will === 'PROBATED'   ? 'active'
+                    : c.will === 'UNPROBATED' ? 'closed-doc'
+                    : c.will === 'NO WILL'    ? 'closed'
+                    :                           'unknown';
+
+    const aliases = (c.aliases && c.aliases !== 'None') ? c.aliases : '';
+
+    const decBlock = `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill minor">Decedent</span>
+                <span class="name">${decFull || '—'}</span>
+                ${c.decedent_dod ? `<span class="rel">DOD ${c.decedent_dod}</span>` : ''}
+            </div>
+            ${aliases ? `<div class="addr"><strong style="color:var(--text-muted)">aliases:</strong> ${aliases}</div>` : ''}
+            <div class="addr"><em style="color:var(--text-muted)">decedent address not captured by source — buried in raw_detail_html, parser pending</em></div>
+        </div>`;
+
+    const prBlock = repFull
+        ? `<div class="scr-person">
+                <div class="role-line">
+                    <span class="role-pill petitioner">Personal Representative</span>
+                    <span class="name">${repFull}</span>
+                </div>
+                <div class="addr">${repAddr || '<em style="color:var(--text-muted);">no address on file</em>'}</div>
+           </div>`
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No PR on file (Small Estate filings often have no PR yet).</div>';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull || '—'}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} ${c.case_type ? '• ' + c.case_type : ''} • filed ${c.file_date || '—'}
+            ${c.date_opened ? '• opened ' + c.date_opened : ''}
+            ${c.date_closed ? '• closed ' + c.date_closed : ''}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Case type</span><span class="val">${c.case_type || '—'}</span></div>
+            <div><span class="lbl">Status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Will</span><span class="val"><span class="scr-pill ${willClass}" style="font-size:.62rem;">${c.will || '—'}</span></span></div>
+            <div><span class="lbl">Will date</span><span class="val">${c.will_date && c.will_date !== 'None' ? c.will_date : '—'}</span></div>
+            <div><span class="lbl">Probate date</span><span class="val">${c.probate_date && c.probate_date !== 'None' ? c.probate_date : '—'}</span></div>
+            <div><span class="lbl">Reference</span><span class="val">${c.reference || '—'}</span></div>
+            <div><span class="lbl">Record ID</span><span class="val">${c.record_id || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Fetch status</span><span class="val">${c.fetch_status || '—'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        <h4>Decedent</h4>
+        ${decBlock}
+
+        <h4>Personal Representative</h4>
+        ${prBlock}
     `);
 }
 

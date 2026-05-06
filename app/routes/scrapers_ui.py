@@ -240,6 +240,46 @@ SOURCES_INSPECTOR: dict[str, dict] = {
         # Exclude guardianship rows from the inspector too.
         "where_filter": "derived_status IS DISTINCT FROM 'guardianship'",
     },
+    "maryland": {
+        "table": "maryland",
+        "id_col": "case_number",
+        "list_cols": [
+            ("case_number",   "case_number",     "Case #"),
+            ("county",        "county",          "County"),
+            ("case_type",     "case_type",       "Type"),
+            ("file_date",     "file_date",       "Filed"),
+            ("date_opened",   "date_opened",     "Opened"),
+            ("date_closed",   "date_closed",     "Closed"),
+            ("decedent_full", "decedent_full",   "Decedent"),
+            ("decedent_dod",  "decedent_dod",    "DOD"),
+            ("rep_full",      "rep_full",        "PR"),
+            ("rep_address_raw", "rep_address_raw", "PR address"),
+            ("case_status",   "case_status",     "Status"),
+            ("will",          "will",            "Will"),
+            ("scraped_at::date::text", "scraped_on", "Scraped"),
+        ],
+        "detail_scalar_cols": [
+            "case_number", "record_id", "case_type", "county",
+            "case_status", "file_date", "date_opened", "date_closed",
+            "reference", "url",
+            "decedent_full", "decedent_first", "decedent_middle",
+            "decedent_last", "decedent_suffix", "decedent_dod",
+            "aliases", "will", "will_date", "probate_date",
+            "rep_full", "rep_first", "rep_middle", "rep_last",
+            "rep_suffix", "rep_street", "rep_city", "rep_state",
+            "rep_zip", "rep_address_raw",
+            "fetch_status", "last_fetch_error", "last_fetch_error_at",
+            "fetch_attempts", "scraped_at",
+        ],
+        # raw_detail_html is huge (~20KB) — keep it out of the modal payload
+        # by default. Operators can hit the portal URL directly.
+        "detail_json_cols": [],
+        "search_cols": [
+            "case_number", "county", "decedent_full", "rep_full",
+            "aliases", "case_type",
+        ],
+        "order_by": "scraped_at DESC NULLS LAST",
+    },
 }
 
 
