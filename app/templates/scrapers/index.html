@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -722,6 +722,7 @@ async function openRow(key, rid) {
         if (key === 'new_york')            renderNyRow(c);
         else if (key === 'north_carolina') renderNcRow(c);
         else if (key === 'maryland')       renderMdRow(c);
+        else if (key === 'oklahoma')       renderOkRow(c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1025,6 +1026,122 @@ function renderMdRow(c) {
 
         <h4>Personal Representative</h4>
         ${prBlock}
+    `);
+}
+
+
+/* ───────── OK-specific row renderer ───────── */
+
+// OSCN doc-name format strips off the trailing " Document Available (#…) TIFF PDF"
+// junk and returns just the doc title.
+function _okCleanDocName(s) {
+    if (!s) return '';
+    return String(s).replace(/\s*Document Available.*$/i, '').trim();
+}
+
+const OK_ACTIVE_PATTERNS = [/LETTERS\s+TESTAMENTARY/i, /LETTERS\s+OF\s+ADMINISTRATION/i,
+                            /ORDER\s+ADMITTING\s+WILL/i, /ORDER\s+APPOINTING/i];
+const OK_CLOSE_PATTERNS  = [/FINAL\s+DECREE\s+OF\s+DISTRIBUTION/i, /\bDECREE\s+OF\s+DISTRIBUTION/i,
+                            /ORDER\s+OF\s+DISCHARGE/i, /ORDER\s+SETTLING\s+FINAL\s+ACCOUNT/i];
+
+function _okDocPill(name) {
+    for (const re of OK_CLOSE_PATTERNS)  if (re.test(name)) return '<span class="scr-pill closed-doc" style="font-size:.58rem;">close marker</span>';
+    for (const re of OK_ACTIVE_PATTERNS) if (re.test(name)) return '<span class="scr-pill active" style="font-size:.58rem;">authority-grant</span>';
+    return '';
+}
+
+function renderOkRow(c) {
+    const decFull = [c.decedent_first, c.decedent_middle, c.decedent_last].filter(Boolean).join(' ').trim() || '—';
+    const petFull = [c.petitioner_first, c.petitioner_middle, c.petitioner_last].filter(Boolean).join(' ').trim();
+
+    const status = c.derived_status || (c.closed_date ? 'closed' : 'active');
+    const statusClass = status === 'closed_by_doc' ? 'closed-doc'
+                      : status === 'closed'        ? 'closed'
+                      : status === 'active'        ? 'active' : 'unknown';
+
+    const parties = Array.isArray(c.parties) ? c.parties : [];
+    const pdfs    = Array.isArray(c.pdf_urls) ? c.pdf_urls : [];
+
+    const decBlock = `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill minor">Decedent</span>
+                <span class="name">${decFull}</span>
+            </div>
+            <div class="addr"><em style="color:var(--text-muted)">decedent address not captured by source — lives only inside PDF documents</em></div>
+        </div>`;
+
+    const prBlock = petFull
+        ? `<div class="scr-person">
+                <div class="role-line">
+                    <span class="role-pill petitioner">Personal Representative</span>
+                    <span class="name">${petFull}</span>
+                </div>
+                <div class="addr"><em style="color:var(--text-muted)">PR address not captured by source — lives only inside PDF documents</em></div>
+                ${c.petitioner_phone ? `<div class="meta">phone ${c.petitioner_phone}</div>` : ''}
+                ${c.petitioner_email ? `<div class="meta">email ${c.petitioner_email}</div>` : ''}
+           </div>`
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No petitioner on file.</div>';
+
+    const otherParties = parties.filter(p => (p.desc || '').toLowerCase() !== 'petitioner');
+    const partiesBlock = otherParties.length
+        ? otherParties.map(p => {
+            const name = [p.first, p.middle, p.last].filter(Boolean).join(' ').trim() || '—';
+            return `
+            <div class="scr-person">
+                <div class="role-line">
+                    <span class="role-pill">${p.desc || 'party'}</span>
+                    <span class="name">${name}</span>
+                </div>
+            </div>`;
+          }).join('')
+        : '';
+
+    const pdfList = pdfs.length
+        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+          pdfs.map(d => {
+              const name = _okCleanDocName(d.name);
+              const pill = _okDocPill(name);
+              const link = d.url ? `<a href="${d.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan); margin-left:auto; flex-shrink:0;">PDF</a>` : '';
+              return `
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                      <span style="color: var(--text-primary); flex: 1; word-break: break-word;">${name}</span>
+                      ${pill}
+                      ${link}
+                  </div>`;
+          }).join('') +
+          '</div>'
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No PDFs captured for this case.</div>';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} • filed ${c.filed_date ? String(c.filed_date).slice(0,10) : '—'}
+            ${c.closed_date ? '• closed ' + String(c.closed_date).slice(0,10) : ''}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Filed</span><span class="val">${c.filed_date ? String(c.filed_date).slice(0,10) : '—'}</span></div>
+            <div><span class="lbl">Closed</span><span class="val">${c.closed_date ? String(c.closed_date).slice(0,10) : '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">PDFs captured</span><span class="val">${pdfs.length}</span></div>
+            <div><span class="lbl">PDF tier-extracted</span><span class="val">${c.pdf_extracted_at ? c.pdf_extracted_at.replace('T',' ').slice(0,16) : '— pending'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        <h4>Decedent</h4>
+        ${decBlock}
+
+        <h4>Personal Representative</h4>
+        ${prBlock}
+
+        ${partiesBlock ? `<h4>Other parties (${otherParties.length})</h4>${partiesBlock}` : ''}
+
+        <h4>PDF documents on file (${pdfs.length})</h4>
+        ${pdfList}
     `);
 }
 

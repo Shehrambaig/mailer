@@ -179,6 +179,7 @@ OK = {
     "key": "oklahoma",
     "name": "Oklahoma OSCN",
     "level": "State",
+    "state": "Oklahoma",
     "table": "ok_probate_cases",
     "date_col": "filed_date",
     "ts_col": "scraped_at",
@@ -195,6 +196,30 @@ OK = {
         "ORDER OF DISCHARGE",
         "ORDER SETTLING FINAL ACCOUNT",
     ],
+    "active_field": "closed_date + pdf_urls[].name (proxy)",
+    "active_values": "closed_date IS NULL = active (default for filings without closure)",
+    "closed_values": "closed_date IS NOT NULL = closed; 'FINAL DECREE OF DISTRIBUTION' / 'DECREE OF DISTRIBUTION' / 'ORDER OF DISCHARGE' / 'ORDER SETTLING FINAL ACCOUNT' in pdf_urls[].name = closed_by_doc",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Oklahoma source captures NO addresses in structured columns — "
+        "all decedent and PR addresses live exclusively inside the PDFs. "
+        "pdf_urls[] is populated for 93% of cases (454 / 486) but PDF tier "
+        "extraction has not been wired in yet (pdf_extracted_at is NULL "
+        "for every row). Until PDF extraction runs, the only match path "
+        "is strict Full+Middle+Last name match against propstream / "
+        "elitress within the same county."
+    ),
+    "scraping_notes": (
+        "Single statewide OSCN portal (oscn.net) covers all 77 Oklahoma "
+        "counties. Currently scraped: 12 counties (Oklahoma, Tulsa, "
+        "Cleveland, Canadian dominate). The Final Decree of Distribution "
+        "is the closure document — but it is also a high-value document "
+        "for a different campaign: it lists distributees and the specific "
+        "real properties they received, becoming a post-distribution heir "
+        "outreach bucket once extraction is wired in. parties[] is sparse "
+        "(15% of rows) and only carries first/middle/last/desc — no roles "
+        "or addresses; it is mostly redundant with the petitioner_* columns."
+    ),
 }
 
 CT = {
@@ -943,6 +968,39 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "oklahoma":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_first,'') <> '' OR COALESCE(decedent_last,'') <> ''",
+                                       "decedent_{first,middle,last}"),
+            ("Decedent street",        "FALSE",
+                                       "(OK source does not expose decedent address — addresses live only inside PDFs)"),
+            ("Decedent city/state/zip","FALSE",
+                                       "(OK source does not expose decedent address — addresses live only inside PDFs)"),
+            ("PR name",                "COALESCE(petitioner_first,'') <> '' OR COALESCE(petitioner_last,'') <> ''",
+                                       "petitioner_{first,middle,last}"),
+            ("PR street",              "FALSE",
+                                       "(OK source does not expose PR address — addresses live only inside PDFs)"),
+            ("PR city/state/zip",      "FALSE",
+                                       "(OK source does not expose PR address — addresses live only inside PDFs)"),
+            ("PR phone",               "COALESCE(petitioner_phone,'') <> ''",
+                                       "petitioner_phone (column exists but never populated)"),
+            ("PR email",               "COALESCE(petitioner_email,'') <> ''",
+                                       "petitioner_email (column exists but never populated)"),
+            ("Filed date",             "filed_date IS NOT NULL",   "filed_date"),
+            ("Closed date",            "closed_date IS NOT NULL",  "closed_date"),
+            ("Parties JSON populated", "jsonb_typeof(parties)='array' AND jsonb_array_length(parties) > 0",
+                                       "parties[] (sparse — only ~15% of rows; first/middle/last/desc only, no addresses)"),
+            ("≥1 PDF URL captured",    "jsonb_typeof(pdf_urls)='array' AND jsonb_array_length(pdf_urls) > 0",
+                                       "pdf_urls[]"),
+            ("≥1 active-marker doc",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_urls,'[]'::jsonb)) d "
+             "        WHERE UPPER(COALESCE(d->>'name','')) LIKE '%LETTERS%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER ADMITTING WILL%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER APPOINTING%')",
+             "pdf_urls[].name LIKE %LETTERS%/%ORDER ADMITTING WILL%/%ORDER APPOINTING%"),
+            ("PDF tier-extracted",     "pdf_extracted_at IS NOT NULL",
+                                       "pdf_extracted_at  (extractor not yet wired in)"),
         ]
     elif key == "maryland":
         rows = [
