@@ -213,6 +213,7 @@ GWINNETT = {
     "key": "gwinnett",
     "name": "Gwinnett County, Georgia",
     "level": "County",
+    "state": "Georgia",
     "table": "gwinnett",
     "date_col": "file_date",
     "ts_col": "scraped_at",
@@ -220,9 +221,11 @@ GWINNETT = {
     "active_markers": [
         "Order Admitting Will",
         "Order Appointing",
+        "Order Granting",
         "Order, Oath, & Letters",
         "Letters Testamentary",
         "Letters of Administration",
+        "Letters (Estate Relieved)",
     ],
     "close_markers": [
         "Discharge",
@@ -230,6 +233,31 @@ GWINNETT = {
         "No Administration Necessary",
         "Petition for Discharge",
     ],
+    "active_field": "case_status (set by Tyler eCourts portal)",
+    "active_values": "'Granted' = active_qualified (Letters issued); 'Filed' / 'Incomplete' / 'Appealed' = active_pending",
+    "closed_values": "'Discharged' = closed; close-marker doc in events[].name (Discharge / Petition for Discharge / Year's Support / NAN) = closed_by_doc",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Gwinnett captures decedent residence (decedent_street + city + "
+        "state + zip — 90% coverage) AND every party in parties[] carries "
+        "a street address (~98% of party records). Match strategy: "
+        "(1) decedent_street → BatchLeads first; (2) heir / beneficiary "
+        "addresses from parties[] become the post-distribution mail "
+        "bucket if a closure event fires; (3) name match is the fallback "
+        "for the ~10% of cases without addresses."
+    ),
+    "scraping_notes": (
+        "Tyler eCourts + Odyssey IDP SSO portal scrapes Gwinnett's probate "
+        "court directly. parties[] schema: {first, middle, last, suffix, "
+        "name_full, role, street, city, state, zip, attorneys}. Roles "
+        "include Petitioner, Decedent, Heir, Heir Minor, Heir Incapacitated, "
+        "Nominated Executor, Executor, Nominated Administrator, "
+        "Administrator, Testator, Beneficiary, Interested Person, Guardian "
+        "ad Litem, Caveator*. events[] is the docket — name + description "
+        "+ date — and drives the doc-override flip. Tier 4 prompt subclass"
+        "ifies 'Order Granting' / 'Final Order' into Year's Support vs NAN "
+        "vs standard discharge by reading the body (not yet automated here)."
+    ),
 }
 
 OK = {
@@ -644,7 +672,14 @@ def src_ga_rockdale():
 def src_gwinnett():
     """Gwinnett — events[].name is the doc list.
 
-    case_status: Filed, Granted, Incomplete, Appealed (active); Discharged (closed).
+    case_status values seen: Filed, Granted, Incomplete (Appealed not yet
+    observed). Discharged is the source-marked closed value (also not yet
+    observed in this dataset). Mapping mirrors NC's pending / qualified
+    split:
+        Filed / Incomplete / Appealed       → active_pending
+        Granted (Letters issued)            → active_qualified
+        Discharged                          → closed
+        close-marker doc in events[].name   → closed_by_doc
     """
     close_doc_check = (
         "EXISTS ("
@@ -659,19 +694,33 @@ def src_gwinnett():
         "CASE "
         "   WHEN case_status = 'Discharged' THEN 'closed' "
         f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
-        "   WHEN case_status IN ('Filed','Granted','Incomplete','Appealed') THEN 'active' "
-        "   ELSE 'unknown' "
+        "   WHEN case_status = 'Granted' THEN 'active_qualified' "
+        "   WHEN case_status IN ('Filed','Incomplete','Appealed') THEN 'active_pending' "
+        "   ELSE 'active_pending' "
         "END"
+    )
+    # Gwinnett carries decedent address as columns + every party in parties[]
+    # has a street. Tier-1 = decedent_street column populated AND any
+    # PR-equivalent party has a street.
+    pr_roles_sql = (
+        "(p->>'role') IN ('Petitioner','Applicant','Executor','Co-Executor',"
+        "'Nominated Executor','Administrator','Co-Administrator',"
+        "'Nominated Administrator','Temporary Administrator',"
+        "'Nominated Temporary Administrator','Testator')"
+    )
+    heir_roles_sql = (
+        "(p->>'role') IN ('Heir','Heir Minor','Heir Incapacitated',"
+        "'Beneficiary','Interested Person')"
     )
     tier1 = (
         "(COALESCE(decedent_street,'') <> '' "
         " AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "             WHERE LOWER(COALESCE(p->>'role','')) IN ('petitioner','applicant','executor','administrator') "
+        f"             WHERE {pr_roles_sql} "
         "               AND COALESCE(p->>'street','') <> ''))"
     )
     heir = (
         "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary','distributee') "
+        f"        WHERE {heir_roles_sql} "
         "          AND COALESCE(p->>'street','') <> '')"
     )
     return bucket, tier1, heir
@@ -1072,6 +1121,62 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "gwinnett":
+        pr_roles_in = (
+            "(p->>'role') IN ('Petitioner','Applicant','Executor','Co-Executor',"
+            "'Nominated Executor','Administrator','Co-Administrator',"
+            "'Nominated Administrator','Temporary Administrator',"
+            "'Nominated Temporary Administrator','Testator')"
+        )
+        heir_roles_in = (
+            "(p->>'role') IN ('Heir','Heir Minor','Heir Incapacitated',"
+            "'Beneficiary','Interested Person')"
+        )
+        decedent_party = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(parties)='array' AND p->>'role' = 'Decedent')"
+        )
+        decedent_party_addr = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(parties)='array' AND p->>'role' = 'Decedent' "
+            "          AND COALESCE(p->>'street','') <> '')"
+        )
+        rows = [
+            ("Decedent name (column)",   "COALESCE(decedent_full,'') <> ''",      "decedent_full"),
+            ("Decedent street (column)", "COALESCE(decedent_street,'') <> ''",    "decedent_street"),
+            ("Decedent city/state/zip",  "COALESCE(decedent_city,'') <> '' AND COALESCE(decedent_state,'') <> '' AND COALESCE(decedent_zip,'') <> ''",
+                                         "decedent_{city,state,zip}"),
+            ("Decedent in parties[]",    decedent_party,                           "parties[role=Decedent]"),
+            ("Decedent in parties[] w/ address", decedent_party_addr,
+                                         "parties[role=Decedent].street"),
+            ("PR (any role) in parties[] w/ address",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+             f"        WHERE jsonb_typeof(parties)='array' AND {pr_roles_in} "
+             "          AND COALESCE(p->>'street','') <> '')",
+             "parties[role in PR set].street"),
+            ("≥1 heir / beneficiary",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+             f"        WHERE jsonb_typeof(parties)='array' AND {heir_roles_in})",
+             "parties[role in heir set]"),
+            ("≥1 heir / beneficiary with address",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+             f"        WHERE jsonb_typeof(parties)='array' AND {heir_roles_in} "
+             "          AND COALESCE(p->>'street','') <> '')",
+             "parties[role in heir set].street"),
+            ("≥1 docket event",          "jsonb_typeof(events)='array' AND jsonb_array_length(events) > 0",
+                                         "events[]"),
+            ("≥1 active-marker event (Letters / Order Granting / Order Admitting Will)",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(events,'[]'::jsonb)) e "
+             "        WHERE UPPER(e->>'name') LIKE '%LETTERS%' "
+             "           OR UPPER(e->>'name') LIKE '%ORDER ADMITTING WILL%' "
+             "           OR UPPER(e->>'name') LIKE '%ORDER APPOINTING%' "
+             "           OR UPPER(e->>'name') LIKE '%ORDER GRANTING%')",
+             "events[].name LIKE %LETTERS%/%ORDER ADMITTING WILL%/%ORDER APPOINTING%/%ORDER GRANTING%"),
+            ("PR phone",                 "FALSE",                                  "(Gwinnett source does not capture phone)"),
+            ("PR email",                 "FALSE",                                  "(Gwinnett source does not capture email)"),
+            ("Judicial officer",         "COALESCE(judicial_officer,'') <> ''",   "judicial_officer"),
+            ("File date",                "file_date IS NOT NULL",                  "file_date"),
         ]
     elif key == "ga_cobb":
         rows = [

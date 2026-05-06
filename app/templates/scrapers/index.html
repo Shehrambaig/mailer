@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale', 'gwinnett'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -725,6 +725,7 @@ async function openRow(key, rid) {
         else if (key === 'oklahoma')       renderOkRow(c);
         else if (key === 'connecticut')    renderCtRow(c);
         else if (key === 'ga_cobb' || key === 'ga_rockdale') renderGaRow(key, c);
+        else if (key === 'gwinnett')       renderGwRow(c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1376,6 +1377,119 @@ function renderGaRow(key, c) {
 
         <h4>PDF refs (${pdfRefs.length})</h4>
         ${pdfList}
+    `);
+}
+
+
+/* ───────── Gwinnett row renderer ───────── */
+const GW_PR_ROLES   = new Set(['Petitioner','Applicant','Executor','Co-Executor','Nominated Executor','Administrator','Co-Administrator','Nominated Administrator','Temporary Administrator','Nominated Temporary Administrator','Testator']);
+const GW_HEIR_ROLES = new Set(['Heir','Heir Minor','Heir Incapacitated','Beneficiary','Interested Person']);
+
+const GW_ACTIVE_PATTERNS = [/LETTERS/i, /ORDER\s+ADMITTING\s+WILL/i, /ORDER\s+APPOINTING/i, /ORDER\s+GRANTING/i, /ORDER,?\s+OATH/i];
+const GW_CLOSE_PATTERNS  = [/\bDISCHARGE\b/i, /PETITION\s+FOR\s+DISCHARGE/i, /YEAR'?S\s+SUPPORT/i, /NO\s+ADMINISTRATION\s+NECESSARY/i];
+
+function _gwBucket(p) {
+    const r = p.role || '';
+    if (r === 'Decedent') return 'decedent';
+    if (GW_PR_ROLES.has(r)) return 'pr';
+    if (GW_HEIR_ROLES.has(r)) return 'heir';
+    return 'other';
+}
+
+function _gwEventPill(name) {
+    for (const re of GW_CLOSE_PATTERNS)  if (re.test(name)) return '<span class="scr-pill closed-doc" style="font-size:.58rem;">close marker</span>';
+    for (const re of GW_ACTIVE_PATTERNS) if (re.test(name)) return '<span class="scr-pill active" style="font-size:.58rem;">authority-grant</span>';
+    return '';
+}
+
+function _gwPartyCard(p) {
+    const fmtAddr = a => [a.street, a.city, a.state, a.zip].filter(Boolean).join(', ');
+    const name = p.name_full || [p.first, p.middle, p.last, p.suffix].filter(Boolean).join(' ').trim() || '—';
+    const addr = fmtAddr(p);
+    const bucket = _gwBucket(p);
+    const pill = bucket === 'decedent' ? 'minor'
+              : bucket === 'pr'        ? 'petitioner'
+              : bucket === 'heir'      ? 'heir' : '';
+    const attorneys = p.attorneys
+        ? `<div class="meta">attorneys: ${Array.isArray(p.attorneys) ? p.attorneys.join(', ') : p.attorneys}</div>`
+        : '';
+    return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${pill}">${p.role || '?'}</span>
+                <span class="name">${name}</span>
+            </div>
+            <div class="addr">${addr || '<em style="color:var(--text-muted);">no address on file</em>'}</div>
+            ${attorneys}
+        </div>`;
+}
+
+function renderGwRow(c) {
+    const decFull = c.decedent_full
+        || [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim()
+        || '—';
+    const decAddr = [c.decedent_street, c.decedent_city, c.decedent_state, c.decedent_zip].filter(Boolean).join(', ');
+    const status = c.derived_status || 'active_pending';
+    const statusClass = status === 'closed_by_doc'    ? 'closed-doc'
+                      : status === 'closed'           ? 'closed'
+                      :                                  'active';
+
+    const parties  = Array.isArray(c.parties) ? c.parties : [];
+    const events   = Array.isArray(c.events)  ? c.events  : [];
+
+    const decedents = parties.filter(p => _gwBucket(p) === 'decedent');
+    const prs       = parties.filter(p => _gwBucket(p) === 'pr');
+    const heirs     = parties.filter(p => _gwBucket(p) === 'heir');
+    const others    = parties.filter(p => _gwBucket(p) === 'other');
+
+    const sectionHtml = (label, list) => list.length
+        ? `<h4>${label} (${list.length})</h4>${list.map(_gwPartyCard).join('')}`
+        : '';
+
+    const eventsHtml = events.length
+        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+          events.map(e => {
+              const name = e.name || e.description || '—';
+              const pill = _gwEventPill(name);
+              const date = e.date_raw || e.date || '';
+              return `
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                      <span style="color: var(--text-muted); min-width: 78px; font-variant-numeric: tabular-nums;">${date}</span>
+                      <span style="color: var(--text-primary); flex: 1; word-break: break-word;">${name}</span>
+                      ${pill}
+                  </div>`;
+          }).join('') +
+          '</div>'
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No events on docket.</div>';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.location_name || ''} ${c.case_type ? '• ' + c.case_type : ''} • filed ${c.file_date ? String(c.file_date).slice(0,10) : '—'}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Source status</span><span class="val">${c.case_status || '—'} ${c.case_status_code ? '<span style="color:var(--text-muted)">('+c.case_status_code+')</span>' : ''}</span></div>
+            <div><span class="lbl">Derived status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Case type</span><span class="val">${c.case_type || '—'} ${c.case_type_code ? '<span style="color:var(--text-muted)">('+c.case_type_code+')</span>' : ''}</span></div>
+            <div><span class="lbl">Style</span><span class="val">${c.style || '—'}</span></div>
+            <div><span class="lbl">Court</span><span class="val">${c.court || c.location_name || '—'}</span></div>
+            <div><span class="lbl">Judicial officer</span><span class="val">${c.judicial_officer || '—'}</span></div>
+            <div><span class="lbl">Decedent address</span><span class="val">${decAddr || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Fetch status</span><span class="val">${c.fetch_status || '—'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        ${sectionHtml('Decedent', decedents)}
+        ${sectionHtml('Personal Representatives', prs)}
+        ${sectionHtml('Heirs / Beneficiaries', heirs)}
+        ${sectionHtml('Other parties', others)}
+
+        <h4>Docket events (${events.length})</h4>
+        ${eventsHtml}
     `);
 }
 
