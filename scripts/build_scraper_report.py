@@ -406,10 +406,36 @@ WI = {
     "key": "wisconsin",
     "name": "Wisconsin Circuit Courts",
     "level": "State",
+    "state": "Wisconsin",
     "table": "wisconsin",
     "date_col": "file_date",
     "ts_col": "scraped_at",
     "county_col": "county",
+    "active_field": "case_status (set directly by WCCA)",
+    "active_values": "'Open' / 'Reopened' = active",
+    "closed_values": "'Closed' = closed",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "WI WCCA captures NO addresses anywhere — decedent street, city, "
+        "state, zip are all 0%. parties[] exists as a column but is empty "
+        "on every row (the WCCA party endpoint is hCaptcha-gated and not "
+        "currently called from production). Match strategy is "
+        "name-only: Full + Middle + Last + DOB (when not sealed) against "
+        "propstream / elitress in the same county. DOB is captured for "
+        "~78% of rows in YYYY-MM text form (e.g. '1900-08' — month "
+        "precision only, day omitted)."
+    ),
+    "scraping_notes": (
+        "Statewide portal at wcca.wicourts.gov. The list endpoint returns "
+        "case_number, caption ('In the Estate of X'), case_status, "
+        "decedent name parts, DOB, and county — no addresses. The detail "
+        "endpoint that would fetch parties + events is gated by hCaptcha; "
+        "raw_case_detail is NULL on every row in this dataset and "
+        "fetch_status reflects the CAPTCHA-solver failure. case_type_code "
+        "splits filings into PR (Estate, 511 rows) vs IN (Informal "
+        "Administration, 53 rows). Until detail-fetch is unblocked, WI "
+        "rows can only feed name-match enrichment."
+    ),
 }
 
 GPR = {
@@ -1334,6 +1360,28 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
              "pdf_refs[].name LIKE %LETTERS%/%ORDER ADMITTING WILL%/%ORDER APPOINTING%/%ORDER, OATH%"),
             ("PDF tier-extracted",     "pdf_extracted_at IS NOT NULL",       "pdf_extracted_at"),
             ("File date",              "filed_date IS NOT NULL",             "filed_date"),
+        ]
+    elif key == "wisconsin":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_first,'') <> '' OR COALESCE(decedent_last,'') <> ''",
+                                       "decedent_{first,middle,last,suffix}"),
+            ("Decedent DOB",           "COALESCE(decedent_dob,'') <> ''",
+                                       "decedent_dob (text, often YYYY-MM)"),
+            ("Decedent DOB sealed",    "decedent_dob_sealed = TRUE",
+                                       "decedent_dob_sealed"),
+            ("Decedent street",        "FALSE",                              "(WI source does not capture decedent address)"),
+            ("Decedent city/state/zip","FALSE",                              "(WI source does not capture decedent address)"),
+            ("PR name",                "FALSE",                              "(WI source does not capture PR — would need detail-fetch via hCaptcha-gated party endpoint)"),
+            ("PR street",              "FALSE",                              "(not captured)"),
+            ("PR phone",               "FALSE",                              "(not captured)"),
+            ("PR email",               "FALSE",                              "(not captured)"),
+            ("Case caption",           "COALESCE(caption,'') <> ''",         "caption ('In the Estate of X')"),
+            ("Case type",              "COALESCE(case_type,'') <> ''",       "case_type (Estate / Informal Administration)"),
+            ("Source case_status set", "COALESCE(case_status,'') <> ''",     "case_status (Open / Reopened / Closed)"),
+            ("File date",              "file_date IS NOT NULL",              "file_date"),
+            ("Detail-fetch succeeded (raw_case_detail populated)",
+             "raw_case_detail IS NOT NULL AND jsonb_typeof(raw_case_detail)='object'",
+             "raw_case_detail (currently NULL — hCaptcha-blocked)"),
         ]
     elif key == "connecticut":
         any_party_with_street = (

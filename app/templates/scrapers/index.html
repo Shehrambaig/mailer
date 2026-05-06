@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale', 'gwinnett', 'georgia_probate_records'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale', 'gwinnett', 'georgia_probate_records', 'wisconsin'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -727,6 +727,7 @@ async function openRow(key, rid) {
         else if (key === 'ga_cobb' || key === 'ga_rockdale') renderGaRow(key, c);
         else if (key === 'gwinnett')       renderGwRow(c);
         else if (key === 'georgia_probate_records') renderGprRow(c);
+        else if (key === 'wisconsin')      renderWiRow(c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1613,6 +1614,66 @@ function renderGprRow(c) {
 
         <h4>Documents on file (${docs.length})</h4>
         ${docsHtml}
+    `);
+}
+
+
+/* ───────── WI row renderer (column-only — no parties / no events / no addresses) ───────── */
+function renderWiRow(c) {
+    const decFull = [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim() || '—';
+    const status = c.case_status || '—';
+    const statusClass = status === 'Open' || status === 'Reopened' ? 'active'
+                      : status === 'Closed'                        ? 'closed'
+                      :                                              'unknown';
+
+    const fetchOk = c.fetch_status === 'ok';
+    const fetchPill = c.fetch_status
+        ? `<span class="scr-pill ${fetchOk ? 'active' : 'unknown'}" style="font-size:.6rem;">${c.fetch_status}</span>`
+        : '';
+
+    const fetchErrBlock = c.last_fetch_error
+        ? `<div style="margin-top: 12px; padding: 10px 12px; background: rgba(239,68,68,.06); border: 1px solid rgba(239,68,68,.18); border-radius: 6px;">
+              <div style="font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; color:#fca5a5; font-weight:700; margin-bottom:4px;">Detail-fetch error</div>
+              <div style="font-size:.74rem; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; word-break: break-word;">${c.last_fetch_error}</div>
+              ${c.last_fetch_error_at ? `<div style="font-size:.66rem; color: var(--text-muted); margin-top:4px;">${c.last_fetch_error_at.replace('T',' ').slice(0,16)} (attempt ${c.fetch_attempts || 1})</div>` : ''}
+           </div>`
+        : '';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} ${c.case_type ? '• ' + c.case_type : ''} • filed ${c.file_date ? String(c.file_date).slice(0,10) : '—'}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Source status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Case type</span><span class="val">${c.case_type || '—'} ${c.case_type_code ? '<span style="color:var(--text-muted)">('+c.case_type_code+')</span>' : ''}</span></div>
+            <div><span class="lbl">County</span><span class="val">${c.county || '—'} ${c.county_no ? '<span style="color:var(--text-muted)">#'+c.county_no+'</span>' : ''}</span></div>
+            <div><span class="lbl">Caption</span><span class="val">${c.caption || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Detail fetch</span><span class="val">${fetchPill || '—'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        <h4>Decedent</h4>
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill minor">Decedent</span>
+                <span class="name">${decFull}</span>
+                ${c.decedent_dob ? `<span class="rel">DOB ${c.decedent_dob}${c.decedent_dob_sealed ? ' • sealed' : ''}</span>` : ''}
+            </div>
+            <div class="addr"><em style="color:var(--text-muted)">decedent address not captured by WI WCCA — would require detail-fetch (currently hCaptcha-blocked)</em></div>
+        </div>
+
+        <h4>Personal Representative</h4>
+        <div style="color: var(--text-muted); font-size:.78rem;">
+            Not captured. The WCCA party endpoint that lists PR + heirs is gated by hCaptcha; until detail-fetch is unblocked,
+            WI rows can only be enriched via name + DOB match against propstream / elitress.
+        </div>
+
+        ${fetchErrBlock}
     `);
 }
 
