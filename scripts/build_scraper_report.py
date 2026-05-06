@@ -344,10 +344,38 @@ IN_SRC = {
     "key": "indiana",
     "name": "Indiana mycase.in.gov",
     "level": "State",
+    "state": "Indiana",
     "table": "indiana",
     "date_col": "file_date",
     "ts_col": "scraped_at",
     "county_col": "county",
+    "active_field": "case_status + rep_role (parties[].ExtConnCodeDesc)",
+    "active_values": "case_status='Pending' + rep_role='Personal Representative' = active_qualified (Letters issued); case_status='Pending' + rep_role='Petitioner' (or other) = active_pending (filed, awaiting Letters)",
+    "closed_values": "case_status='Decided' = closed",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "Indiana captures rep (PR / petitioner) address for ~66% of rows "
+        "and decedent address for ~23% (rep address is the more reliable "
+        "anchor). parties_json carries the full Tyler API payload — every "
+        "party's name + address + attorneys. Match strategy: "
+        "(1) decedent_address (decedent_street column) → BatchLeads when "
+        "present; (2) rep_address as fallback (the rep is often a "
+        "surviving relative living at the decedent's property); "
+        "(3) Full+Middle+Last + DOD name match within the same county "
+        "for the ~30% of rows with no addresses."
+    ),
+    "scraping_notes": (
+        "Statewide Tyler / Odyssey portal at mycase.in.gov covers all 92 "
+        "Indiana counties (82 seen on Neon today, dominated by Marion 56, "
+        "Allen 26, Lake 20). case_type splits filings into EU (Estate "
+        "Unsupervised, 259), EM (Estate Miscellaneous, 88), ES (Estate "
+        "Supervised, 43). parties_json is the raw Tyler payload (TEXT, "
+        "not JSONB) with rich {Name, NameFMLS, ExtConnCode, "
+        "ExtConnCodeDesc, Address: {Line1, City, State, Zip}, "
+        "Attorneys[{Name, BarNumber, Address}]} per party. rep_role / "
+        "rep_full / rep_address_raw are projections of the first PR-like "
+        "party for fast filtering."
+    ),
 }
 
 MD = {
@@ -864,6 +892,29 @@ def src_gpr():
     return bucket, tier1, heir
 
 
+def src_indiana():
+    """Indiana mycase.in.gov — case_status + rep_role pending/qualified split.
+
+    case_status='Decided'                                → closed
+    case_status='Pending' + rep_role='Personal Rep…'     → active_qualified
+    case_status='Pending' + rep_role='Petitioner' / etc. → active_pending
+    """
+    bucket = (
+        "CASE "
+        "   WHEN case_status = 'Decided' THEN 'closed' "
+        "   WHEN case_status = 'Pending' AND rep_role = 'Personal Representative' THEN 'active_qualified' "
+        "   WHEN case_status = 'Pending' THEN 'active_pending' "
+        "   ELSE 'active_pending' "
+        "END"
+    )
+    tier1 = "(COALESCE(decedent_street,'') <> '' AND COALESCE(rep_street,'') <> '')"
+    # Indiana sometimes lists Heir / Beneficiary as parties in parties_json,
+    # but the dedicated rep_role column only ever surfaces the lead party.
+    # Heir-with-address detection requires parsing parties_json — skip for now.
+    heir = "FALSE"
+    return bucket, tier1, heir
+
+
 def src_simple_status(table: str, status_col: str, mapping: dict[str, str], tier1_sql: str, heir_sql: str | None):
     """Generic status mapping for sources without doc-override (CT, IN, MD, MI, MN, WI, GPR)."""
     if not mapping:
@@ -900,12 +951,7 @@ SRC_LOGIC = {
         "        WHERE jsonb_typeof(parties)='array' "
         "          AND COALESCE(p->>'street','') <> '') > 1",
     ),
-    "indiana": lambda: src_simple_status(
-        "indiana", "case_status",
-        {"Pending": "active", "Decided": "closed"},
-        "(COALESCE(decedent_street,'') <> '' AND COALESCE(rep_street,'') <> '')",
-        None,
-    ),
+    "indiana": lambda: src_indiana(),
     "maryland": lambda: src_simple_status(
         "maryland", "case_status",
         {"OPEN": "active", "CLOSED": "closed", None: "unknown"},
@@ -963,7 +1009,8 @@ def compute_source(cur, src: dict) -> dict:
     # The UPDATE is also scoped to the source's exclude_sql so two sources
     # sharing a table (Cobb / Rockdale) do not overwrite each other's rows.
     if src["key"] in ("new_york", "north_carolina", "ga_cobb", "ga_rockdale",
-                       "gwinnett", "oklahoma", "georgia_probate_records"):
+                       "gwinnett", "oklahoma", "georgia_probate_records",
+                       "indiana"):
         _ensure_derived_status(cur, table)
         cur.execute(
             f'UPDATE "{table}" SET derived_status = ({bucket_sql}){where_clause if exclude_sql else ""}'
@@ -1360,6 +1407,30 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
              "pdf_refs[].name LIKE %LETTERS%/%ORDER ADMITTING WILL%/%ORDER APPOINTING%/%ORDER, OATH%"),
             ("PDF tier-extracted",     "pdf_extracted_at IS NOT NULL",       "pdf_extracted_at"),
             ("File date",              "filed_date IS NOT NULL",             "filed_date"),
+        ]
+    elif key == "indiana":
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_full,'') <> '' OR COALESCE(decedent_first,'') <> '' OR COALESCE(decedent_last,'') <> ''",
+                                       "decedent_{full,first,middle,last,suffix}"),
+            ("Decedent date of death", "COALESCE(decedent_dod,'') <> ''",     "decedent_dod"),
+            ("Decedent street",        "COALESCE(decedent_street,'') <> ''",  "decedent_street"),
+            ("Decedent city/state/zip","COALESCE(decedent_city,'') <> '' AND COALESCE(decedent_state,'') <> '' AND COALESCE(decedent_zip,'') <> ''",
+                                       "decedent_{city,state,zip}"),
+            ("Decedent address (raw)", "COALESCE(decedent_address_raw,'') <> ''", "decedent_address_raw"),
+            ("PR name",                "COALESCE(rep_full,'') <> '' OR COALESCE(rep_first,'') <> '' OR COALESCE(rep_last,'') <> ''",
+                                       "rep_{full,first,middle,last,suffix}"),
+            ("PR role",                "COALESCE(rep_role,'') <> ''",         "rep_role (Petitioner / Personal Representative / etc.)"),
+            ("PR street",              "COALESCE(rep_street,'') <> ''",       "rep_street"),
+            ("PR city/state/zip",      "COALESCE(rep_city,'') <> '' AND COALESCE(rep_state,'') <> '' AND COALESCE(rep_zip,'') <> ''",
+                                       "rep_{city,state,zip}"),
+            ("PR phone",               "FALSE",                                "(IN source does not capture phone)"),
+            ("PR email",               "FALSE",                                "(IN source does not capture email)"),
+            ("Will status set",        "COALESCE(will,'') <> ''",             "will (Filed when present)"),
+            ("Will date",              "COALESCE(will_date,'') <> ''",        "will_date"),
+            ("Probate date",           "COALESCE(probate_date,'') <> ''",     "probate_date"),
+            ("Parties JSON populated", "parties_json IS NOT NULL AND parties_json <> ''",
+                                       "parties_json (TEXT — Tyler API payload)"),
+            ("Detail-fetch succeeded", "fetch_status = 'ok'",                 "fetch_status"),
         ]
     elif key == "wisconsin":
         rows = [

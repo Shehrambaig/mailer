@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale', 'gwinnett', 'georgia_probate_records', 'wisconsin'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut', 'ga_cobb', 'ga_rockdale', 'gwinnett', 'georgia_probate_records', 'wisconsin', 'indiana'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -728,6 +728,7 @@ async function openRow(key, rid) {
         else if (key === 'gwinnett')       renderGwRow(c);
         else if (key === 'georgia_probate_records') renderGprRow(c);
         else if (key === 'wisconsin')      renderWiRow(c);
+        else if (key === 'indiana')        renderInRow(c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1674,6 +1675,117 @@ function renderWiRow(c) {
         </div>
 
         ${fetchErrBlock}
+    `);
+}
+
+
+/* ───────── IN row renderer (parties_json stored as TEXT — parse client-side) ───────── */
+const IN_PR_DESCS   = new Set(['Personal Representative','Petitioner','Co-Personal Representative','Co-Petitioner','Administrator','Co-Administrator','Executor','Co-Executor']);
+const IN_HEIR_DESCS = new Set(['Heir','Beneficiary','Distributee','Successor']);
+const IN_TYPE_LABELS = {
+    EU: "Estate, Unsupervised",
+    EM: "Estate, Miscellaneous",
+    ES: "Estate, Supervised",
+};
+
+function _inBucket(p) {
+    const d = p.ExtConnCodeDesc || '';
+    if (d === 'Decedent')        return 'decedent';
+    if (IN_PR_DESCS.has(d))      return 'pr';
+    if (IN_HEIR_DESCS.has(d))    return 'heir';
+    return 'other';
+}
+
+function _inFmtAddr(a) {
+    if (!a) return '';
+    return [a.Line1, a.Line2, a.Line3, a.City, a.State, a.Zip].filter(Boolean).join(', ');
+}
+
+function _inPartyCard(p) {
+    const name = p.NameFMLS || p.Name || '—';
+    const desc = p.ExtConnCodeDesc || p.ExtConnCode || 'party';
+    const addr = _inFmtAddr(p.Address);
+    const bucket = _inBucket(p);
+    const pill = bucket === 'decedent' ? 'minor'
+              : bucket === 'pr'        ? 'petitioner'
+              : bucket === 'heir'      ? 'heir' : '';
+    const dob = p.DOB ? ` • DOB ${p.DOB.slice(0,10)}` : '';
+    const dod = p.DOD ? ` • DOD ${p.DOD.slice(0,10)}` : '';
+    const attorneys = (p.Attorneys || []).map(a => {
+        const aAddr = _inFmtAddr(a.Address);
+        const phone = a.WorkPhone ? ` • ${a.WorkPhone}` : '';
+        const bar   = a.BarNumber ? ` • ${a.BarNumber}` : '';
+        return `<div style="font-size:.7rem; color: var(--text-muted); margin-top: 4px; padding-left: 12px; border-left: 2px solid rgba(245,158,11,.18);">attorney: ${a.Name || '—'}${bar}${phone}${aAddr ? ' — ' + aAddr : ''}</div>`;
+    }).join('');
+    return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${pill}">${desc}</span>
+                <span class="name">${name}</span>
+                ${dob || dod ? `<span class="rel">${(dob + dod).replace(/^ • /, '')}</span>` : ''}
+            </div>
+            <div class="addr">${addr || '<em style="color:var(--text-muted);">no address on file</em>'}</div>
+            ${attorneys}
+        </div>`;
+}
+
+function renderInRow(c) {
+    const decFull = c.decedent_full
+        || [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim()
+        || '—';
+    const status = c.derived_status || c.case_status || 'unknown';
+    const statusClass = status === 'closed'           ? 'closed'
+                      : status === 'active_qualified' ? 'active'
+                      : status === 'active_pending'   ? 'active'
+                      : status === 'active'           ? 'active'
+                      :                                  'unknown';
+    const typeCode = (c.case_type || '').split(' ')[0];
+    const typeLabel = IN_TYPE_LABELS[typeCode] || c.case_type || '—';
+
+    let parties = [];
+    if (c.parties_json) {
+        try { parties = JSON.parse(c.parties_json); } catch (e) { parties = []; }
+    }
+    const decedents = parties.filter(p => _inBucket(p) === 'decedent');
+    const prs       = parties.filter(p => _inBucket(p) === 'pr');
+    const heirs     = parties.filter(p => _inBucket(p) === 'heir');
+    const others    = parties.filter(p => _inBucket(p) === 'other');
+
+    const sectionHtml = (label, list) => list.length
+        ? `<h4>${label} (${list.length})</h4>${list.map(_inPartyCard).join('')}`
+        : '';
+
+    const decAddr = c.decedent_address_raw
+                  || [c.decedent_street, c.decedent_city, c.decedent_state, c.decedent_zip].filter(Boolean).join(', ');
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill ${statusClass}" style="margin-left: 8px;">${status}</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} ${c.case_type ? '• ' + c.case_type : ''} • filed ${c.file_date || '—'}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Source status</span><span class="val">${c.case_status || '—'}</span></div>
+            <div><span class="lbl">Derived status</span><span class="val">${status}</span></div>
+            <div><span class="lbl">Case type</span><span class="val">${typeCode || '—'} <span style="color:var(--text-muted)">— ${typeLabel}</span></span></div>
+            <div><span class="lbl">Will</span><span class="val">${c.will || '—'}</span></div>
+            <div><span class="lbl">Will date</span><span class="val">${c.will_date || '—'}</span></div>
+            <div><span class="lbl">Probate date</span><span class="val">${c.probate_date || '—'}</span></div>
+            <div><span class="lbl">Decedent address</span><span class="val">${decAddr || '—'}</span></div>
+            <div><span class="lbl">Decedent DOD</span><span class="val">${c.decedent_dod || '—'}</span></div>
+            <div><span class="lbl">PR (column)</span><span class="val">${c.rep_full || '—'} ${c.rep_role ? '<span style="color:var(--text-muted)">— '+c.rep_role+'</span>' : ''}</span></div>
+            <div><span class="lbl">PR address (column)</span><span class="val">${c.rep_address_raw || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Fetch status</span><span class="val">${c.fetch_status || '—'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        ${sectionHtml('Decedent', decedents)}
+        ${sectionHtml('Personal Representatives', prs)}
+        ${sectionHtml('Heirs / Beneficiaries', heirs)}
+        ${sectionHtml('Other parties', others)}
     `);
 }
 
