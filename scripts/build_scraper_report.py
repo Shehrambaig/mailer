@@ -101,9 +101,9 @@ NC = {
         "Final Account",
         "Order Closing",
     ],
-    "active_field": "documents[].event_type / document_name (proxy)",
-    "active_values": "OAIL + LEFC = active_qualified; otherwise active_pending",
-    "closed_values": "AFDD or close-marker doc present → closed_by_doc",
+    "active_field": "documents[].event_type + documents[].document_name (NC has no top-level case_status)",
+    "active_values": "'OAIL' / 'LEFC' / 'Letters' / 'AFCP' / 'AFCT' present = active_qualified (Letters/PR issued); no such doc = active_pending (filed, awaiting Letters)",
+    "closed_values": "'AFDD' / 'Affidavit of Collection, Disbursement' / 'Order of Discharge' / 'Final Account' / 'Order Closing' = closed_by_doc",
     "non_owner": "Skipped — to be defined globally later.",
     "address_match_rule": (
         "NC parties[] carries decedent + PR addresses directly when the case "
