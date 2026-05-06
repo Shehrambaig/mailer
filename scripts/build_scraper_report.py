@@ -416,10 +416,49 @@ GPR = {
     "key": "georgia_probate_records",
     "name": "georgiaprobaterecords.com (statewide)",
     "level": "State aggregator",
-    "table": "georgia",  # may not exist on Neon
+    "state": "Georgia",
+    "table": "georgia",
     "date_col": "file_date",
     "ts_col": "scraped_at",
     "county_col": "county",
+    "active_markers": [
+        "ORDER ADMITTING WILL",
+        "ORDER APPOINTING ADMINISTRATOR",
+        "ORDER, OATH, & LETTERS",
+        "LETTERS TESTAMENTARY",
+        "LETTERS OF ADMINISTRATION",
+    ],
+    "close_markers": [
+        "DISCHARGE ORDER",
+        "PETITION FOR DISCHARGE",
+        "FINAL ORDER FOR YEAR'S SUPPORT",
+        "PYS FINAL ORDER",
+        "NAN FINAL ORDER",
+        "NO ADMINISTRATION NECESSARY",
+    ],
+    "active_field": "status (set directly by GPR portal) + documents[].name (doc-override)",
+    "active_values": "'OPEN' / 'PENDING' = active_pending; an authority-grant doc (Order Admitting Will / Order Appointing Administrator / Order, Oath, & Letters / Letters Testamentary / Letters of Administration) flips to active_qualified",
+    "closed_values": "'CLOSED' = closed; a close-marker doc (Discharge Order / Petition for Discharge / Final Order for Year's Support / NAN Final Order / No Administration Necessary) = closed_by_doc",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "GPR is the highest-completeness GA source: decedent residence is "
+        "captured as columns (decedent_street + city + state + zip — 97% "
+        "coverage) AND every party in parties[] carries an address (~88% "
+        "of party records have a street). Match strategy: (1) decedent_street "
+        "→ BatchLeads first; (2) executor / heir addresses from parties[] "
+        "become a post-distribution mail bucket once a closure doc fires."
+    ),
+    "scraping_notes": (
+        "georgiaprobaterecords.com is a statewide aggregator covering 90 of "
+        "159 GA counties on Neon today (159 ultimately reachable). Each "
+        "case carries a clean source-side status field (OPEN / PENDING / "
+        "CLOSED). parties[] schema: {first, middle, last, suffix, full, "
+        "street, city, state, zip, responsibility} where responsibility is "
+        "EXECUTOR / ADMINISTRATOR / PETITIONER / HEIR / etc. documents[] "
+        "carries {url, name, filing_type, is_petition}. The GPR doc URL "
+        "pattern lets the operator open the scanned image directly: "
+        "https://georgiaprobaterecords.com/Imaging/ViewScannedImage.aspx?…"
+    ),
 }
 
 ALL_SOURCES = [NY, NC, GA_COBB, GA_ROCKDALE, GWINNETT, OK, CT, IN_SRC, MD, MI, MN, WI, GPR]
@@ -752,6 +791,53 @@ def src_ok():
     return bucket, tier1, heir
 
 
+def src_gpr():
+    """GPR (georgia statewide aggregator) — source status + doc-override.
+
+    Bucket priority (mirrors NC / Gwinnett):
+        status = 'CLOSED'                    → closed
+        close-marker doc in documents[].name → closed_by_doc
+        active-marker doc                    → active_qualified
+        otherwise (OPEN / PENDING)           → active_pending
+
+    Tier-1 = decedent_street column populated AND any executor / petitioner /
+    administrator party in parties[] has a street.
+    Heir = any party with role in (HEIR, BENEFICIARY) has a street.
+    """
+    close_doc_check = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+        f"        WHERE EXISTS (SELECT 1 FROM unnest({_array_lit(GPR['close_markers'])}) m "
+        "               WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'))"
+    )
+    active_marker_check = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+        f"        WHERE EXISTS (SELECT 1 FROM unnest({_array_lit(GPR['active_markers'])}) m "
+        "               WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'))"
+    )
+    bucket = (
+        "CASE "
+        "   WHEN UPPER(COALESCE(status,'')) = 'CLOSED' THEN 'closed' "
+        f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
+        f"  WHEN {active_marker_check} THEN 'active_qualified' "
+        "   ELSE 'active_pending' "
+        "END"
+    )
+    pr_resp = "(p->>'responsibility') IN ('EXECUTOR','CO-EXECUTOR','ADMINISTRATOR','CO-ADMINISTRATOR','PETITIONER','APPLICANT','PERSONAL REPRESENTATIVE')"
+    heir_resp = "(p->>'responsibility') IN ('HEIR','BENEFICIARY','DISTRIBUTEE')"
+    tier1 = (
+        "(COALESCE(decedent_street,'') <> '' "
+        " AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        f"             WHERE {pr_resp} "
+        "               AND COALESCE(p->>'street','') <> ''))"
+    )
+    heir = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        f"        WHERE {heir_resp} "
+        "          AND COALESCE(p->>'street','') <> '')"
+    )
+    return bucket, tier1, heir
+
+
 def src_simple_status(table: str, status_col: str, mapping: dict[str, str], tier1_sql: str, heir_sql: str | None):
     """Generic status mapping for sources without doc-override (CT, IN, MD, MI, MN, WI, GPR)."""
     if not mapping:
@@ -824,12 +910,7 @@ SRC_LOGIC = {
         "(COALESCE(decedent_street,'') <> '')",  # WI rep address not captured
         None,
     ),
-    "georgia_probate_records": lambda: src_simple_status(
-        "georgia", "status",
-        {"OPEN": "active", "PENDING": "active", "CLOSED": "closed"},
-        "TRUE",  # GPR addresses are structurally in parties — placeholder
-        None,
-    ),
+    "georgia_probate_records": lambda: src_gpr(),
 }
 
 
@@ -856,7 +937,7 @@ def compute_source(cur, src: dict) -> dict:
     # The UPDATE is also scoped to the source's exclude_sql so two sources
     # sharing a table (Cobb / Rockdale) do not overwrite each other's rows.
     if src["key"] in ("new_york", "north_carolina", "ga_cobb", "ga_rockdale",
-                       "gwinnett", "oklahoma"):
+                       "gwinnett", "oklahoma", "georgia_probate_records"):
         _ensure_derived_status(cur, table)
         cur.execute(
             f'UPDATE "{table}" SET derived_status = ({bucket_sql}){where_clause if exclude_sql else ""}'
@@ -1029,6 +1110,8 @@ def _doc_playbook_counts(cur, src: dict) -> list[dict]:
         names_expr = "(jsonb_array_elements(COALESCE(documents,'[]'::jsonb))->>'document_name')"
     elif key in ("ga_cobb", "ga_rockdale"):
         names_expr = "(jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb))->>'name')"
+    elif key == "georgia_probate_records":
+        names_expr = "(jsonb_array_elements(COALESCE(documents,'[]'::jsonb))->>'name')"
     elif key == "gwinnett":
         names_expr = "(jsonb_array_elements(COALESCE(events,'[]'::jsonb))->>'name')"
     elif key == "oklahoma":
@@ -1121,6 +1204,39 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "georgia_probate_records":
+        pr_resp = "(p->>'responsibility') IN ('EXECUTOR','CO-EXECUTOR','ADMINISTRATOR','CO-ADMINISTRATOR','PETITIONER','APPLICANT','PERSONAL REPRESENTATIVE')"
+        heir_resp = "(p->>'responsibility') IN ('HEIR','BENEFICIARY','DISTRIBUTEE')"
+        rows = [
+            ("Decedent name",          "COALESCE(decedent_full,'') <> ''",          "decedent_full"),
+            ("Decedent street",        "COALESCE(decedent_street,'') <> ''",        "decedent_street"),
+            ("Decedent city/state/zip","COALESCE(decedent_city,'') <> '' AND COALESCE(decedent_state,'') <> '' AND COALESCE(decedent_zip,'') <> ''", "decedent_{city,state,zip}"),
+            ("Decedent date of death", "death_date IS NOT NULL",                    "death_date"),
+            ("Court name",             "COALESCE(court_name,'') <> ''",             "court_name"),
+            ("Source status set",      "COALESCE(status,'') <> ''",                  "status (OPEN / PENDING / CLOSED)"),
+            ("≥1 PR-equivalent party",
+             f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p WHERE jsonb_typeof(parties)='array' AND {pr_resp})",
+             "parties[responsibility in PR set]"),
+            ("≥1 PR-equivalent party with street",
+             f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p WHERE jsonb_typeof(parties)='array' AND {pr_resp} AND COALESCE(p->>'street','') <> '')",
+             "parties[responsibility in PR set].street"),
+            ("≥1 heir / beneficiary",
+             f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p WHERE jsonb_typeof(parties)='array' AND {heir_resp})",
+             "parties[responsibility in heir set]"),
+            ("≥1 heir / beneficiary with street",
+             f"EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p WHERE jsonb_typeof(parties)='array' AND {heir_resp} AND COALESCE(p->>'street','') <> '')",
+             "parties[responsibility in heir set].street"),
+            ("≥1 document on file",    "jsonb_typeof(documents)='array' AND jsonb_array_length(documents) > 0", "documents[]"),
+            ("≥1 active-marker doc",
+             "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d "
+             "        WHERE UPPER(COALESCE(d->>'name','')) LIKE '%LETTERS%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER ADMITTING WILL%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER APPOINTING%' "
+             "           OR UPPER(COALESCE(d->>'name','')) LIKE '%ORDER, OATH%')",
+             "documents[].name LIKE %LETTERS% / %ORDER ADMITTING WILL% / %ORDER APPOINTING% / %ORDER, OATH%"),
+            ("PR phone",               "FALSE",  "(GPR source does not capture phone)"),
+            ("PR email",               "FALSE",  "(GPR source does not capture email)"),
         ]
     elif key == "gwinnett":
         pr_roles_in = (
