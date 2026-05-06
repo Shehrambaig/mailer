@@ -1,0 +1,819 @@
+"""Build the /scrapers report snapshot.
+
+One row per source written to `scraper_report_snapshot.data` (jsonb).
+The Flask UI reads only from this snapshot, so the page stays fast.
+
+Run:
+    python scripts/build_scraper_report.py            # uses NEON_DB env
+    python scripts/build_scraper_report.py --dsn ...  # explicit
+
+Also (re)materializes a `derived_status` text column on each source table
+that has a doc-override rule (NY, NC, GA, Gwinnett, OK).
+"""
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, date
+from typing import Any
+
+import psycopg2
+import psycopg2.extras
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-source declarative config
+
+# Active "doc markers" (authority-grant) — informational only; not used to flip
+# bucket. Used to render the reference panel on the UI.
+# Close "doc markers" — case-insensitive substrings searched in the per-source
+# doc-name JSON path. If a row's source status is "open" but any close marker
+# matches, the row flips to `closed_by_doc`.
+
+NY = {
+    "key": "new_york",
+    "name": "New York Surrogate's Court",
+    "level": "State",
+    "table": "records",
+    "date_col": "filed_date",
+    "ts_col": "scrape_timestamp",
+    "county_col": "county",
+    "active_markers": [
+        "DECREE GRANTING PROBATE",
+        "DECREE GRANTING ADMINISTRATION",
+        "LETTERS TESTAMENTARY",
+        "LETTERS OF ADMINISTRATION",
+    ],
+    "close_markers": [
+        "REPORT AND ACCOUNT IN SETTLEMENT OF ESTATE",
+        "ORDER REVOKING LETTERS",
+        # "RECEIPT" is too generic to match safely — skip; final receipt detection
+        # would need richer doc metadata than document_names alone.
+    ],
+}
+
+NC = {
+    "key": "north_carolina",
+    "name": "North Carolina e-Courts",
+    "level": "State",
+    "table": "north_carolina",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+    "active_markers": [
+        "OAIL",
+        "Order Authorizing Issuance Of Letters",
+        "LEFC",
+        "Letters",
+        "AFCP",
+        "AFCT",
+    ],
+    "close_markers": [
+        "AFDD",
+        "Affidavit of Collection, Disbursement",
+        "Order of Discharge",
+        "Final Account",
+        "Order Closing",
+    ],
+}
+
+GA_COUNTY = {
+    "key": "ga_probate",
+    "name": "Georgia (Cobb + Rockdale)",
+    "level": "County",
+    "table": "ga_probate_cases",
+    "date_col": "filed_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+    "active_markers": [
+        "ORDER ADMITTING WILL",
+        "ORDER APPOINTING ADMINISTRATOR",
+        "ORDER, OATH, & LETTERS",
+        "Letters Testamentary",
+        "Letters of Administration",
+    ],
+    "close_markers": [
+        "Discharge Order",
+        "Petition for Discharge",
+        "Final Order for Year's Support",
+        "PYS Final Order",
+        "NAN Final Order",
+        "No Administration Necessary",
+    ],
+}
+
+GWINNETT = {
+    "key": "gwinnett",
+    "name": "Gwinnett County, Georgia",
+    "level": "County",
+    "table": "gwinnett",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "location_name",
+    "active_markers": [
+        "Order Admitting Will",
+        "Order Appointing",
+        "Order, Oath, & Letters",
+        "Letters Testamentary",
+        "Letters of Administration",
+    ],
+    "close_markers": [
+        "Discharge",
+        "Final Order for Year's Support",
+        "No Administration Necessary",
+        "Petition for Discharge",
+    ],
+}
+
+OK = {
+    "key": "oklahoma",
+    "name": "Oklahoma OSCN",
+    "level": "State",
+    "table": "ok_probate_cases",
+    "date_col": "filed_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+    "active_markers": [
+        "ORDER ADMITTING WILL",
+        "ORDER APPOINTING",
+        "LETTERS TESTAMENTARY",
+        "LETTERS OF ADMINISTRATION",
+    ],
+    "close_markers": [
+        "FINAL DECREE OF DISTRIBUTION",
+        "DECREE OF DISTRIBUTION",
+        "ORDER OF DISCHARGE",
+        "ORDER SETTLING FINAL ACCOUNT",
+    ],
+}
+
+CT = {
+    "key": "connecticut",
+    "name": "Connecticut Probate Court",
+    "level": "State",
+    "table": "ct_probate_cases",
+    "date_col": "filed_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+IN_SRC = {
+    "key": "indiana",
+    "name": "Indiana mycase.in.gov",
+    "level": "State",
+    "table": "indiana",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+MD = {
+    "key": "maryland",
+    "name": "Maryland Register of Wills",
+    "level": "State",
+    "table": "maryland",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+MI = {
+    "key": "michigan",
+    "name": "Michigan MiCOURT",
+    "level": "State",
+    "table": "michigan",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+MN = {
+    "key": "minnesota",
+    "name": "Minnesota MCRO",
+    "level": "State",
+    "table": "minnesota",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+WI = {
+    "key": "wisconsin",
+    "name": "Wisconsin Circuit Courts",
+    "level": "State",
+    "table": "wisconsin",
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+GPR = {
+    "key": "georgia_probate_records",
+    "name": "georgiaprobaterecords.com (statewide)",
+    "level": "State aggregator",
+    "table": "georgia",  # may not exist on Neon
+    "date_col": "file_date",
+    "ts_col": "scraped_at",
+    "county_col": "county",
+}
+
+ALL_SOURCES = [NY, NC, GA_COUNTY, GWINNETT, OK, CT, IN_SRC, MD, MI, MN, WI, GPR]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Doc-type playbook (static reference, used by the UI)
+DOC_PLAYBOOK = [
+    {"doc": "Petition for Letters / Application for Probate",
+     "yields": "PR name + address, decedent name + address + DOD, heirs/distributees + addresses, will Y/N"},
+    {"doc": "Letters Testamentary / Letters of Administration / Order Authorizing Issuance",
+     "yields": "Confirms PR appointed, PR name + address, appointment date"},
+    {"doc": "Affidavit of Heirship / Family Tree",
+     "yields": "Heir names, relationships, addresses, ages"},
+    {"doc": "Will (Recorded / Probated)",
+     "yields": "Beneficiaries, executor nominee, real-property bequests"},
+    {"doc": "Inventory",
+     "yields": "Real property addresses, parcel IDs, valuations — best source for property targeting"},
+    {"doc": "Decree Granting Probate / Decree Granting Administration",
+     "yields": "Final order, appointment confirmed"},
+    {"doc": "Order of Discharge / Final Account / Order Closing",
+     "yields": "Closure event — flips status to closed"},
+    {"doc": "Affidavit of Collection (small estate)",
+     "yields": "Substitute for Letters in small-estate cases — same PR + heir data"},
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+
+def _dsn() -> str:
+    return os.getenv("NEON_DB") or os.getenv("PROBATE_DATABASE_URL") or "postgresql://localhost:5432/probate"
+
+
+def _table_exists(cur, table: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema='public' AND table_name=%s",
+        (table,),
+    )
+    return cur.fetchone() is not None
+
+
+def _has_column(cur, table: str, col: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema='public' AND table_name=%s AND column_name=%s",
+        (table, col),
+    )
+    return cur.fetchone() is not None
+
+
+def _ensure_derived_status(cur, table: str) -> None:
+    if _table_exists(cur, table) and not _has_column(cur, table, "derived_status"):
+        cur.execute(f'ALTER TABLE "{table}" ADD COLUMN derived_status TEXT')
+
+
+def _array_lit(strings: list[str]) -> str:
+    """Build a SQL ARRAY[...] literal of single-quoted strings (escaped)."""
+    esc = lambda s: s.replace("'", "''")
+    return "ARRAY[" + ",".join(f"'{esc(s)}'" for s in strings) + "]"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-source SQL generators
+#
+# Each source returns:
+#  - `bucket_expr`: SQL CASE expression returning bucket key per row
+#  - `tier1_expr` : boolean expression (decedent street + rep street present)
+#  - `heir_expr`  : boolean expression (any heir-like party with street present)
+#                   (NULL if heir info not detectable from this source)
+
+def src_ny():
+    """NY — records.
+
+    petitioner_active drives bucket (Y=open, N=closed, ''=unknown).
+    Article 13 rows (proceeding ILIKE '%ARTICLE 13%') get their own bucket
+    regardless of petitioner_active.
+    Closure doc override checks document_names against close_markers.
+    Tier-1 = decedent_address->>'street' + petitioner_address->>'street'.
+    Heir = exists(other_parties) with role-like-heir + street present, OR
+           tiered_extraction.persons[].role='heir' with address.street present.
+    """
+    close_doc_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements_text(COALESCE(document_names,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(NY['close_markers'])}) m"
+        "      WHERE UPPER(d) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    bucket = (
+        "CASE "
+        "  WHEN UPPER(COALESCE(proceeding,'')) LIKE '%ARTICLE 13%' THEN 'article13' "
+        "  WHEN petitioner_active = 'N' THEN 'closed' "
+        f" WHEN petitioner_active = 'Y' AND {close_doc_check} THEN 'closed_by_doc' "
+        "  WHEN petitioner_active = 'Y' THEN 'active' "
+        f" WHEN {close_doc_check} THEN 'closed_by_doc' "
+        "  ELSE 'unknown' "
+        "END"
+    )
+    tier1 = (
+        "(COALESCE(decedent_address->>'street','') <> '' "
+        "  AND COALESCE(petitioner_address->>'street','') <> '')"
+    )
+    heir = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(tiered_extraction->'persons','[]'::jsonb)) p"
+        "  WHERE p->>'role' = 'heir' "
+        "    AND COALESCE(p->'address'->>'street','') <> ''"
+        ")"
+    )
+    return bucket, tier1, heir
+
+
+def src_nc():
+    """NC — north_carolina.
+
+    No source status. Closure detection from documents JSONB by document_name
+    or event_type matching close_markers. Active sub-bucket from active_markers.
+    Tier-1 from parties[]: decedent.line1 + (executor|administrator|petitioner|applicant).line1.
+    """
+    close_doc_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(NC['close_markers'])}) m"
+        "      WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%'"
+        "         OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    active_marker_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(documents,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(NC['active_markers'])}) m"
+        "      WHERE UPPER(COALESCE(d->>'document_name','')) LIKE '%' || UPPER(m) || '%'"
+        "         OR UPPER(COALESCE(d->>'event_type','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    bucket = (
+        "CASE "
+        f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
+        f"  WHEN {active_marker_check} THEN 'active_qualified' "
+        "   ELSE 'active_pending' "
+        "END"
+    )
+    tier1 = (
+        "("
+        "  EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "          WHERE LOWER(COALESCE(p->>'role',''))='decedent' "
+        "            AND COALESCE(p->>'line1','') <> '')"
+        "  AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "          WHERE LOWER(COALESCE(p->>'role','')) IN ('executor','administrator','petitioner','applicant') "
+        "            AND COALESCE(p->>'line1','') <> '')"
+        ")"
+    )
+    heir = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','distributee','beneficiary') "
+        "          AND COALESCE(p->>'line1','') <> '')"
+    )
+    return bucket, tier1, heir
+
+
+def src_ga_county():
+    """GA Cobb+Rockdale — ga_probate_cases.
+
+    Cobb has no source status; Rockdale has 'active' or NULL.
+    pdf_refs.name is sometimes present (Rockdale), sometimes only {cid,digest} (Cobb).
+    """
+    close_doc_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(GA_COUNTY['close_markers'])}) m"
+        "      WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    bucket = (
+        "CASE "
+        f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
+        "   WHEN raw->>'status' IN ('active') THEN 'active' "
+        "   ELSE 'unknown' "
+        "END"
+    )
+    tier1 = (
+        "(COALESCE(decedent_street,'') <> '' AND COALESCE(petitioner_street,'') <> '')"
+    )
+    heir = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary','distributee') "
+        "          AND COALESCE(p->>'street','') <> '')"
+    )
+    return bucket, tier1, heir
+
+
+def src_gwinnett():
+    """Gwinnett — events[].name is the doc list.
+
+    case_status: Filed, Granted, Incomplete, Appealed (active); Discharged (closed).
+    """
+    close_doc_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(events,'[]'::jsonb)) e"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(GWINNETT['close_markers'])}) m"
+        "      WHERE UPPER(COALESCE(e->>'name','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    bucket = (
+        "CASE "
+        "   WHEN case_status = 'Discharged' THEN 'closed' "
+        f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
+        "   WHEN case_status IN ('Filed','Granted','Incomplete','Appealed') THEN 'active' "
+        "   ELSE 'unknown' "
+        "END"
+    )
+    tier1 = (
+        "(COALESCE(decedent_street,'') <> '' "
+        " AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "             WHERE LOWER(COALESCE(p->>'role','')) IN ('petitioner','applicant','executor','administrator') "
+        "               AND COALESCE(p->>'street','') <> ''))"
+    )
+    heir = (
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary','distributee') "
+        "          AND COALESCE(p->>'street','') <> '')"
+    )
+    return bucket, tier1, heir
+
+
+def src_ok():
+    """OK — closed_date IS NOT NULL = closed; pdf_urls.name has doc titles."""
+    close_doc_check = (
+        "EXISTS ("
+        "  SELECT 1 FROM jsonb_array_elements(COALESCE(pdf_urls,'[]'::jsonb)) d"
+        "  WHERE EXISTS ("
+        f"    SELECT 1 FROM unnest({_array_lit(OK['close_markers'])}) m"
+        "      WHERE UPPER(COALESCE(d->>'name','')) LIKE '%' || UPPER(m) || '%'"
+        "  )"
+        ")"
+    )
+    bucket = (
+        "CASE "
+        "   WHEN closed_date IS NOT NULL THEN 'closed' "
+        f"  WHEN {close_doc_check} THEN 'closed_by_doc' "
+        "   ELSE 'active' "
+        "END"
+    )
+    # OK addresses live only in PDFs — tier-1 cols are 0% currently.
+    tier1 = (
+        "(COALESCE(decedent_street,'') <> '' AND COALESCE(petitioner_street,'') <> '')"
+    )
+    heir = "FALSE"
+    return bucket, tier1, heir
+
+
+def src_simple_status(table: str, status_col: str, mapping: dict[str, str], tier1_sql: str, heir_sql: str | None):
+    """Generic status mapping for sources without doc-override (CT, IN, MD, MI, MN, WI, GPR)."""
+    if not mapping:
+        # No status mapping → mark all rows unknown.
+        bucket = "'unknown'::text"
+    else:
+        cases = []
+        for status_value, b in mapping.items():
+            if status_value is None:
+                cases.append(f"WHEN {status_col} IS NULL THEN '{b}'")
+            else:
+                esc = status_value.replace("'", "''")
+                cases.append(f"WHEN UPPER({status_col}) = UPPER('{esc}') THEN '{b}'")
+        bucket = "CASE " + " ".join(cases) + " ELSE 'unknown' END"
+    return bucket, tier1_sql, heir_sql or "FALSE"
+
+
+SRC_LOGIC = {
+    "new_york": src_ny,
+    "north_carolina": src_nc,
+    "ga_probate": src_ga_county,
+    "gwinnett": src_gwinnett,
+    "oklahoma": src_ok,
+    "connecticut": lambda: src_simple_status(
+        "ct_probate_cases", "case_type_code",
+        # CT has no real status field — case_type_code is the closest, but it's
+        # really a document type. We mark all rows 'unknown' until re-scrape
+        # adds a status field.
+        {},
+        "(COALESCE(petitioner_street,'') <> '')",  # decedent street not stored
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary') "
+        "          AND COALESCE(p->>'street','') <> '')",
+    ),
+    "indiana": lambda: src_simple_status(
+        "indiana", "case_status",
+        {"Pending": "active", "Decided": "closed"},
+        "(COALESCE(decedent_street,'') <> '' AND COALESCE(rep_street,'') <> '')",
+        None,
+    ),
+    "maryland": lambda: src_simple_status(
+        "maryland", "case_status",
+        {"OPEN": "active", "CLOSED": "closed", None: "unknown"},
+        "(COALESCE(rep_street,'') <> '')",  # MD never captures decedent street
+        None,
+    ),
+    "michigan": lambda: src_simple_status(
+        "michigan", "case_status",
+        {"Open": "active", "Closed": "closed"},
+        "(COALESCE(decedent_street,'') <> '' "
+        " AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "             WHERE LOWER(COALESCE(p->>'role','')) IN ('petitioner','executor','administrator') "
+        "               AND COALESCE(p->>'street','') <> ''))",
+        None,
+    ),
+    "minnesota": lambda: src_simple_status(
+        "minnesota", "case_status",
+        {"Open": "active", "Under Court Jurisdiction": "active", "Closed": "closed", None: "unknown"},
+        "(COALESCE(decedent_street,'') <> '' "
+        " AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
+        "             WHERE LOWER(COALESCE(p->>'role','')) IN ('petitioner','executor','administrator') "
+        "               AND COALESCE(p->>'street','') <> ''))",
+        None,
+    ),
+    "wisconsin": lambda: src_simple_status(
+        "wisconsin", "case_status",
+        {"Open": "active", "Reopened": "active", "Closed": "closed"},
+        "(COALESCE(decedent_street,'') <> '')",  # WI rep address not captured
+        None,
+    ),
+    "georgia_probate_records": lambda: src_simple_status(
+        "georgia", "status",
+        {"OPEN": "active", "PENDING": "active", "CLOSED": "closed"},
+        "TRUE",  # GPR addresses are structurally in parties — placeholder
+        None,
+    ),
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshot computation per source
+
+def compute_source(cur, src: dict) -> dict:
+    table = src["table"]
+    if not _table_exists(cur, table):
+        return {**src, "missing": True, "total": 0}
+
+    bucket_sql, tier1_sql, heir_sql = SRC_LOGIC[src["key"]]()
+    date_col = src["date_col"]
+    ts_col = src["ts_col"]
+    county_col = src["county_col"]
+
+    # Materialize derived_status for sources that have a doc-override rule.
+    if src["key"] in ("new_york", "north_carolina", "ga_probate", "gwinnett", "oklahoma"):
+        _ensure_derived_status(cur, table)
+        cur.execute(f'UPDATE "{table}" SET derived_status = ({bucket_sql})')
+
+    # Bucket aggregates: count, tier-1 complete, tier-1+heir complete.
+    cur.execute(f"""
+        SELECT
+            ({bucket_sql})                                AS bucket,
+            COUNT(*)::bigint                              AS rows,
+            COUNT(*) FILTER (WHERE {tier1_sql})::bigint   AS tier1,
+            COUNT(*) FILTER (WHERE {tier1_sql} AND {heir_sql})::bigint AS tier1_heir
+        FROM "{table}"
+        GROUP BY 1
+        ORDER BY 1
+    """)
+    buckets = {}
+    for b, n, t1, t1h in cur.fetchall():
+        buckets[b] = {
+            "count": int(n),
+            "tier1_complete": int(t1),
+            "tier1_complete_pct": round(100.0 * t1 / n, 1) if n else 0.0,
+            "tier1_heir_complete": int(t1h),
+            "tier1_heir_complete_pct": round(100.0 * t1h / n, 1) if n else 0.0,
+        }
+
+    # Total + last_scraped + scrape window.
+    cur.execute(f'SELECT COUNT(*), MAX("{ts_col}") FROM "{table}"')
+    total, last_scraped = cur.fetchone()
+    total = int(total or 0)
+
+    # Scrape window — handle text vs date columns.
+    try:
+        cur.execute(
+            f'SELECT MIN("{date_col}"::date)::text, MAX("{date_col}"::date)::text '
+            f'FROM "{table}" WHERE "{date_col}" IS NOT NULL'
+        )
+        scrape_window = cur.fetchone()
+    except psycopg2.Error:
+        cur.connection.rollback()
+        try:
+            cur.execute(f'SELECT MIN("{date_col}"), MAX("{date_col}") FROM "{table}"')
+            r = cur.fetchone()
+            scrape_window = (str(r[0]) if r[0] else None, str(r[1]) if r[1] else None)
+        except psycopg2.Error:
+            cur.connection.rollback()
+            scrape_window = (None, None)
+
+    # Daily timeline — count of rows per scrape day (uses ts_col).
+    cur.execute(f"""
+        SELECT DATE("{ts_col}") AS d, COUNT(*)::bigint
+        FROM "{table}"
+        WHERE "{ts_col}" IS NOT NULL
+        GROUP BY 1 ORDER BY 1
+    """)
+    timeline = [{"day": d.isoformat(), "count": int(n)} for d, n in cur.fetchall()]
+
+    # County breakdown — count + active/closed/closed_by_doc + completeness + last scraped.
+    cur.execute(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM("{county_col}"::text),''),'— Unknown') AS county,
+            COUNT(*)::bigint                                            AS rows,
+            COUNT(*) FILTER (WHERE ({bucket_sql}) IN ('active','active_pending','active_qualified'))::bigint AS active,
+            COUNT(*) FILTER (WHERE ({bucket_sql}) = 'closed')::bigint                          AS closed,
+            COUNT(*) FILTER (WHERE ({bucket_sql}) = 'closed_by_doc')::bigint                   AS closed_by_doc,
+            COUNT(*) FILTER (WHERE ({bucket_sql}) = 'article13')::bigint                       AS article13,
+            COUNT(*) FILTER (WHERE {tier1_sql})::bigint                                        AS tier1,
+            MAX("{ts_col}")                                                                    AS last_scraped
+        FROM "{table}"
+        GROUP BY 1
+        ORDER BY rows DESC, county ASC
+    """)
+    counties = []
+    for row in cur.fetchall():
+        county, rows, active, closed, cbd, art13, tier1, ls = row
+        counties.append({
+            "county": county,
+            "count": int(rows),
+            "active": int(active),
+            "closed": int(closed),
+            "closed_by_doc": int(cbd),
+            "article13": int(art13),
+            "tier1_complete_pct": round(100.0 * tier1 / rows, 1) if rows else 0.0,
+            "last_scraped": ls.isoformat() if ls else None,
+        })
+
+    # Doc playbook — per-source counts of cases that have ≥1 doc matching each
+    # playbook category (best-effort; the source may not surface doc names).
+    doc_counts = _doc_playbook_counts(cur, src)
+
+    return {
+        "key": src["key"],
+        "name": src["name"],
+        "level": src["level"],
+        "table": table,
+        "date_field": date_col,
+        "scrape_window": list(scrape_window) if scrape_window else [None, None],
+        "total": total,
+        "last_scraped": last_scraped.isoformat() if last_scraped else None,
+        "buckets": buckets,
+        "active_markers": src.get("active_markers", []),
+        "close_markers": src.get("close_markers", []),
+        "timeline": timeline,
+        "counties": counties,
+        "doc_playbook_counts": doc_counts,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Doc playbook — per-source counts
+
+PLAYBOOK_PATTERNS = [
+    ("Petition / Application",        ["PETITION", "APPLICATION FOR PROBATE"]),
+    ("Letters / Order Authorizing",   ["LETTERS", "ORDER AUTHORIZING ISSUANCE"]),
+    ("Affidavit of Heirship / Family", ["AFFIDAVIT OF HEIRSHIP", "FAMILY TREE", "FAMILY HISTORY"]),
+    ("Will",                          ["WILL"]),
+    ("Inventory",                     ["INVENTORY"]),
+    ("Decree Granting",               ["DECREE GRANTING"]),
+    ("Discharge / Final Account",     ["DISCHARGE", "FINAL ACCOUNT", "ORDER CLOSING"]),
+    ("Affidavit of Collection (small)", ["AFFIDAVIT OF COLLECTION", "AFCT", "AFCP"]),
+]
+
+
+def _doc_playbook_counts(cur, src: dict) -> list[dict]:
+    """For each playbook row, count cases with at least one doc matching the patterns.
+
+    Doc-name JSON path varies per source. If no doc-name list is available
+    (e.g., CT, IN, MD without document tracking), return empty.
+    """
+    table = src["table"]
+    key = src["key"]
+
+    # Source → SQL fragment that returns text doc names per row.
+    if key == "new_york":
+        names_expr = "jsonb_array_elements_text(COALESCE(document_names,'[]'::jsonb))"
+    elif key == "north_carolina":
+        names_expr = "(jsonb_array_elements(COALESCE(documents,'[]'::jsonb))->>'document_name')"
+    elif key == "ga_probate":
+        names_expr = "(jsonb_array_elements(COALESCE(pdf_refs,'[]'::jsonb))->>'name')"
+    elif key == "gwinnett":
+        names_expr = "(jsonb_array_elements(COALESCE(events,'[]'::jsonb))->>'name')"
+    elif key == "oklahoma":
+        names_expr = "(jsonb_array_elements(COALESCE(pdf_urls,'[]'::jsonb))->>'name')"
+    else:
+        return []
+
+    out = []
+    for label, patterns in PLAYBOOK_PATTERNS:
+        # Build OR of UPPER(name) LIKE '%PAT%'
+        cond = " OR ".join("UPPER(n) LIKE '%%' || %s || '%%'" for _ in patterns)
+        params = [p.upper() for p in patterns]
+        cur.execute(
+            f'SELECT COUNT(DISTINCT t.id) FROM "{table}" t, '
+            f'LATERAL (SELECT {names_expr} AS n) x '
+            f'WHERE x.n IS NOT NULL AND ({cond})',
+            params,
+        )
+        n = cur.fetchone()[0] or 0
+        out.append({"doc_type": label, "rows_with_doc": int(n), "yields": _playbook_yields(label)})
+    return out
+
+
+def _playbook_yields(label: str) -> str:
+    for entry in DOC_PLAYBOOK:
+        if any(part.strip().lower() in entry["doc"].lower() for part in label.split("/")):
+            return entry["yields"]
+    return ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshot table
+
+def ensure_snapshot_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS scraper_report_snapshot (
+            code         TEXT PRIMARY KEY,
+            data         JSONB NOT NULL,
+            computed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+
+def write_snapshot(cur, key: str, payload: dict) -> None:
+    cur.execute(
+        "INSERT INTO scraper_report_snapshot (code, data, computed_at) "
+        "VALUES (%s, %s::jsonb, NOW()) "
+        "ON CONFLICT (code) DO UPDATE SET data = EXCLUDED.data, computed_at = NOW()",
+        (key, json.dumps(payload, default=str)),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dsn", default=None, help="Postgres DSN (defaults to NEON_DB / PROBATE_DATABASE_URL)")
+    ap.add_argument("--only", default=None, help="Comma-separated source keys to process")
+    args = ap.parse_args(argv)
+
+    dsn = args.dsn or _dsn()
+    only = set(s.strip() for s in args.only.split(",")) if args.only else None
+
+    print(f"[snapshot] connecting to {dsn.split('@')[-1].split('?')[0]}")
+    conn = psycopg2.connect(dsn, connect_timeout=15)
+    conn.autocommit = False
+    try:
+        with conn.cursor() as cur:
+            ensure_snapshot_table(cur)
+        conn.commit()
+
+        with conn.cursor() as cur:
+            for src in ALL_SOURCES:
+                if only and src["key"] not in only:
+                    continue
+                t0 = datetime.now()
+                try:
+                    payload = compute_source(cur, src)
+                    write_snapshot(cur, src["key"], payload)
+                    conn.commit()
+                    elapsed = (datetime.now() - t0).total_seconds()
+                    if payload.get("missing"):
+                        print(f"[snapshot] {src['key']:24} table {src['table']!r} not found — skipped")
+                    else:
+                        b = payload.get("buckets", {})
+                        summary = " ".join(f"{k}={v['count']}" for k, v in b.items())
+                        print(f"[snapshot] {src['key']:24} total={payload['total']:>5}  {summary}  ({elapsed:.1f}s)")
+                except Exception as e:
+                    conn.rollback()
+                    import traceback
+                    print(f"[snapshot] {src['key']:24} ERROR: {e}", file=sys.stderr)
+                    traceback.print_exc()
+
+        print("[snapshot] done.")
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,64 +1,24 @@
-"""Scrapers status page — read-only inventory of scraped sources.
+"""Scrapers status page — reads from `scraper_report_snapshot`.
 
-Two routes:
-  /scrapers/                         → simple grid of scrapers with totals
-  /scrapers/api/<key>/timeline       → daily scrape counts (for the line chart)
+Endpoints:
+  /scrapers/                              page (snapshot summary + per-source report)
+  /scrapers/api/all                       JSON list of every snapshot row (drives the page)
+  /scrapers/api/<key>                     JSON for one source's snapshot
+  /scrapers/ny/cases                      paged NY case list (search by name / case_number)
+  /scrapers/ny/case/<case_number>         tiered_extraction for one NY case (drill-in)
 
-The page reads counts and timestamps from the local probate Postgres so the
-operator can see exactly what's in the database without leaving the app.
+Snapshot is built by `scripts/build_scraper_report.py` — we only read here.
+Foreclosure/auction sources are intentionally not on this page anymore.
 """
-
+from __future__ import annotations
 import os
+from urllib.parse import unquote
+
 import psycopg2
 import psycopg2.extras
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify, render_template, request
 
 scrapers_bp = Blueprint("scrapers", __name__)
-
-
-# Each entry uses a complete, human-readable name. `kind` selects the count
-# strategy: "fc" reads from the shared foreclosure_records table partitioned
-# by `source`; "tbl" reads from a dedicated per-state table.
-SCRAPERS = [
-    # Foreclosure feeds aren't tied to a county column in this DB, so the
-    # county breakdown for these uses ZIP→state and skips county.
-    {"key": "foreclosure_com", "name": "Foreclosure.com",  "category": "Foreclosure",
-     "kind": "fc",  "source": "foreclosure_com"},
-    {"key": "auction_com",     "name": "Auction.com",      "category": "Foreclosure",
-     "kind": "fc",  "source": "auction_com"},
-
-    # Probate feeds — county_col is the column name in the table that holds
-    # the county/locality string. Used for the per-county drill-in.
-    {"key": "new_york",        "name": "New York",         "category": "Probate",
-     "kind": "tbl", "table": "records",          "ts_col": "scrape_timestamp", "county_col": "county"},
-    {"key": "north_carolina",  "name": "North Carolina",   "category": "Probate",
-     "kind": "tbl", "table": "north_carolina",   "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "maryland",        "name": "Maryland",         "category": "Probate",
-     "kind": "tbl", "table": "maryland",         "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "connecticut",     "name": "Connecticut",      "category": "Probate",
-     "kind": "tbl", "table": "ct_probate_cases", "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "georgia",         "name": "Georgia",          "category": "Probate",
-     "kind": "tbl", "table": "ga_probate_cases", "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "gwinnett",        "name": "Gwinnett County, Georgia", "category": "Probate",
-     "kind": "tbl", "table": "gwinnett",         "ts_col": "scraped_at",       "county_col": "location_name"},
-    {"key": "oklahoma",        "name": "Oklahoma",         "category": "Probate",
-     "kind": "tbl", "table": "ok_probate_cases", "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "wisconsin",       "name": "Wisconsin",        "category": "Probate",
-     "kind": "tbl", "table": "wisconsin",        "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "indiana",         "name": "Indiana",          "category": "Probate",
-     "kind": "tbl", "table": "indiana",          "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "minnesota",       "name": "Minnesota",        "category": "Probate",
-     "kind": "tbl", "table": "minnesota",        "ts_col": "scraped_at",       "county_col": "county"},
-    {"key": "michigan",        "name": "Michigan",         "category": "Probate",
-     "kind": "tbl", "table": "michigan",         "ts_col": "scraped_at",       "county_col": "county"},
-]
-
-
-def _get_scraper(key: str):
-    for s in SCRAPERS:
-        if s["key"] == key:
-            return s
-    return None
 
 
 def _dsn() -> str:
@@ -69,151 +29,147 @@ def _dsn() -> str:
     )
 
 
-def _exists(cur, table: str) -> bool:
-    cur.execute(
-        "SELECT 1 FROM information_schema.tables "
-        "WHERE table_schema = 'public' AND table_name = %s",
-        (table,),
-    )
-    return cur.fetchone() is not None
+def _connect():
+    return psycopg2.connect(_dsn(), connect_timeout=8)
 
 
-def _scraper_stats(cur):
-    out = []
-    for s in SCRAPERS:
-        rec = {"key": s["key"], "name": s["name"], "category": s["category"],
-               "count": 0, "last_scraped": None, "missing": False}
-        try:
-            if s["kind"] == "fc":
-                if _exists(cur, "foreclosure_records"):
-                    cur.execute(
-                        "SELECT COUNT(*)::bigint, MAX(scraped_at) "
-                        "FROM foreclosure_records WHERE source = %s",
-                        (s["source"],),
-                    )
-                    n, ts = cur.fetchone()
-                    rec["count"] = int(n or 0)
-                    rec["last_scraped"] = ts.isoformat() if ts else None
-                else:
-                    rec["missing"] = True
-            else:
-                if _exists(cur, s["table"]):
-                    # Identifier comes from the hardcoded manifest, not user input.
-                    cur.execute(
-                        f'SELECT COUNT(*)::bigint, MAX("{s["ts_col"]}") '
-                        f'FROM "{s["table"]}"'
-                    )
-                    n, ts = cur.fetchone()
-                    rec["count"] = int(n or 0)
-                    rec["last_scraped"] = ts.isoformat() if ts else None
-                else:
-                    rec["missing"] = True
-        except Exception as e:  # noqa: BLE001 — show as inactive rather than 500
-            rec["error"] = str(e)[:120]
-            rec["missing"] = True
-        out.append(rec)
-    return out
+def _load_snapshot() -> list[dict]:
+    """Return all snapshot rows ordered by total descending."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT to_regclass('public.scraper_report_snapshot') IS NOT NULL AS ok")
+            if not cur.fetchone()["ok"]:
+                return []
+            cur.execute(
+                "SELECT data, computed_at FROM scraper_report_snapshot "
+                "ORDER BY (data->>'total')::int DESC NULLS LAST"
+            )
+            out = []
+            for row in cur.fetchall():
+                d = dict(row["data"])
+                d["computed_at"] = row["computed_at"].isoformat() if row["computed_at"] else None
+                out.append(d)
+            return out
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Page
 
 @scrapers_bp.route("/")
 def index():
-    conn = psycopg2.connect(_dsn(), connect_timeout=5)
-    try:
-        with conn.cursor() as cur:
-            scrapers = _scraper_stats(cur)
-    finally:
-        conn.close()
-
-    total_records  = sum(s["count"] for s in scrapers)
-    active_sources = sum(1 for s in scrapers if s["count"] > 0)
-
+    sources = _load_snapshot()
+    total_records  = sum(int(s.get("total") or 0) for s in sources)
+    total_active   = sum((s.get("buckets", {}).get("active", {}) or {}).get("count", 0) for s in sources)
+    total_active  += sum((s.get("buckets", {}).get("active_pending", {}) or {}).get("count", 0) for s in sources)
+    total_active  += sum((s.get("buckets", {}).get("active_qualified", {}) or {}).get("count", 0) for s in sources)
+    total_closed   = sum((s.get("buckets", {}).get("closed", {}) or {}).get("count", 0) for s in sources)
+    total_closed  += sum((s.get("buckets", {}).get("closed_by_doc", {}) or {}).get("count", 0) for s in sources)
     summary = {
         "total_records":  total_records,
-        "active_sources": active_sources,
-        "total_sources":  len(scrapers),
+        "total_active":   total_active,
+        "total_closed":   total_closed,
+        "total_sources":  len(sources),
+        "computed_at":    sources[0]["computed_at"] if sources else None,
     }
-    return render_template("scrapers/index.html", scrapers=scrapers, summary=summary)
+    return render_template("scrapers/index.html", sources=sources, summary=summary)
 
 
-def _columns(cur, table: str) -> set[str]:
-    cur.execute(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema = 'public' AND table_name = %s",
-        (table,),
-    )
-    return {r[0] for r in cur.fetchall()}
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshot JSON APIs
+
+@scrapers_bp.route("/api/all")
+def api_all():
+    return jsonify(_load_snapshot())
 
 
-@scrapers_bp.route("/api/<key>/timeline")
-def timeline(key: str):
-    """Return per-scrape-day points (line chart) and per-county totals.
+@scrapers_bp.route("/api/<key>")
+def api_one(key: str):
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT data, computed_at FROM scraper_report_snapshot WHERE code = %s",
+                (key,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return jsonify({"error": f"unknown source: {key}"}), 404
+    d = dict(row["data"])
+    d["computed_at"] = row["computed_at"].isoformat() if row["computed_at"] else None
+    return jsonify(d)
 
-    Probate tables group by DATE(ts_col) for points and by county_col for
-    counties. Foreclosure feeds skip the county breakdown — they're national
-    aggregates indexed by ZIP, not county.
-    """
-    s = _get_scraper(key)
-    if not s:
-        return jsonify({"error": f"unknown scraper: {key}"}), 404
 
-    points = []
-    counties = []
-    conn = psycopg2.connect(_dsn(), connect_timeout=5)
-    try:
-        with conn.cursor() as cur:
-            if s["kind"] == "fc":
-                if _exists(cur, "foreclosure_records"):
-                    cur.execute(
-                        "SELECT DATE(scraped_at) AS day, COUNT(*)::bigint AS count "
-                        "FROM foreclosure_records WHERE source = %s "
-                        "GROUP BY 1 ORDER BY 1",
-                        (s["source"],),
-                    )
-                    points = [{"day": d.isoformat(), "count": int(n)} for d, n in cur.fetchall()]
-            else:
-                table   = s["table"]
-                ts_col  = s["ts_col"]
-                cty_col = s.get("county_col")
-                if _exists(cur, table):
-                    cur.execute(
-                        f'SELECT DATE("{ts_col}") AS day, COUNT(*)::bigint AS count '
-                        f'FROM "{table}" WHERE "{ts_col}" IS NOT NULL '
-                        f'GROUP BY 1 ORDER BY 1'
-                    )
-                    points = [{"day": d.isoformat(), "count": int(n)} for d, n in cur.fetchall()]
+# ─────────────────────────────────────────────────────────────────────────────
+# NY drill-in
 
-                    cols = _columns(cur, table) if cty_col else set()
-                    if cty_col and cty_col in cols:
-                        # INITCAP + strip trailing " County" / " Court" so the
-                        # display name is clean ("Wake", "Cobb") regardless of
-                        # how the source spells it.
-                        cur.execute(f'''
-                            SELECT
-                                INITCAP(REGEXP_REPLACE(
-                                    COALESCE(NULLIF(TRIM("{cty_col}"), ''), '— Unknown'),
-                                    '\\s+(County|Court).*$', '', 'i'
-                                )) AS county,
-                                COUNT(*)::bigint AS count,
-                                MAX("{ts_col}") AS last_scraped
-                            FROM "{table}"
-                            GROUP BY 1
-                            ORDER BY count DESC, county ASC
-                        ''')
-                        counties = [
-                            {
-                                "county":       r[0],
-                                "count":        int(r[1] or 0),
-                                "last_scraped": r[2].isoformat() if r[2] else None,
-                            }
-                            for r in cur.fetchall()
-                        ]
-    finally:
-        conn.close()
+@scrapers_bp.route("/ny/cases")
+def ny_cases():
+    q = (request.args.get("q") or "").strip()
+    limit = min(int(request.args.get("limit") or 50), 200)
+    offset = max(int(request.args.get("offset") or 0), 0)
 
-    return jsonify({
-        "key":      key,
-        "name":     s["name"],
-        "points":   points,
-        "counties": counties,
-        "total":    sum(p["count"] for p in points),
-    })
+    where = []
+    params: list = []
+    if q:
+        where.append(
+            "(case_number ILIKE %s "
+            " OR COALESCE(decedent->>'full_name','') ILIKE %s "
+            " OR COALESCE(petitioner->>'full_name','') ILIKE %s)"
+        )
+        params.extend([f"%{q}%"] * 3)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    case_number,
+                    county,
+                    filed_date,
+                    death_date,
+                    proceeding,
+                    petitioner_active,
+                    decedent->>'full_name'     AS decedent_name,
+                    petitioner->>'full_name'   AS petitioner_name,
+                    (tiered_extraction IS NOT NULL) AS has_extraction,
+                    jsonb_array_length(COALESCE(tiered_extraction->'persons','[]'::jsonb)) AS persons_n,
+                    jsonb_array_length(COALESCE(tiered_extraction->'real_property','[]'::jsonb)) AS props_n
+                FROM records
+                {where_sql}
+                ORDER BY scrape_timestamp DESC NULLS LAST
+                LIMIT %s OFFSET %s
+                """,
+                params + [limit, offset],
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(f"SELECT COUNT(*) FROM records {where_sql}", params)
+            total = cur.fetchone()["count"]
+
+    return jsonify({"total": total, "limit": limit, "offset": offset, "cases": rows})
+
+
+@scrapers_bp.route("/ny/case/<path:case_number>")
+def ny_case_detail(case_number: str):
+    case_number = unquote(case_number)
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    case_number, court, county, filed_date, death_date, proceeding,
+                    decedent, decedent_address,
+                    petitioner, petitioner_address, petitioner_phone, petitioner_email,
+                    petitioner_role, petitioner_active, petitioner_appointed_date,
+                    other_parties,
+                    document_names, pdf_url,
+                    tiered_extraction, tiered_extracted_at
+                FROM records
+                WHERE case_number = %s
+                """,
+                (case_number,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return jsonify({"error": f"unknown case: {case_number}"}), 404
+    return jsonify(dict(row))

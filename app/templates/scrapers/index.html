@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Scrapers — Mailer Intel{% endblock %}
-{% block tagline %}Scraper Inventory — Records & Run History{% endblock %}
+{% block tagline %}Scraper Inventory — Records, Active/Closed, Field Coverage{% endblock %}
 
 {% block extra_head %}
 <style>
 .scr-page { display:flex; flex-direction:column; gap:18px; }
 
-.scr-hero { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
-@media(max-width: 700px) { .scr-hero { grid-template-columns: 1fr; } }
+.scr-hero { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; }
+@media(max-width: 900px) { .scr-hero { grid-template-columns: repeat(2,1fr); } }
+@media(max-width: 500px) { .scr-hero { grid-template-columns: 1fr; } }
 .scr-metric {
     padding:18px 20px;
     background:var(--bg-card); backdrop-filter:blur(12px);
@@ -25,6 +26,10 @@
 .scr-metric .val.gradient {
     background:linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
     -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+.scr-stamp {
+    margin-top:8px; font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase;
+    color: var(--text-muted);
 }
 
 .scr-list { display:flex; flex-direction:column; gap:10px; }
@@ -45,7 +50,6 @@
     user-select:none;
 }
 .scr-row.disabled { cursor: default; }
-
 .scr-chev {
     color: var(--text-muted);
     transition: transform .2s;
@@ -54,17 +58,20 @@
 }
 .scr-card.open .scr-chev { transform: rotate(90deg); color: var(--accent-cyan); }
 
-.scr-cat {
+.scr-level {
     font-size:.55rem; letter-spacing:1.4px; text-transform:uppercase;
     padding:3px 8px; border-radius:4px; font-weight:700;
+    background: rgba(124,58,237,.12); color:#c4b5fd;
+    border:1px solid rgba(124,58,237,.28);
     flex-shrink: 0;
 }
-.scr-cat.cat-foreclosure { background:rgba(239,68,68,.10); color:#f87171; border:1px solid rgba(239,68,68,.22); }
-.scr-cat.cat-probate     { background:rgba(124,58,237,.12); color:#c4b5fd; border:1px solid rgba(124,58,237,.28); }
+.scr-level.lvl-county { background: rgba(34,197,94,.10); color:#86efac; border-color: rgba(34,197,94,.25); }
+.scr-level.lvl-state-aggregator { background: rgba(245,158,11,.10); color:#fcd34d; border-color: rgba(245,158,11,.28); }
 
 .scr-name {
     font-size:.95rem; font-weight:600; color:var(--text-primary);
-    flex: 1;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .scr-meta {
     display:flex; align-items:center; gap:18px;
@@ -72,37 +79,79 @@
 }
 .scr-count {
     font-size:1.1rem; font-weight:700; color:var(--text-primary);
-    min-width: 90px; text-align:right;
+    min-width: 70px; text-align:right;
 }
 .scr-count.zero { color: var(--text-muted); font-weight:500; }
+.scr-pill {
+    font-size:.62rem; letter-spacing:.8px; text-transform:uppercase;
+    padding:3px 7px; border-radius:4px; font-weight:700;
+    background: rgba(255,255,255,.04); color: var(--text-muted);
+    border:1px solid rgba(255,255,255,.08);
+    min-width: 60px; text-align:center;
+}
+.scr-pill.active     { background: rgba(34,197,94,.10);  color:#86efac; border-color: rgba(34,197,94,.25); }
+.scr-pill.closed     { background: rgba(148,163,184,.10);color:#cbd5e1; border-color: rgba(148,163,184,.20); }
+.scr-pill.closed-doc { background: rgba(245,158,11,.10); color:#fcd34d; border-color: rgba(245,158,11,.25); }
+.scr-pill.article13  { background: rgba(124,58,237,.12); color:#c4b5fd; border-color: rgba(124,58,237,.28); }
+.scr-pill.unknown    { background: rgba(239,68,68,.06);  color:#fca5a5; border-color: rgba(239,68,68,.18); }
+
 .scr-last {
     font-size:.7rem; color:var(--text-muted); letter-spacing:.3px;
-    min-width: 130px; text-align:right;
+    min-width: 100px; text-align:right;
 }
 
 .scr-panel {
     display:none;
-    padding: 6px 18px 18px;
+    padding: 8px 18px 20px;
     border-top: 1px solid var(--border-glass);
     background: rgba(0,0,0,.18);
 }
 .scr-card.open .scr-panel { display:block; }
 
-.scr-chart-wrap {
-    margin-top: 10px;
+.scr-section {
+    margin-top: 14px;
     background: rgba(0,0,0,.25);
     border: 1px solid var(--border-glass);
     border-radius: 8px;
-    padding: 14px 16px 8px;
+    padding: 12px 16px;
 }
-.scr-chart-empty {
-    padding: 24px 0;
-    text-align:center; color: var(--text-muted); font-size:.78rem;
+.scr-section-title {
+    font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase;
+    color: var(--text-muted); font-weight: 700;
+    margin-bottom: 8px;
 }
-.scr-chart-msg {
-    font-size:.7rem; color: var(--text-muted); letter-spacing:.4px;
-    margin-bottom: 4px;
+
+.scr-buckets {
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;
 }
+.scr-bucket {
+    background: rgba(255,255,255,.02);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.scr-bucket.bucket-active     { border-color: rgba(34,197,94,.25); }
+.scr-bucket.bucket-closed     { border-color: rgba(148,163,184,.25); }
+.scr-bucket.bucket-closed-doc { border-color: rgba(245,158,11,.25); }
+.scr-bucket.bucket-article13  { border-color: rgba(124,58,237,.30); }
+.scr-bucket.bucket-unknown    { border-color: rgba(239,68,68,.18); }
+.scr-bucket .lbl {
+    font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase;
+    color: var(--text-secondary); font-weight: 700;
+}
+.scr-bucket .val { font-size:1.45rem; font-weight:700; color:var(--text-primary); margin-top:4px; font-variant-numeric: tabular-nums; }
+.scr-bucket .pct {
+    font-size: .68rem; color: var(--text-muted); margin-top: 6px; line-height: 1.5;
+}
+.scr-bucket .pct strong { color: var(--accent-cyan); font-weight: 600; }
+
+.scr-markers { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media(max-width: 700px) { .scr-markers { grid-template-columns: 1fr; } }
+.scr-markers ul { margin: 0; padding-left: 18px; font-size: .78rem; color: var(--text-secondary); line-height: 1.6; }
+.scr-markers .heading { font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; margin-bottom:6px; }
+.scr-markers .heading.act { color:#86efac; }
+.scr-markers .heading.cls { color:#fcd34d; }
+.scr-markers .empty { color: var(--text-muted); font-style: italic; font-size: .75rem; }
 
 .scr-svg { width:100%; height: 200px; display:block; }
 .scr-svg .axis     { stroke: rgba(255,255,255,.10); stroke-width: 1; }
@@ -110,143 +159,361 @@
 .scr-svg .line     { fill: none; stroke: var(--accent-cyan); stroke-width: 2; filter: drop-shadow(0 0 4px rgba(0,240,255,.4)); }
 .scr-svg .area     { fill: url(#scr-area-grad); }
 .scr-svg .pt       { fill: var(--accent-cyan); }
-.scr-svg .pt-hit   { fill: transparent; }
 .scr-svg .lbl      { fill: var(--text-muted); font-size: 10px; font-family: 'Inter'; }
-.scr-svg .pt-lbl   { fill: var(--text-primary); font-size: 10px; font-weight: 600; font-family: 'Inter'; }
 
-.scr-counties {
-    margin-top: 14px;
-    background: rgba(0,0,0,.25);
-    border: 1px solid var(--border-glass);
-    border-radius: 8px;
-    padding: 12px 16px;
+.scr-county-tbl { width:100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.scr-county-tbl th, .scr-county-tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px dashed rgba(255,255,255,.06); }
+.scr-county-tbl th { font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,.10); }
+.scr-county-tbl th:first-child, .scr-county-tbl td:first-child { text-align: left; }
+.scr-county-tbl tbody tr:hover { background: rgba(255,255,255,.02); }
+.scr-county-tbl .num-active     { color: #86efac; }
+.scr-county-tbl .num-closed     { color: #cbd5e1; }
+.scr-county-tbl .num-closed-doc { color: #fcd34d; }
+.scr-county-tbl .num-article13  { color: #c4b5fd; }
+.scr-county-tbl .num-pct        { color: var(--accent-cyan); }
+.scr-county-tbl .num-zero       { color: var(--text-muted); }
+
+.scr-playbook { width:100%; border-collapse: collapse; font-size: .76rem; }
+.scr-playbook th, .scr-playbook td { padding: 6px 8px; text-align: left; border-bottom: 1px dashed rgba(255,255,255,.06); vertical-align: top; }
+.scr-playbook th { font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,.10); }
+.scr-playbook .doc-name { color: var(--text-primary); font-weight: 600; }
+.scr-playbook .yields   { color: var(--text-secondary); }
+.scr-playbook .count    { color: var(--accent-cyan); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; min-width: 60px; }
+.scr-playbook .count.zero { color: var(--text-muted); font-weight: 500; }
+
+/* NY drill-in */
+.scr-ny-search {
+    display: flex; gap: 8px; margin-bottom: 10px;
 }
-.scr-counties .scr-chart-msg { margin-bottom: 8px; }
-.scr-counties-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 6px 18px;
-    font-variant-numeric: tabular-nums;
+.scr-ny-search input {
+    flex: 1;
+    background: rgba(0,0,0,.30); border: 1px solid var(--border-glass); color: var(--text-primary);
+    border-radius: 6px; padding: 6px 10px; font-size: .82rem;
 }
-.scr-county-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0;
-    border-bottom: 1px dashed rgba(255,255,255,.04);
-    font-size: .82rem;
+.scr-ny-cases { font-size: .76rem; max-height: 360px; overflow-y: auto; }
+.scr-ny-case-row {
+    display:grid; grid-template-columns: 110px 1fr 90px 70px 70px; gap: 12px; align-items:center;
+    padding: 6px 6px; border-bottom: 1px dashed rgba(255,255,255,.06);
+    cursor: pointer;
 }
-.scr-county-row .name  { color: var(--text-primary); }
-.scr-county-row .count { color: var(--accent-cyan); font-weight: 600; }
-.scr-counties-empty { font-size:.78rem; color: var(--text-muted); padding: 6px 0; }
+.scr-ny-case-row:hover { background: rgba(0,240,255,.04); }
+.scr-ny-case-row .cn      { color: var(--accent-cyan); font-variant-numeric: tabular-nums; }
+.scr-ny-case-row .who     { color: var(--text-primary); }
+.scr-ny-case-row .who small { color: var(--text-muted); display:block; }
+.scr-ny-case-row .pill    { font-size:.62rem; letter-spacing:.8px; text-transform:uppercase; padding:2px 6px; border-radius:3px; text-align:center; font-weight:700; background: rgba(255,255,255,.04); color: var(--text-muted); }
+.scr-ny-case-row .pill.y  { background: rgba(34,197,94,.12); color:#86efac; }
+.scr-ny-case-row .pill.n  { background: rgba(148,163,184,.12); color:#cbd5e1; }
+.scr-ny-case-row .num     { color: var(--text-muted); text-align:right; font-variant-numeric: tabular-nums; }
+
+.scr-ny-empty { padding: 16px; text-align:center; color: var(--text-muted); font-size:.78rem; }
+
+/* Modal */
+.scr-modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 1000;
+    padding: 24px;
+}
+.scr-modal-bg.open { display: flex; }
+.scr-modal {
+    background: var(--bg-glass, #0e1426); border: 1px solid var(--border-glass);
+    border-radius: 12px; max-width: 900px; width: 100%;
+    max-height: 90vh; overflow-y: auto;
+    padding: 22px 26px;
+}
+.scr-modal h3 { margin: 0 0 4px; color: var(--accent-cyan); font-size: 1.1rem; }
+.scr-modal h4 { color: var(--text-secondary); font-size: .72rem; letter-spacing:1.4px; text-transform:uppercase; margin: 18px 0 8px; }
+.scr-modal .close-btn {
+    float: right; cursor: pointer; color: var(--text-muted); font-size: 1.4rem; line-height: 1;
+    background: none; border: none; padding: 0;
+}
+.scr-modal .close-btn:hover { color: var(--text-primary); }
+.scr-modal-meta {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;
+    font-size: .76rem; color: var(--text-secondary);
+}
+.scr-modal-meta .lbl { font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; display:block; margin-bottom:2px; }
+.scr-modal-meta .val { color: var(--text-primary); }
+.scr-person {
+    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: .8rem;
+}
+.scr-person .role-line { display:flex; gap: 10px; align-items: center; margin-bottom: 4px; }
+.scr-person .role-pill { font-size:.58rem; letter-spacing:1.2px; text-transform:uppercase; padding:2px 7px; border-radius:3px; font-weight:700; background:rgba(124,58,237,.18); color:#c4b5fd; }
+.scr-person .role-pill.petitioner { background: rgba(34,197,94,.18); color:#86efac; }
+.scr-person .role-pill.heir       { background: rgba(245,158,11,.16); color:#fcd34d; }
+.scr-person .role-pill.minor      { background: rgba(239,68,68,.16); color:#fca5a5; }
+.scr-person .name { font-weight:600; color: var(--text-primary); }
+.scr-person .rel  { color: var(--text-muted); font-size:.7rem; margin-left:auto; }
+.scr-person .addr { color: var(--text-secondary); font-size:.74rem; margin-top: 2px; }
+.scr-person .meta { color: var(--text-muted); font-size:.68rem; margin-top: 4px; line-height: 1.5; }
+
+.scr-prop {
+    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: .76rem;
+    color: var(--text-secondary);
+}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="scr-page">
+
     <div class="scr-hero">
         <div class="scr-metric">
             <div class="lbl">Total Records</div>
             <div class="val gradient">{{ "{:,}".format(summary.total_records) }}</div>
+            {% if summary.computed_at %}<div class="scr-stamp">Snapshot {{ summary.computed_at[:16].replace('T',' ') }}</div>{% endif %}
         </div>
         <div class="scr-metric">
-            <div class="lbl">Active Scrapers</div>
-            <div class="val">{{ summary.active_sources }} <span style="color:var(--text-muted); font-size:1rem; font-weight:500;">/ {{ summary.total_sources }}</span></div>
+            <div class="lbl">Active</div>
+            <div class="val">{{ "{:,}".format(summary.total_active) }}</div>
         </div>
         <div class="scr-metric">
-            <div class="lbl">Sources Configured</div>
+            <div class="lbl">Closed</div>
+            <div class="val">{{ "{:,}".format(summary.total_closed) }}</div>
+        </div>
+        <div class="scr-metric">
+            <div class="lbl">Sources</div>
             <div class="val">{{ summary.total_sources }}</div>
         </div>
     </div>
 
+    {% if not sources %}
+    <div class="scr-section">
+        <div class="scr-section-title">No snapshot yet</div>
+        <p style="color: var(--text-secondary); font-size: .82rem;">
+            Run <code style="color: var(--accent-cyan);">python scripts/build_scraper_report.py</code>
+            against this database to populate the report.
+        </p>
+    </div>
+    {% endif %}
+
     <div class="scr-list">
-        {% for s in scrapers %}
-        <div class="scr-card{% if s.count == 0 %} inactive{% endif %}" data-key="{{ s.key }}">
-            <div class="scr-row{% if s.count == 0 %} disabled{% endif %}" onclick="toggleScraper('{{ s.key }}')">
+        {% for s in sources %}
+        {% set buckets = s.buckets or {} %}
+        {% set b_active     = buckets.get('active',           {}) %}
+        {% set b_active_p   = buckets.get('active_pending',   {}) %}
+        {% set b_active_q   = buckets.get('active_qualified', {}) %}
+        {% set b_closed     = buckets.get('closed',           {}) %}
+        {% set b_closed_doc = buckets.get('closed_by_doc',    {}) %}
+        {% set b_article13  = buckets.get('article13',        {}) %}
+        {% set b_unknown    = buckets.get('unknown',          {}) %}
+        {% set tot_active   = (b_active.get('count',0)|int) + (b_active_p.get('count',0)|int) + (b_active_q.get('count',0)|int) %}
+        {% set tot_closed   = (b_closed.get('count',0)|int) + (b_closed_doc.get('count',0)|int) %}
+        {% set lvl_class    = 'lvl-' + (s.level or 'state')|lower|replace(' ','-') %}
+        <div class="scr-card{% if (s.total or 0) == 0 %} inactive{% endif %}" data-key="{{ s.key }}">
+            <div class="scr-row{% if (s.total or 0) == 0 %} disabled{% endif %}" onclick="toggleScraper('{{ s.key }}')">
                 <span class="scr-chev"><i class="bi bi-chevron-right"></i></span>
-                <span class="scr-cat cat-{{ s.category|lower }}">{{ s.category }}</span>
-                <span class="scr-name">{{ s.name }}</span>
+                <span class="scr-level {{ lvl_class }}">{{ s.level or '—' }}</span>
+                <span class="scr-name" title="{{ s.name }}">{{ s.name }}</span>
                 <div class="scr-meta">
-                    <span class="scr-count{% if s.count == 0 %} zero{% endif %}">{{ "{:,}".format(s.count) }}</span>
+                    <span class="scr-pill active"     title="Active">{{ "{:,}".format(tot_active) }} A</span>
+                    <span class="scr-pill closed"     title="Closed (source)">{{ "{:,}".format(b_closed.get('count',0)|int) }} C</span>
+                    <span class="scr-pill closed-doc" title="Closed by document">{{ "{:,}".format(b_closed_doc.get('count',0)|int) }} D</span>
+                    {% if (b_article13.get('count',0)|int) > 0 %}
+                    <span class="scr-pill article13" title="Article 13 (silent close)">{{ "{:,}".format(b_article13.get('count',0)|int) }} ⓐ</span>
+                    {% endif %}
+                    <span class="scr-count{% if (s.total or 0) == 0 %} zero{% endif %}">{{ "{:,}".format(s.total or 0) }}</span>
                     <span class="scr-last">
                         {% if s.last_scraped %}{{ s.last_scraped[:10] }}{% else %}—{% endif %}
                     </span>
                 </div>
             </div>
             <div class="scr-panel">
-                <div class="scr-chart-wrap" data-chart-for="{{ s.key }}">
-                    <div class="scr-chart-msg">RECORDS PER SCRAPE DAY</div>
-                    <div class="scr-chart-empty">Loading…</div>
+
+                {# 1. Header / overview #}
+                <div class="scr-section">
+                    <div class="scr-section-title">Overview</div>
+                    <div class="scr-modal-meta">
+                        <div><span class="lbl">Source level</span><span class="val">{{ s.level or '—' }}</span></div>
+                        <div><span class="lbl">Table</span><span class="val">{{ s.table }}</span></div>
+                        <div><span class="lbl">Date field</span><span class="val">{{ s.date_field or '—' }}</span></div>
+                        <div><span class="lbl">Scrape window</span>
+                            <span class="val">
+                                {% if s.scrape_window and s.scrape_window[0] %}{{ s.scrape_window[0] }} → {{ s.scrape_window[1] }}{% else %}—{% endif %}
+                            </span>
+                        </div>
+                        <div><span class="lbl">Last scraped</span><span class="val">{{ s.last_scraped[:16].replace('T',' ') if s.last_scraped else '—' }}</span></div>
+                        <div><span class="lbl">Counties seen</span><span class="val">{{ (s.counties or [])|length }}</span></div>
+                    </div>
                 </div>
-                <div class="scr-counties" data-counties-for="{{ s.key }}" style="display:none;">
-                    <div class="scr-chart-msg">RECORDS BY COUNTY</div>
-                    <div class="scr-counties-grid"></div>
+
+                {# 2. Buckets #}
+                <div class="scr-section">
+                    <div class="scr-section-title">Active / Closed × Completeness</div>
+                    <div class="scr-buckets">
+                        {% for label, bucket, css in [
+                            ('Active', b_active, 'bucket-active'),
+                            ('Active (pending)', b_active_p, 'bucket-active'),
+                            ('Active (qualified)', b_active_q, 'bucket-active'),
+                            ('Closed (source)', b_closed, 'bucket-closed'),
+                            ('Closed by document', b_closed_doc, 'bucket-closed-doc'),
+                            ('Article 13 (silent close)', b_article13, 'bucket-article13'),
+                            ('Unknown', b_unknown, 'bucket-unknown')
+                        ] %}
+                        {% if bucket and bucket.get('count', 0) %}
+                        <div class="scr-bucket {{ css }}">
+                            <div class="lbl">{{ label }}</div>
+                            <div class="val">{{ "{:,}".format(bucket.count|int) }}</div>
+                            <div class="pct">
+                                Tier-1 complete <strong>{{ bucket.tier1_complete_pct }}%</strong><br/>
+                                + heir address <strong>{{ bucket.tier1_heir_complete_pct }}%</strong>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
                 </div>
+
+                {# 3. Active / Close markers reference #}
+                {% if s.active_markers or s.close_markers %}
+                <div class="scr-section">
+                    <div class="scr-section-title">Active markers / Close markers (reference)</div>
+                    <div class="scr-markers">
+                        <div>
+                            <div class="heading act">Authority-grant (mailable)</div>
+                            {% if s.active_markers %}
+                            <ul>{% for m in s.active_markers %}<li>{{ m }}</li>{% endfor %}</ul>
+                            {% else %}<div class="empty">— none defined</div>{% endif %}
+                        </div>
+                        <div>
+                            <div class="heading cls">Close markers (drop / re-route)</div>
+                            {% if s.close_markers %}
+                            <ul>{% for m in s.close_markers %}<li>{{ m }}</li>{% endfor %}</ul>
+                            {% else %}<div class="empty">— none defined</div>{% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                {# 4. Daily scrape timeline (rendered client-side) #}
+                <div class="scr-section">
+                    <div class="scr-section-title">Records per scrape day</div>
+                    <div data-chart-for="{{ s.key }}"></div>
+                </div>
+
+                {# 5. County breakdown #}
+                {% if s.counties %}
+                <div class="scr-section">
+                    <div class="scr-section-title">County breakdown</div>
+                    <div style="overflow-x: auto;">
+                    <table class="scr-county-tbl">
+                        <thead>
+                            <tr>
+                                <th>County</th>
+                                <th>Total</th>
+                                <th>Active</th>
+                                <th>Closed</th>
+                                <th>By doc</th>
+                                <th>Art 13</th>
+                                <th>Tier-1 %</th>
+                                <th>Last scraped</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in s.counties %}
+                            <tr>
+                                <td>{{ c.county }}</td>
+                                <td>{{ "{:,}".format(c.count) }}</td>
+                                <td class="num-active{% if not c.active %} num-zero{% endif %}">{{ c.active or '—' }}</td>
+                                <td class="num-closed{% if not c.closed %} num-zero{% endif %}">{{ c.closed or '—' }}</td>
+                                <td class="num-closed-doc{% if not c.closed_by_doc %} num-zero{% endif %}">{{ c.closed_by_doc or '—' }}</td>
+                                <td class="num-article13{% if not c.article13 %} num-zero{% endif %}">{{ c.article13 or '—' }}</td>
+                                <td class="num-pct">{{ c.tier1_complete_pct }}%</td>
+                                <td class="num-zero">{{ c.last_scraped[:10] if c.last_scraped else '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+                {% endif %}
+
+                {# 6. Doc-type playbook #}
+                {% if s.doc_playbook_counts %}
+                <div class="scr-section">
+                    <div class="scr-section-title">Doc-type playbook (per-source coverage)</div>
+                    <table class="scr-playbook">
+                        <thead>
+                            <tr>
+                                <th>Doc type</th>
+                                <th>Yields</th>
+                                <th style="text-align:right;">Cases with doc</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in s.doc_playbook_counts %}
+                            <tr>
+                                <td class="doc-name">{{ d.doc_type }}</td>
+                                <td class="yields">{{ d.yields }}</td>
+                                <td class="count{% if not d.rows_with_doc %} zero{% endif %}">{{ "{:,}".format(d.rows_with_doc) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+                {# 7. NY-only drill-in #}
+                {% if s.key == 'new_york' %}
+                <div class="scr-section">
+                    <div class="scr-section-title">NY cases — tiered extraction drill-in</div>
+                    <div class="scr-ny-search">
+                        <input type="search" placeholder="Search by case number or decedent / petitioner name…" data-ny-search/>
+                    </div>
+                    <div class="scr-ny-cases" data-ny-cases>
+                        <div class="scr-ny-empty">Click a row to load extracted persons & real property.</div>
+                    </div>
+                </div>
+                {% endif %}
+
             </div>
         </div>
         {% endfor %}
     </div>
 </div>
 
+<div class="scr-modal-bg" data-modal>
+    <div class="scr-modal" data-modal-body>
+        <button class="close-btn" onclick="closeModal()">×</button>
+        <div data-modal-content></div>
+    </div>
+</div>
+
 <script>
-const _timelineCache = new Map();
+const _stateOpen = new Set();
 
-async function toggleScraper(key) {
+function toggleScraper(key) {
     const card = document.querySelector(`.scr-card[data-key="${key}"]`);
-    if (!card) return;
-    if (card.classList.contains('inactive')) return;
+    if (!card || card.classList.contains('inactive')) return;
+    const open = card.classList.toggle('open');
+    if (!open) return;
+    if (_stateOpen.has(key)) return;
+    _stateOpen.add(key);
 
-    const isOpen = card.classList.toggle('open');
-    if (!isOpen) return;
+    // Render timeline using the snapshot we already have inline.
+    const dataEl = card.querySelector('[data-chart-for]');
+    fetch(`/scrapers/api/${encodeURIComponent(key)}`, { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => renderChart(dataEl, data.timeline || []))
+        .catch(() => { dataEl.innerHTML = '<div style="font-size:.75rem; color: var(--text-muted);">Failed to load timeline.</div>'; });
 
-    if (_timelineCache.has(key)) {
-        renderChart(key, _timelineCache.get(key));
-        renderCounties(key, _timelineCache.get(key));
-        return;
-    }
-    try {
-        const r = await fetch(`/scrapers/api/${encodeURIComponent(key)}/timeline`, { credentials: 'same-origin' });
-        const data = await r.json();
-        _timelineCache.set(key, data);
-        renderChart(key, data);
-        renderCounties(key, data);
-    } catch (e) {
-        const wrap = card.querySelector('[data-chart-for]');
-        wrap.querySelector('.scr-chart-empty').textContent = 'Failed to load timeline.';
+    if (key === 'new_york') {
+        wireNySearch(card);
+        loadNyCases(card, '');
     }
 }
 
-function renderCounties(key, data) {
-    const card = document.querySelector(`.scr-card[data-key="${key}"]`);
-    const wrap = card.querySelector('[data-counties-for]');
-    const counties = data.counties || [];
-    if (!counties.length) {
-        wrap.style.display = 'none';
-        return;
-    }
-    wrap.style.display = 'block';
-    const grid = wrap.querySelector('.scr-counties-grid');
-    const fmt = n => Number(n).toLocaleString();
-    grid.innerHTML = counties.map(c => `
-        <div class="scr-county-row" title="${c.last_scraped ? 'Last scraped: ' + c.last_scraped.slice(0,10) : ''}">
-            <span class="name">${c.county}</span>
-            <span class="count">${fmt(c.count)}</span>
-        </div>
-    `).join('');
-}
-
-function renderChart(key, data) {
-    const card = document.querySelector(`.scr-card[data-key="${key}"]`);
-    const wrap = card.querySelector('[data-chart-for]');
-    const pts  = data.points || [];
-
+/* ───────── timeline chart ───────── */
+function renderChart(wrap, pts) {
     if (!pts.length) {
-        wrap.innerHTML = `<div class="scr-chart-msg">RECORDS PER SCRAPE DAY</div>
-                          <div class="scr-chart-empty">No scrape history yet.</div>`;
+        wrap.innerHTML = '<div style="font-size:.75rem; color: var(--text-muted); padding: 12px 0;">No scrape history yet.</div>';
         return;
     }
-
     const W = wrap.clientWidth || 600;
     const H = 200;
-    const PAD_L = 40, PAD_R = 16, PAD_T = 16, PAD_B = 28;
+    const PAD_L = 40, PAD_R = 16, PAD_T = 12, PAD_B = 28;
     const innerW = W - PAD_L - PAD_R;
     const innerH = H - PAD_T - PAD_B;
 
@@ -258,30 +525,21 @@ function renderChart(key, data) {
     const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${yOf(p.count).toFixed(1)}`).join(' ');
     const areaPath = `${linePath} L${xOf(pts.length - 1).toFixed(1)},${(PAD_T + innerH).toFixed(1)} L${xOf(0).toFixed(1)},${(PAD_T + innerH).toFixed(1)} Z`;
 
-    // Grid lines and y-axis labels (4 ticks)
     const ticks = 4;
     const yTicks = [];
     for (let t = 0; t <= ticks; t++) {
         const v = Math.round((maxC / ticks) * t);
-        const y = yOf(v);
-        yTicks.push({ v, y });
+        yTicks.push({ v, y: yOf(v) });
     }
-
-    // X-axis labels — show first, middle, last for readability
-    const xLabelIdx = pts.length <= 6
-        ? pts.map((_, i) => i)
-        : [0, Math.floor(pts.length / 2), pts.length - 1];
-
+    const xLabelIdx = pts.length <= 6 ? pts.map((_, i) => i) : [0, Math.floor(pts.length / 2), pts.length - 1];
     const fmt = n => Number(n).toLocaleString();
 
-    const svg = `
+    wrap.innerHTML = `
       <svg class="scr-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="scr-area-grad" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%"  stop-color="#00f0ff" stop-opacity="0.30"/>
-            <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
+        <defs><linearGradient id="scr-area-grad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.30"/>
+          <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
+        </linearGradient></defs>
         ${yTicks.map(t => `
           <line class="grid" x1="${PAD_L}" x2="${W - PAD_R}" y1="${t.y.toFixed(1)}" y2="${t.y.toFixed(1)}"/>
           <text class="lbl" x="${PAD_L - 6}" y="${(t.y + 3).toFixed(1)}" text-anchor="end">${fmt(t.v)}</text>
@@ -290,8 +548,9 @@ function renderChart(key, data) {
         <path class="area" d="${areaPath}"/>
         <path class="line" d="${linePath}"/>
         ${pts.map((p, i) => `
-          <circle class="pt" cx="${xOf(i).toFixed(1)}" cy="${yOf(p.count).toFixed(1)}" r="3"/>
-          <title>${p.day}: ${fmt(p.count)} records</title>
+          <circle class="pt" cx="${xOf(i).toFixed(1)}" cy="${yOf(p.count).toFixed(1)}" r="3">
+            <title>${p.day}: ${fmt(p.count)} records</title>
+          </circle>
         `).join('')}
         ${xLabelIdx.map(i => `
           <text class="lbl" x="${xOf(i).toFixed(1)}" y="${(PAD_T + innerH + 16).toFixed(1)}"
@@ -300,12 +559,130 @@ function renderChart(key, data) {
           </text>
         `).join('')}
       </svg>
-      <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:.7rem; color:var(--text-muted); letter-spacing:.4px;">
+      <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:.7rem; color:var(--text-muted);">
         <span>${pts.length} scrape day${pts.length === 1 ? '' : 's'}</span>
-        <span>Total: ${fmt(data.total)}</span>
+        <span>Total: ${fmt(pts.reduce((a, b) => a + b.count, 0))}</span>
       </div>
     `;
-    wrap.innerHTML = `<div class="scr-chart-msg">RECORDS PER SCRAPE DAY</div>${svg}`;
 }
+
+/* ───────── NY drill-in ───────── */
+let _nySearchTimer = null;
+function wireNySearch(card) {
+    const input = card.querySelector('[data-ny-search]');
+    if (!input || input.dataset.wired) return;
+    input.dataset.wired = '1';
+    input.addEventListener('input', () => {
+        clearTimeout(_nySearchTimer);
+        _nySearchTimer = setTimeout(() => loadNyCases(card, input.value.trim()), 250);
+    });
+}
+
+async function loadNyCases(card, q) {
+    const wrap = card.querySelector('[data-ny-cases]');
+    wrap.innerHTML = '<div class="scr-ny-empty">Loading…</div>';
+    try {
+        const url = '/scrapers/ny/cases?limit=80' + (q ? '&q=' + encodeURIComponent(q) : '');
+        const r = await fetch(url, { credentials: 'same-origin' });
+        const data = await r.json();
+        if (!data.cases || !data.cases.length) {
+            wrap.innerHTML = '<div class="scr-ny-empty">No matching cases.</div>';
+            return;
+        }
+        const rows = data.cases.map(c => `
+            <div class="scr-ny-case-row" onclick="openNyCase(${JSON.stringify(c.case_number).replace(/'/g, '&apos;')})">
+                <span class="cn">${c.case_number || '—'}</span>
+                <span class="who">${c.decedent_name || '—'}<small>${c.county || ''} • filed ${c.filed_date || '—'}</small></span>
+                <span class="pill ${c.petitioner_active === 'Y' ? 'y' : (c.petitioner_active === 'N' ? 'n' : '')}">${c.petitioner_active || '—'}</span>
+                <span class="num">${c.persons_n || 0} ppl</span>
+                <span class="num">${c.props_n || 0} prop</span>
+            </div>
+        `).join('');
+        const hdr = `<div style="font-size:.7rem; color: var(--text-muted); margin-bottom: 4px;">Showing ${data.cases.length} of ${Number(data.total).toLocaleString()} matching cases.</div>`;
+        wrap.innerHTML = hdr + rows;
+    } catch (e) {
+        wrap.innerHTML = '<div class="scr-ny-empty">Failed to load cases.</div>';
+    }
+}
+
+async function openNyCase(caseNumber) {
+    showModal('<div style="color: var(--text-muted); font-size:.85rem;">Loading…</div>');
+    try {
+        const r = await fetch('/scrapers/ny/case/' + encodeURIComponent(caseNumber), { credentials: 'same-origin' });
+        const c = await r.json();
+        if (c.error) { showModal(`<h3>${c.error}</h3>`); return; }
+        renderNyCase(c);
+    } catch (e) {
+        showModal('<h3>Failed to load case</h3>');
+    }
+}
+
+function renderNyCase(c) {
+    const t = c.tiered_extraction || {};
+    const persons = t.persons || [];
+    const props = t.real_property || [];
+    const decedent = c.decedent || {};
+    const decAddr = c.decedent_address || {};
+    const docs = c.document_names || [];
+
+    const personHtml = persons.map(p => {
+        const addr = p.address || {};
+        const addrStr = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+        const roleClass = p.is_petitioner ? 'petitioner' : (p.role === 'heir' ? 'heir' : (p.is_minor ? 'minor' : ''));
+        const sigBit = p.signature_present ? ' • signed' : '';
+        return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${roleClass}">${p.role || '?'}</span>
+                <span class="name">${p.full_name || '—'}</span>
+                <span class="rel">${p.relationship_to_decedent || ''}</span>
+            </div>
+            <div class="addr">${addrStr || '<em style="color:var(--text-muted);">no address</em>'}</div>
+            <div class="meta">
+                ${(p.source_docs || []).join(', ')}${sigBit} ${p.legibility ? '• ' + p.legibility : ''}
+            </div>
+        </div>`;
+    }).join('') || '<div style="color: var(--text-muted); font-size:.78rem;">No persons extracted.</div>';
+
+    const propHtml = props.length
+        ? props.map(rp => `<div class="scr-prop">${JSON.stringify(rp)}</div>`).join('')
+        : '<div style="color: var(--text-muted); font-size:.78rem;">No real property extracted.</div>';
+
+    const docsHtml = docs.length
+        ? docs.map(d => `<span style="display:inline-block; font-size:.7rem; padding:2px 8px; margin:2px; border-radius:3px; background:rgba(255,255,255,.05); color:var(--text-secondary);">${d}</span>`).join('')
+        : '<span style="color: var(--text-muted); font-size:.78rem;">No documents listed.</span>';
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decedent.full_name || '—'}</h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.court || ''} ${c.county ? '• ' + c.county : ''} • filed ${c.filed_date || '—'} ${c.death_date ? '• died ' + c.death_date : ''}
+        </div>
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Proceeding</span><span class="val">${c.proceeding || '—'}</span></div>
+            <div><span class="lbl">Petitioner</span><span class="val">${(c.petitioner||{}).full_name || '—'}</span></div>
+            <div><span class="lbl">Petitioner active</span><span class="val">${c.petitioner_active || '—'}</span></div>
+            <div><span class="lbl">Appointed</span><span class="val">${c.petitioner_appointed_date || '—'}</span></div>
+            <div><span class="lbl">Decedent address</span><span class="val">${[decAddr.street, decAddr.city, decAddr.state, decAddr.zip].filter(Boolean).join(', ') || '—'}</span></div>
+            <div><span class="lbl">PDF</span><span class="val">${c.pdf_url ? '<a href="'+c.pdf_url+'" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>' : '—'}</span></div>
+        </div>
+        <h4>Documents on file (${docs.length})</h4>
+        <div>${docsHtml}</div>
+        <h4>Persons extracted (${persons.length})</h4>
+        <div>${personHtml}</div>
+        <h4>Real property (${props.length})</h4>
+        <div>${propHtml}</div>
+    `);
+}
+
+function showModal(html) {
+    const bg = document.querySelector('[data-modal]');
+    bg.querySelector('[data-modal-content]').innerHTML = html;
+    bg.classList.add('open');
+}
+function closeModal() { document.querySelector('[data-modal]').classList.remove('open'); }
+document.querySelector('[data-modal]').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 {% endblock %}
