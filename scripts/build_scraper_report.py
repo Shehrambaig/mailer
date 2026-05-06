@@ -57,9 +57,9 @@ NY = {
         "ORDER REVOKING LETTERS",
         # "RECEIPT" is too generic to match safely on document_names alone.
     ],
-    "active_field": "petitioner_active",
-    "active_values": "Y",
-    "closed_values": "N",
+    "active_field": "petitioner_active (extracted from PDFs)",
+    "active_values": "'Y' = active_qualified (Letters detected); '' = active_pending (filed, awaiting Letters / extraction inconclusive)",
+    "closed_values": "'N' = closed (Letters revoked / not granted); close-marker doc in document_names = closed_by_doc",
     "non_owner": "Skipped — to be defined globally later.",
     "address_match_rule": (
         "If the filing exposes a decedent address, match it to BatchLeads as "
@@ -340,13 +340,24 @@ def _array_lit(strings: list[str]) -> str:
 def src_ny():
     """NY — records.
 
-    petitioner_active drives bucket (Y=open, N=closed, ''=unknown).
-    Article 13 rows (proceeding ILIKE '%ARTICLE 13%') get their own bucket
-    regardless of petitioner_active.
-    Closure doc override checks document_names against close_markers.
-    Tier-1 = decedent_address->>'street' + petitioner_address->>'street'.
-    Heir = exists(other_parties) with role-like-heir + street present, OR
-           tiered_extraction.persons[].role='heir' with address.street present.
+    Bucket mapping (mirrors NC's active_pending / active_qualified split):
+
+      Article 13 voluntary admin            → article13
+      petitioner_active = 'N'               → closed
+      close-marker doc in document_names    → closed_by_doc
+      petitioner_active = 'Y'               → active_qualified  (Letters detected)
+      everything else                       → active_pending    (filed, awaiting Letters)
+
+    Article 13 takes priority — those filings have no decree and end silently
+    regardless of what the extractor saw. petitioner_active='N' is the source's
+    own assertion that Letters were not granted / were revoked, so it beats
+    doc heuristics. Otherwise, a close-marker doc is authoritative. Cases
+    where the AI extractor returned petitioner_active='' (failed PDF, no
+    Letters language detected, or pre-qualification) fold into active_pending
+    — same treatment NC gives its filed-but-no-Letters cases.
+
+    Tier-1: decedent_address.street AND petitioner_address.street present.
+    Heir: tiered_extraction.persons has any role='heir' with address.street.
     """
     close_doc_check = (
         "EXISTS ("
@@ -361,10 +372,9 @@ def src_ny():
         "CASE "
         "  WHEN UPPER(COALESCE(proceeding,'')) LIKE '%ARTICLE 13%' THEN 'article13' "
         "  WHEN petitioner_active = 'N' THEN 'closed' "
-        f" WHEN petitioner_active = 'Y' AND {close_doc_check} THEN 'closed_by_doc' "
-        "  WHEN petitioner_active = 'Y' THEN 'active' "
         f" WHEN {close_doc_check} THEN 'closed_by_doc' "
-        "  ELSE 'unknown' "
+        "  WHEN petitioner_active = 'Y' THEN 'active_qualified' "
+        "  ELSE 'active_pending' "
         "END"
     )
     tier1 = (
