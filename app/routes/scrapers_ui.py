@@ -62,10 +62,11 @@ def _get_scraper(key: str):
 
 
 def _dsn() -> str:
-    # Scrapers page reads the local probate DB by design — that's where the
-    # scrape pipeline writes. PROBATE_DATABASE_URL overrides for non-default
-    # local setups; Neon is intentionally not consulted here.
-    return os.getenv("PROBATE_DATABASE_URL") or "postgresql://localhost:5432/probate"
+    return (
+        os.getenv("NEON_DB")
+        or os.getenv("PROBATE_DATABASE_URL")
+        or "postgresql://localhost:5432/probate"
+    )
 
 
 def _exists(cur, table: str) -> bool:
