@@ -226,10 +226,33 @@ CT = {
     "key": "connecticut",
     "name": "Connecticut Probate Court",
     "level": "State",
+    "state": "Connecticut",
     "table": "ct_probate_cases",
     "date_col": "filed_date",
     "ts_col": "scraped_at",
     "county_col": "county",
+    "active_field": "case_type_code (no actual status field exposed by the portal)",
+    "active_values": "All filed cases default to active_pending — CT does not expose Letters / closure events",
+    "closed_values": "Not detectable from the source today — closure would require docket / doc inspection (not yet scraped)",
+    "non_owner": "Skipped — to be defined globally later.",
+    "address_match_rule": (
+        "CT does not capture decedent residence anywhere — only petitioner "
+        "address lives in parties[].street (~11% of rows have an address; "
+        "the rest only carry name parts). Match strategy: (1) parties[].street "
+        "→ BatchLeads when present (PR is often a relative living at the "
+        "decedent's property); (2) Full+Middle+Last name match against "
+        "propstream/elitress within the same district / county. Decedent "
+        "DOD is not captured by CT at all."
+    ),
+    "scraping_notes": (
+        "Single statewide portal (ctprobate.gov) covers 60 probate districts "
+        "(rolled up to 8 counties on this page). case_type_code is the only "
+        "categorical signal: DR = Decedent's Estate Registration (main "
+        "probate path, 885 rows); DAT = Tax-only filing (370); DT = "
+        "transitional / trust (367); DS = Small Estate (91); DW = Will "
+        "Only (61); TT/TO/TL = trust filings (39). DAT/DT/DW are not "
+        "necessarily mailable estates — operator should filter by case_type_code."
+    ),
 }
 
 IN_SRC = {
@@ -630,16 +653,17 @@ SRC_LOGIC = {
     "ga_probate": src_ga_county,
     "gwinnett": src_gwinnett,
     "oklahoma": src_ok,
-    "connecticut": lambda: src_simple_status(
-        "ct_probate_cases", "case_type_code",
-        # CT has no real status field — case_type_code is the closest, but it's
-        # really a document type. We mark all rows 'unknown' until re-scrape
-        # adds a status field.
-        {},
-        "(COALESCE(petitioner_street,'') <> '')",  # decedent street not stored
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(parties,'[]'::jsonb)) p "
-        "        WHERE LOWER(COALESCE(p->>'role','')) IN ('heir','beneficiary') "
+    "connecticut": lambda: (
+        # CT has no status field and no doc list to override — every row
+        # defaults to active_pending. Tier-1 = any party in parties[] has a
+        # street; heir = ≥2 parties with a street (multi-party filing).
+        "'active_pending'::text",
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+        "        WHERE jsonb_typeof(parties)='array' "
         "          AND COALESCE(p->>'street','') <> '')",
+        "(SELECT COUNT(*) FROM jsonb_array_elements(parties) p "
+        "        WHERE jsonb_typeof(parties)='array' "
+        "          AND COALESCE(p->>'street','') <> '') > 1",
     ),
     "indiana": lambda: src_simple_status(
         "indiana", "case_status",
@@ -968,6 +992,37 @@ def _field_coverage(cur, src: dict, total: int) -> list[dict]:
                                      "tiered_extraction.real_property[]"),
             ("Tier-extracted (any)", "tiered_extraction IS NOT NULL",
                                      "tiered_extraction"),
+        ]
+    elif key == "connecticut":
+        any_party_with_street = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(parties)='array' "
+            "          AND COALESCE(p->>'street','') <> '')"
+        )
+        any_party_with_phone = (
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(parties)='array' "
+            "          AND COALESCE(p->>'phone','') <> '')"
+        )
+        multi_party_with_street = (
+            "(SELECT COUNT(*) FROM jsonb_array_elements(parties) p "
+            "        WHERE jsonb_typeof(parties)='array' "
+            "          AND COALESCE(p->>'street','') <> '') > 1"
+        )
+        rows = [
+            ("Decedent name",         "COALESCE(decedent_full,'') <> ''",  "decedent_full"),
+            ("Decedent date of death","FALSE",                              "(CT source does not capture DOD)"),
+            ("Decedent street",       "FALSE",                              "(CT source does not capture decedent residence)"),
+            ("PR name",               "COALESCE(petitioner_full,'') <> ''", "petitioner_full"),
+            ("PR street",             "COALESCE(petitioner_street,'') <> ''", "petitioner_street"),
+            ("PR city/state/zip",     "COALESCE(petitioner_city,'') <> '' AND COALESCE(petitioner_state,'') <> '' AND COALESCE(petitioner_zip,'') <> ''", "petitioner_{city,state,zip}"),
+            ("PR phone",              "COALESCE(petitioner_phone,'') <> ''",  "petitioner_phone"),
+            ("PR email",              "FALSE",                              "(CT source does not capture email)"),
+            ("≥1 party in parties[]", "jsonb_typeof(parties)='array' AND jsonb_array_length(parties) > 0", "parties[]"),
+            ("≥1 party with street",  any_party_with_street,                "parties[].street"),
+            ("≥1 party with phone",   any_party_with_phone,                 "parties[].phone"),
+            ("≥2 parties with street (multi-party filing)", multi_party_with_street, "parties[].street count > 1"),
+            ("File date",             "filed_date IS NOT NULL",             "filed_date"),
         ]
     elif key == "oklahoma":
         rows = [

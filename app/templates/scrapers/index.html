@@ -542,7 +542,7 @@
                 {% endif %}
 
                 {# 7. Records inspector — paged + searchable #}
-                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma'] %}
+                {% if s.key in ['new_york', 'north_carolina', 'maryland', 'oklahoma', 'connecticut'] %}
                 <div class="scr-section">
                     <div class="scr-section-title">Records — click any row to inspect</div>
                     <div class="scr-ny-search">
@@ -723,6 +723,7 @@ async function openRow(key, rid) {
         else if (key === 'north_carolina') renderNcRow(c);
         else if (key === 'maryland')       renderMdRow(c);
         else if (key === 'oklahoma')       renderOkRow(c);
+        else if (key === 'connecticut')    renderCtRow(c);
         else                               renderGenericRow(key, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
@@ -1142,6 +1143,114 @@ function renderOkRow(c) {
 
         <h4>PDF documents on file (${pdfs.length})</h4>
         ${pdfList}
+    `);
+}
+
+
+/* ───────── CT-specific row renderer ───────── */
+const CT_TYPE_LABELS = {
+    DR:  "Decedent's Estate Registration",
+    DAT: "Tax-only filing",
+    DT:  "Decedent (transitional)",
+    DS:  "Small Estate",
+    DW:  "Will Only",
+    TT:  "Trust filing (TT)",
+    TO:  "Trust filing (TO)",
+    TL:  "Trust filing (TL)",
+};
+
+function _ctPartyName(p) {
+    return p.full || [p.first, p.middle, p.last].filter(Boolean).join(' ').trim() || '—';
+}
+
+function _ctPartyAddr(p) {
+    return [p.street, p.city, p.state, p.zip].filter(Boolean).join(', ');
+}
+
+function renderCtRow(c) {
+    const decFull = c.decedent_full || [c.decedent_first, c.decedent_middle, c.decedent_last].filter(Boolean).join(' ').trim() || '—';
+    const petFull = c.petitioner_full || [c.petitioner_first, c.petitioner_middle, c.petitioner_last].filter(Boolean).join(' ').trim();
+    const petAddr = [c.petitioner_street, c.petitioner_city, c.petitioner_state, c.petitioner_zip].filter(Boolean).join(', ');
+
+    const typeLabel = CT_TYPE_LABELS[c.case_type_code] || c.case_type_code || '—';
+    const parties = Array.isArray(c.parties) ? c.parties : [];
+
+    // Heuristic: the first party in parties[] is typically the petitioner;
+    // remaining parties are heirs/beneficiaries/co-petitioners. CT does not
+    // expose explicit roles, so we present everyone as a "Party" but show
+    // the petitioner_* row first if it matches.
+    const petIdx = parties.findIndex(p =>
+        petFull && _ctPartyName(p).toLowerCase() === petFull.toLowerCase()
+    );
+    const orderedParties = petIdx >= 0
+        ? [parties[petIdx], ...parties.filter((_, i) => i !== petIdx)]
+        : parties;
+
+    const partyCard = (p, isFirst) => {
+        const name = _ctPartyName(p);
+        const addr = _ctPartyAddr(p);
+        const phone = p.phone ? ` • ${p.phone}` : '';
+        const repFlag = p.represented_by_attorney
+            ? ` <span style="font-size:.6rem; padding:2px 6px; border-radius:3px; background: rgba(245,158,11,.10); color:#fcd34d; border:1px solid rgba(245,158,11,.18);">represented by counsel</span>`
+            : '';
+        const rawHint = (p.raw_last && p.raw_last.toLowerCase() !== (p.last || '').toLowerCase())
+            ? `<div class="meta">source raw: ${p.raw_last}</div>` : '';
+        return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${isFirst ? 'petitioner' : ''}">${isFirst ? 'Petitioner' : 'Party'}</span>
+                <span class="name">${name}</span>
+                ${repFlag}
+            </div>
+            <div class="addr">${addr || '<em style="color:var(--text-muted);">no address on file</em>'}${phone}</div>
+            ${rawHint}
+        </div>`;
+    };
+
+    showModal(`
+        <h3>${c.case_number || '—'} — ${decFull}
+            <span class="scr-pill active" style="margin-left: 8px;">active_pending</span>
+        </h3>
+        <div style="color:var(--text-muted); font-size:.74rem; margin-bottom: 12px;">
+            ${c.county || ''} • ${c.court_name || c.district_num || ''} • filed ${c.filed_date ? String(c.filed_date).slice(0,10) : '—'}
+        </div>
+
+        <div class="scr-modal-meta">
+            <div><span class="lbl">Case type</span><span class="val">${c.case_type_code || '—'} <span style="color:var(--text-muted)">— ${typeLabel}</span></span></div>
+            <div><span class="lbl">District</span><span class="val">${c.district_num || '—'}</span></div>
+            <div><span class="lbl">Court</span><span class="val">${c.court_name || '—'}</span></div>
+            <div><span class="lbl">Case ID</span><span class="val" style="font-family: 'JetBrains Mono', monospace; font-size: .72rem;">${c.case_id || '—'}</span></div>
+            <div><span class="lbl">Portal URL</span><span class="val">${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan);">open</a>` : '—'}</span></div>
+            <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
+        </div>
+
+        <h4>Decedent</h4>
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill minor">Decedent</span>
+                <span class="name">${decFull}</span>
+            </div>
+            <div class="addr"><em style="color:var(--text-muted)">decedent residence not captured by source — DOD also unavailable</em></div>
+        </div>
+
+        <h4>Petitioner (column-derived)</h4>
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill petitioner">Petitioner</span>
+                <span class="name">${petFull || '—'}</span>
+            </div>
+            <div class="addr">${petAddr || '<em style="color:var(--text-muted);">no address on file</em>'}${c.petitioner_phone ? ' • ' + c.petitioner_phone : ''}</div>
+        </div>
+
+        <h4>Parties on file (${parties.length})</h4>
+        ${parties.length
+          ? orderedParties.map((p, i) => partyCard(p, i === 0 && petIdx >= 0)).join('')
+          : '<div style="color: var(--text-muted); font-size:.78rem;">No parties listed.</div>'}
+
+        <details style="margin-top: 18px;">
+            <summary style="cursor: pointer; color: var(--text-muted); font-size: .72rem; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">Raw CT portal payload</summary>
+            <pre style="font-size: .68rem; color: var(--text-muted); overflow-x: auto; max-height: 360px; background: rgba(0,0,0,.3); padding: 10px; border-radius: 4px; margin-top: 6px;">${JSON.stringify(c.raw, null, 2)}</pre>
+        </details>
     `);
 }
 
