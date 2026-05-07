@@ -58,21 +58,20 @@
 }
 .scr-card.open .scr-chev { transform: rotate(90deg); color: var(--accent-cyan); }
 
-.scr-level {
-    font-size:.55rem; letter-spacing:1.4px; text-transform:uppercase;
-    padding:3px 8px; border-radius:4px; font-weight:700;
-    background: rgba(124,58,237,.12); color:#c4b5fd;
-    border:1px solid rgba(124,58,237,.28);
-    flex-shrink: 0;
-}
-.scr-level.lvl-county { background: rgba(34,197,94,.10); color:#86efac; border-color: rgba(34,197,94,.25); }
-.scr-level.lvl-state-aggregator { background: rgba(245,158,11,.10); color:#fcd34d; border-color: rgba(245,158,11,.28); }
-
 .scr-name {
     font-size:.95rem; font-weight:600; color:var(--text-primary);
     flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.scr-info {
+    display:inline-flex; align-items:center; justify-content:center;
+    width: 18px; height: 18px; margin-left: 8px; vertical-align: middle;
+    border-radius: 50%; color: var(--text-muted);
+    font-size: .8rem; line-height: 1;
+    transition: color .15s, transform .15s;
+    flex-shrink: 0;
+}
+.scr-info:hover { color: var(--accent-cyan); transform: scale(1.15); }
 .scr-meta {
     display:flex; align-items:center; gap:18px;
     font-variant-numeric: tabular-nums;
@@ -327,19 +326,12 @@
         {% set b_unknown    = buckets.get('unknown',          {}) %}
         {% set tot_active   = (b_active.get('count',0)|int) + (b_active_p.get('count',0)|int) + (b_active_q.get('count',0)|int) %}
         {% set tot_closed   = (b_closed.get('count',0)|int) + (b_closed_doc.get('count',0)|int) %}
-        {% set lvl_class    = 'lvl-' + (s.level or 'state')|lower|replace(' ','-') %}
+        {% set display_name = (s.name or '').split(' (')[0] %}
         <div class="scr-card{% if (s.total or 0) == 0 %} inactive{% endif %}" data-key="{{ s.key }}">
             <div class="scr-row{% if (s.total or 0) == 0 %} disabled{% endif %}" onclick="toggleScraper('{{ s.key }}')">
                 <span class="scr-chev"><i class="bi bi-chevron-right"></i></span>
-                <span class="scr-level {{ lvl_class }}">{{ s.level or '—' }}</span>
-                <span class="scr-name" title="{{ s.name }}">{{ s.name }}</span>
+                <span class="scr-name" title="{{ s.name }}">{{ display_name }}{% if (s.search or {}).get('url') %}<a class="scr-info" href="{{ s.search.url }}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Open scraper source — {{ s.search.url }}"><i class="bi bi-info-circle"></i></a>{% endif %}</span>
                 <div class="scr-meta">
-                    <span class="scr-pill active"     title="Active">{{ "{:,}".format(tot_active) }} A</span>
-                    <span class="scr-pill closed"     title="Closed (source)">{{ "{:,}".format(b_closed.get('count',0)|int) }} C</span>
-                    <span class="scr-pill closed-doc" title="Closed by document">{{ "{:,}".format(b_closed_doc.get('count',0)|int) }} D</span>
-                    {% if (b_article13.get('count',0)|int) > 0 %}
-                    <span class="scr-pill article13" title="Article 13 (silent close)">{{ "{:,}".format(b_article13.get('count',0)|int) }} ⓐ</span>
-                    {% endif %}
                     <span class="scr-count{% if (s.total or 0) == 0 %} zero{% endif %}">{{ "{:,}".format(s.total or 0) }}</span>
                     <span class="scr-last">
                         {% if s.last_scraped %}{{ s.last_scraped[:10] }}{% else %}—{% endif %}
@@ -367,45 +359,12 @@
                         <div><span class="lbl">Active values</span><span class="val">{{ (s.profile or {}).get('active_values') or '—' }}</span></div>
                         <div><span class="lbl">Closed values</span><span class="val">{{ (s.profile or {}).get('closed_values') or '—' }}</span></div>
                         <div><span class="lbl">Non-Owner</span><span class="val">{{ (s.profile or {}).get('non_owner') or '—' }}</span></div>
-                    </div>
-                    {% if (s.profile or {}).get('address_match_rule') %}
-                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.06);">
-                        <div style="font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; margin-bottom: 4px;">Address-match rule</div>
-                        <div style="font-size:.78rem; color: var(--text-secondary); line-height: 1.55;">{{ s.profile.address_match_rule }}</div>
-                    </div>
-                    {% endif %}
-                    {% if (s.profile or {}).get('scraping_notes') %}
-                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,.06);">
-                        <div style="font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; margin-bottom: 4px;">Scraping process</div>
-                        <div style="font-size:.78rem; color: var(--text-secondary); line-height: 1.55;">{{ s.profile.scraping_notes }}</div>
-                    </div>
-                    {% endif %}
-                </div>
-
-                {# 2. Buckets #}
-                <div class="scr-section">
-                    <div class="scr-section-title">Active / Closed × Completeness</div>
-                    <div class="scr-buckets">
-                        {% for label, bucket, css in [
-                            ('Active', b_active, 'bucket-active'),
-                            ('Active (pending)', b_active_p, 'bucket-active'),
-                            ('Active (qualified)', b_active_q, 'bucket-active'),
-                            ('Closed (source)', b_closed, 'bucket-closed'),
-                            ('Closed by document', b_closed_doc, 'bucket-closed-doc'),
-                            ('Article 13 (silent close)', b_article13, 'bucket-article13'),
-                            ('Unknown', b_unknown, 'bucket-unknown')
-                        ] %}
-                        {% if bucket and bucket.get('count', 0) %}
-                        <div class="scr-bucket {{ css }}">
-                            <div class="lbl">{{ label }}</div>
-                            <div class="val">{{ "{:,}".format(bucket.count|int) }}</div>
-                            <div class="pct">
-                                Tier-1 complete <strong>{{ bucket.tier1_complete_pct }}%</strong><br/>
-                                + heir address <strong>{{ bucket.tier1_heir_complete_pct }}%</strong>
-                            </div>
-                        </div>
-                        {% endif %}
-                        {% endfor %}
+                        {% if (s.search or {}).get('url') %}<div><span class="lbl">Search URL</span><span class="val"><a href="{{ s.search.url }}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-cyan); text-decoration: none; word-break: break-all;">{{ s.search.url }}</a></span></div>{% endif %}
+                        {% if (s.search or {}).get('pdfs') %}<div><span class="lbl">PDFs</span><span class="val">{{ 'Yes' if 'no' not in s.search.pdfs|lower else 'No' }}</span></div>{% endif %}
+                        {% if (s.search or {}).get('date_filter') %}<div><span class="lbl">Date filter</span><span class="val">{{ s.search.date_filter }}</span></div>{% endif %}
+                        {% if (s.search or {}).get('case_pattern') %}<div><span class="lbl">Case # pattern</span><span class="val" style="font-family: 'JetBrains Mono', ui-monospace, monospace;">{{ s.search.case_pattern }}</span></div>{% endif %}
+                        {% if (s.search or {}).get('name_search') %}<div><span class="lbl">Name search</span><span class="val">{{ s.search.name_search }}</span></div>{% endif %}
+                        {% if (s.search or {}).get('select') %}<div><span class="lbl">Select field</span><span class="val">{{ s.search.select }}</span></div>{% endif %}
                     </div>
                 </div>
 
@@ -456,12 +415,6 @@
                     </div>
                 </div>
                 {% endif %}
-
-                {# 4. Daily scrape timeline (rendered client-side) #}
-                <div class="scr-section">
-                    <div class="scr-section-title">Records per scrape day</div>
-                    <div data-chart-for="{{ s.key }}"></div>
-                </div>
 
                 {# 5. County breakdown — collapsible #}
                 {% if s.counties %}
@@ -580,10 +533,12 @@ function toggleScraper(key) {
 
     // Render timeline using the snapshot we already have inline.
     const dataEl = card.querySelector('[data-chart-for]');
-    fetch(`/scrapers/api/${encodeURIComponent(key)}`, { credentials: 'same-origin' })
-        .then(r => r.json())
-        .then(data => renderChart(dataEl, data.timeline || []))
-        .catch(() => { dataEl.innerHTML = '<div style="font-size:.75rem; color: var(--text-muted);">Failed to load timeline.</div>'; });
+    if (dataEl) {
+        fetch(`/scrapers/api/${encodeURIComponent(key)}`, { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => renderChart(dataEl, data.timeline || []))
+            .catch(() => { dataEl.innerHTML = '<div style="font-size:.75rem; color: var(--text-muted);">Failed to load timeline.</div>'; });
+    }
 
     if (card.querySelector(`[data-rows-for="${key}"]`)) {
         wireRowsSearch(card, key);

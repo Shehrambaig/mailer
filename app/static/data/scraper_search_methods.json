@@ -1,0 +1,99 @@
+{
+  "_doc": "Per-scraper search-method metadata. Keyed by scraper.key from build_scraper_report.py. Source: how we search.xlsx.",
+  "maryland": {
+    "url": "https://registers.maryland.gov/RowNetWeb/Estates/frmEstateSearch2.aspx",
+    "pdfs": "No PDFs",
+    "date_filter": "Date range",
+    "case_pattern": null,
+    "name_search": null,
+    "select": "Decedent"
+  },
+  "new_york": {
+    "url": "https://websurrogates.nycourts.gov/File/FileSearch",
+    "pdfs": "PDFs",
+    "date_filter": "Date range",
+    "case_pattern": null,
+    "name_search": null,
+    "select": null
+  },
+  "north_carolina": {
+    "url": "https://portal-nc.tylertech.cloud/Portal/SmartSearch/SmartSearchResults",
+    "pdfs": "PDFs",
+    "date_filter": "Date range",
+    "case_pattern": "26E0",
+    "name_search": null,
+    "select": null
+  },
+  "ga_cobb": {
+    "url": "https://probateonline.cobbcounty.gov/BenchmarkWeb/Home.aspx/",
+    "pdfs": "PDFs",
+    "date_filter": null,
+    "case_pattern": "26-p-00",
+    "name_search": null,
+    "select": null
+  },
+  "ga_rockdale": {
+    "url": "https://portal-garockdale.tylertech.cloud/PublicAccess/Search.aspx?ID=200",
+    "pdfs": "PDFs",
+    "date_filter": null,
+    "case_pattern": "25PC123",
+    "name_search": null,
+    "select": null
+  },
+  "gwinnett": {
+    "url": "https://portal-gagwinnett.tylertech.cloud/Portal/",
+    "pdfs": "PDFs",
+    "date_filter": "Date range",
+    "case_pattern": "26-E-001234",
+    "name_search": null,
+    "select": null
+  },
+  "georgia_probate_records": {
+    "url": "https://georgiaprobaterecords.com/Estates/SearchEstates.aspx",
+    "pdfs": "PDFs",
+    "date_filter": "Death date",
+    "case_pattern": null,
+    "name_search": null,
+    "select": "County"
+  },
+  "indiana": {
+    "url": "https://public.courts.in.gov/mycase/Search/#/vw/Search",
+    "pdfs": null,
+    "date_filter": "Date range",
+    "case_pattern": "0*",
+    "name_search": null,
+    "select": null
+  },
+  "oklahoma": {
+    "url": "https://www.oscn.net/dockets/Search.aspx#all",
+    "pdfs": "PDFs",
+    "date_filter": "Date range",
+    "case_pattern": null,
+    "name_search": "last name a*",
+    "select": null
+  },
+  "connecticut": {
+    "url": "https://www.ctprobate.gov/case-lookup",
+    "pdfs": "No PDFs",
+    "date_filter": "Case type",
+    "case_pattern": null,
+    "name_search": "pairs of first/last name suffixes (a,a) (b,b)",
+    "select": null
+  },
+  "minnesota": {
+    "url": "https://publicaccess.courts.state.mn.us/CaseSearch",
+    "pdfs": null,
+    "date_filter": null,
+    "case_pattern": null,
+    "name_search": null,
+    "select": null
+  },
+  "wisconsin": {
+    "url": "https://wcca.wicourts.gov/caseSearchResults.html",
+    "pdfs": "No PDFs",
+    "date_filter": null,
+    "case_pattern": "2026PR on POST/GET call",
+    "name_search": null,
+    "select": null
+  }
+}

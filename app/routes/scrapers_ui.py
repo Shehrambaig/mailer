@@ -10,7 +10,9 @@ Endpoints:
 Snapshot is built by `scripts/build_scraper_report.py` — we only read here.
 """
 from __future__ import annotations
+import json
 import os
+from pathlib import Path
 from urllib.parse import unquote
 
 import psycopg2
@@ -18,6 +20,20 @@ import psycopg2.extras
 from flask import Blueprint, jsonify, render_template, request
 
 scrapers_bp = Blueprint("scrapers", __name__)
+
+_SEARCH_METHODS_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "static" / "data" / "scraper_search_methods.json"
+)
+
+
+def _load_search_methods() -> dict:
+    try:
+        with _SEARCH_METHODS_PATH.open() as f:
+            data = json.load(f)
+        return {k: v for k, v in data.items() if not k.startswith("_")}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def _dsn() -> str:
@@ -56,6 +72,11 @@ def _load_snapshot() -> list[dict]:
 @scrapers_bp.route("/")
 def index():
     sources = _load_snapshot()
+    search_methods = _load_search_methods()
+    for s in sources:
+        sm = search_methods.get(s.get("key")) or {}
+        if sm:
+            s["search"] = sm
     total_records  = sum(int(s.get("total") or 0) for s in sources)
     total_active = total_closed = 0
     for s in sources:
