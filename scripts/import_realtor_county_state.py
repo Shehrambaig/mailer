@@ -25,11 +25,14 @@ if not NEON_DB:
     sys.exit("NEON_DB not set")
 
 R = ROOT / "Mailer_Data_set" / "Realtor"
-INV_COUNTY = R / "Monthly Housing Inventory" / "Monthly_Inventory__County.csv"
+INV_COUNTY = R / "Monthly Housing Inventory" / "RDC_Inventory_Core_Metrics_County_History.csv"
 INV_STATE  = R / "Monthly Housing Inventory" / "monthly_Inventory_Metrics_State.csv"
 HOT_COUNTY = R / "Monthly Market Hotness"    / "Inventory_Hotness_Metrics_County_History.csv"
 
-HOT_MIN_YYYYMM = 202304  # last 36 months (matches ZIP table)
+# 36-month window matching realtor_hotness_* tables.
+HOT_MIN_YYYYMM = 202304
+INV_MIN_YYYYMM = 202304
+INV_MAX_YYYYMM = 202603
 
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
@@ -186,7 +189,7 @@ def _coerce_int(v):
         return s
 
 
-def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter=None, batch_size=50_000):
+def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter=None, month_max=None, batch_size=50_000):
     """Stream CSV, normalize values, yield batches of dicts.
     `key_xform`: optional dict {col: callable(val)} for fields like fips-zfill."""
     int_set = set(integer_columns)
@@ -200,6 +203,8 @@ def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter
             except (KeyError, TypeError, ValueError):
                 continue
             if month_filter is not None and month < month_filter:
+                continue
+            if month_max is not None and month > month_max:
                 continue
             row = {"month_date_yyyymm": month}
             for col in columns:
@@ -313,8 +318,8 @@ def main():
         conn.commit()
         print("Tables ready.")
 
-        # ── County inventory ────────────────────────────────────────────────
-        print(f"Importing {INV_COUNTY.name} ...")
+        # ── County inventory (last 36 months) ───────────────────────────────
+        print(f"Importing {INV_COUNTY.name} (months {INV_MIN_YYYYMM}–{INV_MAX_YYYYMM}) ...")
         inv_int_cols = (
             "active_listing_count","new_listing_count","price_increased_count",
             "price_reduced_count","pending_listing_count","total_listing_count",
@@ -325,11 +330,14 @@ def main():
             INV_COUNTY, INV_COUNTY_COLS,
             key_xform={"county_fips": lambda v: v.zfill(5)},
             integer_columns=inv_int_cols,
+            month_filter=INV_MIN_YYYYMM,
+            month_max=INV_MAX_YYYYMM,
         ):
             _upsert(conn, "realtor_inventory_county", INV_COUNTY_COLS,
                     ["month_date_yyyymm","county_fips"], batch)
             conn.commit()
             total += len(batch)
+            print(f"  county inventory: upserted batch ({len(batch)} rows), running total {total}")
         print(f"  county inventory: {total} rows.")
 
         # ── State inventory ─────────────────────────────────────────────────

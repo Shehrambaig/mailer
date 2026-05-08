@@ -24,11 +24,13 @@ if not NEON_DB:
     sys.exit("NEON_DB not set")
 
 ROOT = Path(__file__).resolve().parent.parent / "Mailer_Data_set" / "Realtor"
-INV_PATH = ROOT / "Monthly Housing Inventory" / "Monthly_Inventory_Zip.csv"
+INV_PATH = ROOT / "Monthly Housing Inventory" / "RDC_Inventory_Core_Metrics_Zip_History.csv"
 HOT_PATH = ROOT / "Monthly Market Hotness" / "Inventory_Hotness_Metrics_Zip_History.csv"
 
-# Keep last 36 months (3 years).
+# 36-month window (3 years) — keep inventory + hotness aligned.
 HOTNESS_MIN_YYYYMM = 202304
+INV_MIN_YYYYMM = 202304
+INV_MAX_YYYYMM = 202603
 
 
 INV_DDL = """
@@ -151,7 +153,7 @@ def _coerce_int(v):
         return s  # let Postgres error if truly bad
 
 
-def _read_csv(path, columns, *, integer_columns=(), month_filter=None, batch_size=50_000):
+def _read_csv(path, columns, *, integer_columns=(), month_filter=None, month_max=None, batch_size=50_000):
     """Stream CSV, normalize, yield batches of dicts."""
     int_set = set(integer_columns)
     batch = []
@@ -164,6 +166,8 @@ def _read_csv(path, columns, *, integer_columns=(), month_filter=None, batch_siz
             except (KeyError, TypeError, ValueError):
                 continue
             if month_filter is not None and month < month_filter:
+                continue
+            if month_max is not None and month > month_max:
                 continue
             row["month_date_yyyymm"] = month
             row["postal_code"] = _norm_zip(raw.get("postal_code"))
@@ -272,9 +276,12 @@ def main():
             "price_reduced_count", "pending_listing_count", "total_listing_count",
             "quality_flag",
         )
-        print(f"Importing {INV_PATH.name} ...")
+        print(f"Importing {INV_PATH.name} (months {INV_MIN_YYYYMM}–{INV_MAX_YYYYMM}) ...")
         total = 0
-        for batch in _read_csv(INV_PATH, INV_COLUMNS, integer_columns=inv_int_cols):
+        for batch in _read_csv(INV_PATH, INV_COLUMNS,
+                               integer_columns=inv_int_cols,
+                               month_filter=INV_MIN_YYYYMM,
+                               month_max=INV_MAX_YYYYMM):
             _upsert(conn, "realtor_inventory_zip", INV_COLUMNS, batch)
             conn.commit()
             total += len(batch)

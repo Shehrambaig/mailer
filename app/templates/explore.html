@@ -68,17 +68,6 @@
     padding: 10px 12px; font-size: .76rem; color: var(--text-muted);
 }
 
-/* Foreclosure delta chip (rendered inside the Foreclosures cell) */
-.fc-delta {
-    display: inline-block; margin-left: 6px;
-    font-size: .68rem; font-weight: 700;
-    padding: 1px 6px; border-radius: 999px;
-    vertical-align: middle;
-}
-.fc-delta.up   { color: #ff6b6b; background: rgba(255,107,107,.12); }
-.fc-delta.down { color: #4ade80; background: rgba(74,222,128,.12); }
-.fc-delta.flat { color: var(--text-muted); background: rgba(255,255,255,.05); }
-
 .btn-tool {
     background: rgba(255,255,255,.05); color: var(--text-primary);
     border: 1px solid var(--border-glass); border-radius: 8px;
@@ -533,6 +522,144 @@
     background: rgba(0,0,0,.4); z-index: 49; display: none;
 }
 #cc-backdrop.open { display: block; }
+
+/* ── Mailing-export button (toolbar prominence) ────────────────────────── */
+.btn-tool.btn-mail {
+    background: linear-gradient(135deg, rgba(0,240,255,.12), rgba(124,58,237,.12));
+    border-color: rgba(0,240,255,.35);
+    color: var(--accent-cyan); font-weight: 600;
+}
+.btn-tool.btn-mail:hover {
+    background: linear-gradient(135deg, rgba(0,240,255,.2), rgba(124,58,237,.18));
+    border-color: rgba(0,240,255,.55);
+    box-shadow: 0 0 18px rgba(0,240,255,.18);
+}
+
+/* ── Mailing-export confirmation modal ─────────────────────────────────── */
+#mail-modal {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center;
+}
+#mail-modal.open { display: flex; }
+#mail-modal .backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,.65); backdrop-filter: blur(6px);
+}
+#mail-modal .dialog {
+    position: relative; z-index: 1; width: min(560px, 92vw);
+    background: rgba(8,8,20,0.97); border: 1px solid var(--border-glass);
+    border-radius: 14px; padding: 22px 24px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 50px rgba(0,240,255,.06);
+    color: var(--text-primary);
+}
+#mail-modal .dialog h6 {
+    margin: 0 0 4px; font-size: 1rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-cyan), #a78bfa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: .3px;
+}
+#mail-modal .dialog .sub {
+    font-size: .68rem; color: var(--text-muted); letter-spacing: .8px;
+    text-transform: uppercase; margin-bottom: 14px;
+}
+#mail-modal .summary {
+    background: rgba(255,255,255,.025); border: 1px solid var(--border-glass);
+    border-radius: 8px; padding: 10px 12px; font-size: .76rem;
+    color: var(--text-secondary); margin-bottom: 16px;
+    word-break: break-word;
+}
+#mail-modal .summary strong { color: var(--text-primary); font-weight: 600; }
+
+#mail-modal .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 6px;
+}
+#mail-modal .stat {
+    padding: 10px 12px; border: 1px solid var(--border-glass); border-radius: 9px;
+    background: rgba(255,255,255,.015);
+}
+#mail-modal .stat .lbl { font-size: .55rem; letter-spacing: 1.4px; text-transform: uppercase;
+                          color: var(--text-muted); font-weight: 700; }
+#mail-modal .stat .val { margin-top: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace;
+                          font-size: 1.1rem; font-weight: 700; color: var(--text-primary);
+                          font-variant-numeric: tabular-nums; }
+#mail-modal .stat.match .val { color: var(--text-primary); }
+#mail-modal .stat.drop  .val { color: var(--accent-amber); }
+#mail-modal .stat.net   .val {
+    background: linear-gradient(135deg, var(--accent-cyan), #a78bfa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+#mail-modal .note { font-size: .72rem; color: var(--text-muted); margin: 12px 0 18px; }
+#mail-modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+#mail-modal .actions button {
+    padding: 8px 16px; border-radius: 8px; cursor: pointer;
+    font-size: .8rem; font-weight: 600;
+    background: rgba(255,255,255,.04); color: var(--text-secondary);
+    border: 1px solid var(--border-glass);
+}
+#mail-modal .actions button:hover { color: var(--text-primary); border-color: rgba(255,255,255,.15); }
+#mail-modal .actions button.primary {
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+    color: #04060c; border-color: transparent; font-weight: 700;
+}
+#mail-modal .actions button.primary:hover { box-shadow: 0 0 22px rgba(0,240,255,.3); }
+#mail-modal .actions button:disabled { opacity: .5; cursor: not-allowed; }
+
+#mail-modal .err { font-size: .72rem; color: var(--accent-red); margin-bottom: 10px; }
+
+/* ── Previous Exports drawer (right side, like the column drawer) ──────── */
+#exports-drawer {
+    position: fixed; top: 52px; right: -460px;
+    width: 460px; max-width: 92vw; height: calc(100vh - 52px);
+    background: rgba(8,8,20,0.97);
+    border-left: 1px solid var(--border-glass);
+    backdrop-filter: blur(20px);
+    transition: right .25s ease; z-index: 50;
+    display: flex; flex-direction: column;
+}
+#exports-drawer.open { right: 0; }
+#exports-drawer .head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border-glass);
+    display: flex; justify-content: space-between; align-items: center;
+}
+#exports-drawer .head h6 { margin: 0; font-weight: 700; font-size: .9rem; }
+#exports-drawer .body { flex: 1; overflow-y: auto; padding: 8px 0; }
+#exports-drawer .row {
+    padding: 12px 18px; border-bottom: 1px solid var(--border-glass);
+    cursor: default; transition: background .12s;
+}
+#exports-drawer .row:hover { background: rgba(0,240,255,.03); }
+#exports-drawer .row .top {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    margin-bottom: 4px;
+}
+#exports-drawer .row .when {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: .76rem; color: var(--accent-cyan); font-weight: 700;
+}
+#exports-drawer .row .count {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: .76rem; color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+#exports-drawer .row .summary {
+    font-size: .72rem; color: var(--text-muted); margin-bottom: 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#exports-drawer .row .drops {
+    font-size: .65rem; color: var(--text-muted); letter-spacing: .4px;
+}
+#exports-drawer .row .drops .pill {
+    display: inline-block; padding: 2px 7px; border-radius: 999px;
+    background: rgba(245,158,11,.08); color: var(--accent-amber);
+    border: 1px solid rgba(245,158,11,.2); margin-left: 4px;
+}
+#exports-drawer .row .actions { margin-top: 8px; display: flex; gap: 6px; }
+#exports-drawer .empty { padding: 32px 18px; text-align: center;
+                          color: var(--text-muted); font-size: .8rem; }
+#exports-backdrop {
+    position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.4); z-index: 49; display: none;
+}
+#exports-backdrop.open { display: block; }
 </style>
 {% endblock %}
 
@@ -665,6 +792,54 @@
     </div>
 </div>
 
+<!-- ═══ Mailing-export confirmation modal ═══ -->
+<div id="mail-modal" role="dialog" aria-modal="true" aria-labelledby="mail-modal-title">
+    <div class="backdrop" onclick="closeExportModal()"></div>
+    <div class="dialog">
+        <h6 id="mail-modal-title">Export for Mailing</h6>
+        <div class="sub">Confirm batch &middot; will dedupe against past exports</div>
+        <div class="summary" id="mail-summary">Loading…</div>
+        <div class="stats" id="mail-stats" style="display:none;">
+            <div class="stat match">
+                <div class="lbl">Match</div>
+                <div class="val" id="mail-stat-match">—</div>
+            </div>
+            <div class="stat drop">
+                <div class="lbl">Drop &middot; ID</div>
+                <div class="val" id="mail-stat-drop-id">—</div>
+            </div>
+            <div class="stat drop">
+                <div class="lbl">Drop &middot; Addr</div>
+                <div class="val" id="mail-stat-drop-addr">—</div>
+            </div>
+            <div class="stat net">
+                <div class="lbl">Net Export</div>
+                <div class="val" id="mail-stat-net">—</div>
+            </div>
+        </div>
+        <div class="note" id="mail-note">
+            Net rows will be marked as exported and excluded from future mailings.
+        </div>
+        <div class="err" id="mail-err" style="display:none;"></div>
+        <div class="actions">
+            <button onclick="closeExportModal()">Cancel</button>
+            <button class="primary" id="mail-confirm-btn" onclick="confirmExport()" disabled>Export</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Previous Exports drawer ═══ -->
+<div id="exports-backdrop" onclick="closeExportsDrawer()"></div>
+<div id="exports-drawer">
+    <div class="head">
+        <h6>Previous Exports</h6>
+        <button class="btn-tool" onclick="closeExportsDrawer()" style="padding:4px 10px;">✕</button>
+    </div>
+    <div class="body" id="exports-list">
+        <div class="empty">Loading…</div>
+    </div>
+</div>
+
 <script>
 // ─── State ─────────────────────────────────────────────────────────────────
 let state = {
@@ -685,6 +860,7 @@ let state = {
     done:     false,
     filters:  [],            // column-level: [{col, op, value, ...}]
     fcFilters: [],           // foreclosure-record-level: [{field, op, value}]
+    fcNetNew: false,         // when true, foreclosure count + filters use only the latest scrape day
     appliedFilters: [],      // server response (with resolved pct thresholds)
     appliedFcFilters: [],
     exitWeights:         {dom: 0.55, pending: 0.41, yoy: 0.04},  // current saved
@@ -758,7 +934,7 @@ function renderHeader() {
         const sorted = c.key === state.sort;
         const arrow  = sorted ? (state.dir === 'asc' ? '▲' : '▼') : '';
         const hasFilter = state.filters.some(f => f.col === c.key)
-            || (c.key === 'foreclosure_count' && state.fcFilters.length > 0);
+            || (c.key === 'foreclosure_count' && (state.fcFilters.length > 0 || state.fcNetNew));
         const isFrozen = frozenIdx >= 0 && i <= frozenIdx;
         const isFreezeAnchor = c.key === state.frozenThrough;
         // Inline aggregate next to the column label (when filters are applied
@@ -802,21 +978,6 @@ function renderHeader() {
     applyFreezeOffsets();
 }
 
-function renderFcCell(r) {
-    const cur  = r.foreclosure_count;
-    const prev = r.foreclosure_count_prev;
-    const main = (cur === null || cur === undefined) ? '' : Math.round(Number(cur)).toLocaleString();
-    if (prev === null || prev === undefined) return main;
-    const delta = Number(cur) - Number(prev);
-    if (!isFinite(delta) || delta === 0) {
-        return `${main} <span class="fc-delta flat" title="No change vs last week">±0</span>`;
-    }
-    const cls = delta > 0 ? 'up' : 'down';
-    const sign = delta > 0 ? '+' : '−';
-    const title = `Last week: ${Math.round(Number(prev)).toLocaleString()}`;
-    return `${main} <span class="fc-delta ${cls}" title="${title}">${sign}${Math.abs(delta).toLocaleString()}</span>`;
-}
-
 function renderRows() {
     const tbody = document.getElementById('grid-body');
     const cols = state.columns.filter(c => state.visible.has(c.key));
@@ -837,9 +998,6 @@ function renderRows() {
                 if (i === frozenIdx) baseCls.push('frozen-edge');
             }
             const cls = baseCls.join(' ');
-            if (c.key === 'foreclosure_count') {
-                return `<td class="${cls}">${renderFcCell(r)}</td>`;
-            }
             return `<td class="${cls}">${fmt(v, c.type)}</td>`;
         }).join('') + '</tr>';
     }).join('');
@@ -921,6 +1079,7 @@ function buildURL({format='json', offsetOverride=null} = {}) {
         const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
         p.append(`fc.${f.field}.${f.op}`, v);
     }
+    if (state.fcNetNew) p.set('fc_net_new', '1');
     return `/api/explore/${state.grain}?${p.toString()}`;
 }
 
@@ -939,6 +1098,7 @@ function syncURL() {
         const v = Array.isArray(f.value) ? f.value.join(',') : f.value;
         p.append(`fc.${f.field}.${f.op}`, v);
     }
+    if (state.fcNetNew) p.set('fc_net_new', '1');
     history.replaceState(null, '', '/explore?' + p.toString());
 }
 function loadFromURL() {
@@ -949,6 +1109,7 @@ function loadFromURL() {
     state.dir  = p.get('dir')  || 'desc';
     state.filters = [];
     state.fcFilters = [];
+    state.fcNetNew = ['1','true','yes'].includes((p.get('fc_net_new') || '').toLowerCase());
     for (const [k, v] of p.entries()) {
         if (k.startsWith('f.')) {
             const parts = k.split('.', 3);  // ["f", col, op]
@@ -1543,6 +1704,181 @@ function downloadCSV() {
     window.location.href = url;
 }
 
+// ─── Mailing export ────────────────────────────────────────────────────────
+function _mailingURL(endpoint) {
+    // /api/explore/<grain>?... → /api/mailing/<endpoint>?... (same query string)
+    return buildURL().replace(`/api/explore/${state.grain}`, `/api/mailing/${endpoint}`);
+}
+
+function _fmtIntSafe(n) {
+    if (n == null || !isFinite(Number(n))) return '—';
+    return Math.round(Number(n)).toLocaleString();
+}
+
+async function openExportModal() {
+    const modal = document.getElementById('mail-modal');
+    document.getElementById('mail-summary').textContent = 'Loading…';
+    document.getElementById('mail-stats').style.display = 'none';
+    document.getElementById('mail-err').style.display = 'none';
+    document.getElementById('mail-confirm-btn').disabled = true;
+    document.getElementById('mail-confirm-btn').textContent = 'Export';
+    modal.classList.add('open');
+
+    try {
+        const url = _mailingURL('preview');
+        const rv  = await fetch(url, {credentials: 'same-origin'});
+        if (!rv.ok) throw new Error(`HTTP ${rv.status}`);
+        const j   = await rv.json();
+
+        document.getElementById('mail-summary').innerHTML =
+            `<strong>Filters:</strong> ${j.filter_summary || 'no filters'}`;
+        document.getElementById('mail-stat-match'   ).textContent = _fmtIntSafe(j.match_total);
+        document.getElementById('mail-stat-drop-id' ).textContent = _fmtIntSafe(j.drop_listing_id);
+        document.getElementById('mail-stat-drop-addr').textContent = _fmtIntSafe(j.drop_address);
+        document.getElementById('mail-stat-net'     ).textContent = _fmtIntSafe(j.net_count);
+        document.getElementById('mail-stats').style.display = 'grid';
+
+        const btn = document.getElementById('mail-confirm-btn');
+        if (j.net_count > 0) {
+            btn.textContent = `Export ${_fmtIntSafe(j.net_count)} rows`;
+            btn.disabled = false;
+        } else {
+            btn.textContent = 'Nothing new to export';
+            btn.disabled = true;
+        }
+    } catch (err) {
+        document.getElementById('mail-summary').textContent = '';
+        document.getElementById('mail-err').textContent = `Failed to load preview: ${err.message}`;
+        document.getElementById('mail-err').style.display = 'block';
+    }
+}
+
+function closeExportModal() {
+    document.getElementById('mail-modal').classList.remove('open');
+}
+
+async function confirmExport() {
+    const btn = document.getElementById('mail-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Exporting…';
+    document.getElementById('mail-err').style.display = 'none';
+
+    try {
+        const url = _mailingURL('export');
+        const rv  = await fetch(url, {method: 'POST', credentials: 'same-origin'});
+        if (!rv.ok) {
+            const text = await rv.text();
+            throw new Error(`HTTP ${rv.status}: ${text.slice(0, 200)}`);
+        }
+        // Pull filename out of Content-Disposition.
+        const cd = rv.headers.get('Content-Disposition') || '';
+        const m  = /filename="?([^";]+)"?/i.exec(cd);
+        const filename = m ? m[1] : `mailing-${new Date().toISOString().slice(0,10)}.xlsx`;
+
+        const blob = await rv.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+
+        closeExportModal();
+    } catch (err) {
+        document.getElementById('mail-err').textContent = `Export failed: ${err.message}`;
+        document.getElementById('mail-err').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+    }
+}
+
+// ─── Previous Exports drawer ───────────────────────────────────────────────
+async function openExportsDrawer() {
+    document.getElementById('exports-backdrop').classList.add('open');
+    document.getElementById('exports-drawer').classList.add('open');
+    await refreshExportsList();
+}
+
+function closeExportsDrawer() {
+    document.getElementById('exports-backdrop').classList.remove('open');
+    document.getElementById('exports-drawer').classList.remove('open');
+}
+
+function _summarizeFilterSnapshot(fj) {
+    if (!fj || typeof fj !== 'object') return 'no filters';
+    const parts = [];
+    for (const [k, v] of Object.entries(fj)) {
+        if (k === 'limit' || k === 'offset' || k === 'sort' || k === 'dir') continue;
+        if (k === 'fc_net_new')          parts.push('net new');
+        else if (k.startsWith('fc.'))    parts.push(`${k.slice(3).replace('.', ' ')} ${v}`);
+        else if (k.startsWith('f.'))     parts.push(`${k.slice(2).replace('.', ' ')} ${v}`);
+        else if (k === 'q' && v)         parts.push(`q="${v}"`);
+        else if (k === 'state' && v)     parts.push(`state=${v}`);
+    }
+    return parts.length ? parts.join(' · ') : 'no filters';
+}
+
+async function refreshExportsList() {
+    const list = document.getElementById('exports-list');
+    list.innerHTML = '<div class="empty">Loading…</div>';
+    try {
+        const rv = await fetch('/api/mailing/exports', {credentials: 'same-origin'});
+        const j  = await rv.json();
+        if (!j.exports || !j.exports.length) {
+            list.innerHTML = '<div class="empty">No exports yet. Click <strong>Export for Mailing</strong> to create your first batch.</div>';
+            return;
+        }
+        list.innerHTML = j.exports.map(e => {
+            const when = new Date(e.created_at);
+            const whenStr = when.toLocaleString(undefined, {
+                year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit',
+            });
+            const drops = (e.drop_listing_id || 0) + (e.drop_address || 0);
+            const summary = _summarizeFilterSnapshot(e.filter_json);
+            return `
+                <div class="row">
+                    <div class="top">
+                        <span class="when">${whenStr}</span>
+                        <span class="count">${_fmtIntSafe(e.row_count)} rows</span>
+                    </div>
+                    <div class="summary" title="${summary.replace(/"/g, '&quot;')}">${summary}</div>
+                    <div class="drops">
+                        Match ${_fmtIntSafe(e.match_total)}
+                        ${drops ? `<span class="pill">−${_fmtIntSafe(drops)} dedupe</span>` : ''}
+                    </div>
+                    <div class="actions">
+                        <button class="btn-tool" onclick="redownloadExport(${e.id})">
+                            <i class="bi bi-download"></i> Download
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
+    } catch (err) {
+        list.innerHTML = `<div class="empty">Failed to load: ${err.message}</div>`;
+    }
+}
+
+async function redownloadExport(id) {
+    try {
+        const rv = await fetch(`/api/mailing/exports/${id}/download`, {credentials: 'same-origin'});
+        if (!rv.ok) throw new Error(`HTTP ${rv.status}`);
+        const cd = rv.headers.get('Content-Disposition') || '';
+        const m  = /filename="?([^";]+)"?/i.exec(cd);
+        const filename = m ? m[1] : `mailing-${id}.xlsx`;
+        const blob = await rv.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+    } catch (err) {
+        alert(`Download failed: ${err.message}`);
+    }
+}
+
 // ─── Filter chips ──────────────────────────────────────────────────────────
 function chipLabel(f, c) {
     const meta = state.columns.find(cc => cc.key === f.col);
@@ -1621,7 +1957,7 @@ function removeFilter(idx) {
     loadInitial();
 }
 function clearAllFilters() {
-    state.filters = []; state.fcFilters = []; loadInitial();
+    state.filters = []; state.fcFilters = []; state.fcNetNew = false; loadInitial();
 }
 
 // Add or replace a filter for a (col, op) key. For numeric ranges we may have
@@ -1761,6 +2097,14 @@ function openForeclosurePopover(anchor) {
     pop.innerHTML = `
       <h6>Foreclosures</h6>
 
+      <div style="margin-bottom:12px; padding:8px 10px; border:1px solid rgba(0,240,255,.18); border-radius:8px; background:rgba(0,240,255,.04);">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.78rem; font-weight:600;">
+          <input type="checkbox" id="fc-net-new" ${state.fcNetNew?'checked':''} style="flex-shrink:0; margin:0;">
+          <span>Net new only</span>
+        </label>
+        <div style="margin-left:24px; margin-top:3px; color:var(--text-muted); font-size:.66rem; line-height:1.3;">Records first seen in the latest scrape</div>
+      </div>
+
       <div style="font-size:.68rem; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px;">Count range</div>
       <div class="fp-row">
         <label class="fp-lbl">Min</label>
@@ -1846,6 +2190,8 @@ function applyPctFc(which) {
 }
 
 function applyForeclosureFilter() {
+    state.fcNetNew = document.getElementById('fc-net-new').checked;
+
     // 1. Count range — reuse the column-filter slot
     const minRaw = document.getElementById('fc-min').value.trim();
     const maxRaw = document.getElementById('fc-max').value.trim();
@@ -1884,6 +2230,7 @@ function applyForeclosureFilter() {
 function clearForeclosureFilter() {
     state.filters = state.filters.filter(f => f.col !== 'foreclosure_count');
     state.fcFilters = [];
+    state.fcNetNew = false;
     closeFilter();
     loadInitial();
 }

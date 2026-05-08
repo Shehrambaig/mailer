@@ -42,7 +42,7 @@ OUT_ZIP_DETAIL  = STATIC / "zip-detail.json"
 OUT_COUNTY_DET  = STATIC / "county-detail.json"
 OUT_SCATTER     = STATIC / "scatter.json"
 
-ZIP_BY_COUNTY   = STATIC / "zip-by-county.json"
+ZIP_BY_COUNTY   = STATIC / "zip-by-county-2020.json"
 COUNTY_NAMES    = STATIC / "county-names.json"
 LISTINGS_COUNTY = STATIC / "listings.json"
 LISTINGS_ZIP    = STATIC / "listings-zip.json"

@@ -2170,7 +2170,7 @@ function ensureZipData() {
     if (_zipLoadPromise) return _zipLoadPromise;
     _zipLoadPromise = Promise.all([
         fetch('/api/zip-heatmap').then(r => r.ok ? r.json() : {}),
-        fetch('/static/data/zip-by-county.json').then(r => r.ok ? r.json() : {}),
+        fetch('/static/data/zip-by-county-2020.json').then(r => r.ok ? r.json() : {}),
     ]).then(([zh, zbc]) => { zipData = zh; zipByCounty = zbc; recomputeDotMax(); });
     return _zipLoadPromise;
 }
@@ -2235,7 +2235,7 @@ async function drillIntoCountyZips(fips) {
         await ensureZipData();
         const fc = await ensureStateZcta(stateAbbr);
         // Filter directly by the fips embedded in each feature — the per-state
-        // GeoJSON already carries it, so we don't depend on zip-by-county.json
+        // GeoJSON already carries it, so we don't depend on zip-by-county-2020.json
         // (which is written incrementally and may not yet include this state).
         let features = fc.features.filter(f => (f.properties || {}).fips === fips);
         // Fallback: use the membership map if features lack the fips property.

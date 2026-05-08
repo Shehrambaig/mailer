@@ -548,42 +548,6 @@ DERIVED_INV_EXPR = {
 }
 
 
-# Foreclosure week-over-week: refresh_foreclosure_counts.py copies the
-# current count tables into *_prev before rebuilding them. The explore grid
-# left-joins prev to render a Δ vs last week. On a fresh deploy these may
-# not exist yet, so create empty stubs once per process.
-_PREV_TABLES_READY = False
-
-def _ensure_prev_tables():
-    global _PREV_TABLES_READY
-    if _PREV_TABLES_READY:
-        return
-    dsn = os.getenv("NEON_DB") or os.getenv("PROBATE_DATABASE_URL")
-    if not dsn:
-        return
-    try:
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS foreclosure_counts_by_zip_prev (
-                        postal_code text PRIMARY KEY,
-                        fc_count    int
-                    );
-                    CREATE TABLE IF NOT EXISTS foreclosure_counts_by_county_prev (
-                        county_fips text PRIMARY KEY,
-                        fc_count    int
-                    );
-                """)
-            conn.commit()
-        finally:
-            conn.close()
-        _PREV_TABLES_READY = True
-    except Exception:
-        # Don't break /explore if we can't create — query will surface the issue.
-        pass
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-column filter parsing — request.args parses to "f.<col>.<op>=<value>"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -805,13 +769,28 @@ def _parse_fc_filters(args):
     return out, errors
 
 
-def _build_fc_count_cte(grain: str, fc_filters):
+def _build_fc_count_cte(grain: str, fc_filters, net_new: bool = False):
     """Build a CTE that recomputes foreclosure count per geo, using the
     record-level filters. Returns (cte_sql, params) producing a relation
-    with columns (postal_code or county_fips, fc_count) joined alias `fc`."""
+    with columns (postal_code or county_fips, fc_count) joined alias `fc`.
+
+    When ``net_new`` is true, only rows whose ``first_seen_at`` falls on the
+    latest scrape day are counted. The boundary is computed in SQL so it
+    auto-tracks the most recent scrape with no caller-side state.
+    """
     cfg = GRAIN_CONFIG[grain]
     where = ["status = 'active'", "zip IS NOT NULL", "zip <> ''"]
     params = []
+
+    if net_new:
+        # The latest scrape day = MAX(DATE(first_seen_at)). Anything from that
+        # day onward is "net new" relative to the previous scrape.
+        where.append(
+            "first_seen_at >= ("
+            "  SELECT MAX(DATE(first_seen_at))::timestamptz"
+            "  FROM foreclosure_records"
+            ")"
+        )
 
     for f in fc_filters:
         if f["field"] == "auction_date":
@@ -902,7 +881,7 @@ SUMMABLE_KEYS = {
 }
 
 
-def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None):
+def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool, filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None, fc_net_new: bool = False):
     """Return (sql, params, cols_in_order) for the given grain."""
     filters = filters or []
     fc_filters = fc_filters or []
@@ -931,7 +910,6 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
         select_parts.append(f"h.{k} AS {k}")
     if "foreclosure_count" in fc_cols:
         select_parts.append("COALESCE(fc.fc_count, 0) AS foreclosure_count")
-        select_parts.append("fcp.fc_count AS foreclosure_count_prev")
     for k in sc_cols:
         if k == "exit_score" and exit_expr:
             select_parts.append(f"({exit_expr}) AS {k}")
@@ -961,26 +939,28 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
             where.append(clause)
             params.extend(fparams)
 
-    # When record-level fc.* filters are active, replace the precomputed
-    # foreclosure_counts table with a dynamic CTE that re-aggregates per geo.
+    # When record-level fc.* filters are active OR the NET toggle is on,
+    # replace the precomputed foreclosure_counts table with a dynamic CTE
+    # that re-aggregates per geo from foreclosure_records. Also drop any
+    # geos whose filtered/net-new count is zero — those rows would otherwise
+    # show up empty and clutter the grid.
     fc_prefix = ""
     fc_params_pre = []
-    if fc_filters:
-        fc_cte, fc_params_pre = _build_fc_count_cte(grain, fc_filters)
+    if fc_filters or fc_net_new:
+        fc_cte, fc_params_pre = _build_fc_count_cte(grain, fc_filters, net_new=fc_net_new)
         fc_prefix = f"WITH {fc_cte} "
         fc_join_table = "fc"   # CTE alias already named 'fc'
+        where.append("COALESCE(fc.fc_count, 0) > 0")
     else:
         fc_join_table = fc_t
 
     sc_t   = cfg["score_table"]
     sc_key = cfg["score_key"]
-    fcp_t  = f"{fc_t}_prev"
     base_from = (
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
         f"LEFT JOIN {fc_join_table} fc ON fc.{fc_key} = i.{key} "
-        f"LEFT JOIN {fcp_t} fcp ON fcp.{fc_key} = i.{key} "
         f"LEFT JOIN {sc_t} sc ON sc.{sc_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
@@ -1024,7 +1004,7 @@ def _fmt_for_csv(val):
     return str(val)
 
 
-def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None):
+def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iterable[str], filters=None, fc_filters=None, exit_expr=None, custom_col_sql=None, custom_col_label=None, fc_net_new: bool = False):
     cfg = GRAIN_CONFIG[grain]
     base_cols = list(cfg["columns"])
     if custom_col_sql:
@@ -1032,7 +1012,7 @@ def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iter
     visible_cols = list(visible_cols) if visible_cols else [c["key"] for c in base_cols]
     label_by_key = {c["key"]: c["label"] for c in base_cols}
 
-    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [], fc_filters=fc_filters or [], exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=custom_col_label)
+    sql, params, _ = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters or [], fc_filters=fc_filters or [], exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=custom_col_label, fc_net_new=fc_net_new)
 
     conn = _conn()
     try:
@@ -1064,7 +1044,6 @@ def _stream_csv(grain: str, q: str, sort: str, sort_dir: str, visible_cols: Iter
 def explore(grain):
     if grain not in GRAIN_CONFIG:
         return jsonify({"error": f"unknown grain '{grain}'; expected 'county' or 'zip'"}), 400
-    _ensure_prev_tables()
 
     q        = request.args.get("q", "")
     sort     = request.args.get("sort", GRAIN_CONFIG[grain]["default_sort"])
@@ -1095,6 +1074,7 @@ def explore(grain):
 
     raw_filters, filter_errors = _parse_filters(grain, request.args, custom_col_meta=custom_col_meta)
     fc_filters,  fc_errors      = _parse_fc_filters(request.args)
+    fc_net_new = str(request.args.get("fc_net_new", "")).strip().lower() in ("1", "true", "yes")
     filter_errors.extend(fc_errors)
     if custom_col_err:
         filter_errors.append(custom_col_err)
@@ -1110,7 +1090,8 @@ def explore(grain):
                                             filters=filters, fc_filters=fc_filters,
                                             exit_expr=exit_expr,
                                             custom_col_sql=custom_col_sql,
-                                            custom_col_label=(custom_col_meta or {}).get("label"))),
+                                            custom_col_label=(custom_col_meta or {}).get("label"),
+                                            fc_net_new=fc_net_new)),
             mimetype="text/csv",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
@@ -1127,10 +1108,10 @@ def explore(grain):
     except ValueError:
         limit = 100
 
-    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"))
+    sql, params, cols_in_order = _build_query(grain, q, sort, sort_dir, want_count=False, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"), fc_net_new=fc_net_new)
     paged_sql = f"{sql} LIMIT {limit} OFFSET {offset}"
 
-    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"))
+    count_sql, count_params, _ = _build_query(grain, q, sort, sort_dir, want_count=True, filters=filters, fc_filters=fc_filters, exit_expr=exit_expr, custom_col_sql=custom_col_sql, custom_col_label=(custom_col_meta or {}).get("label"), fc_net_new=fc_net_new)
 
     # When filters are active, compute an aggregate per column: SUM for any
     # numeric type, COUNT DISTINCT for text. Shown as a sticky row aligned
@@ -1143,7 +1124,7 @@ def explore(grain):
     AGG_SKIP = {"median_listing_price"}
     sum_keys     = [k for k in cols_in_order if col_types.get(k) in NUMERIC_AGG_TYPES and k not in AGG_SKIP]
     distinct_keys = [k for k in cols_in_order if col_types.get(k) == "text"]
-    want_totals = bool(filters or fc_filters or q)
+    want_totals = bool(filters or fc_filters or q or fc_net_new)
     totals_sql = totals_params = None
     if want_totals:
         parts = []
@@ -1230,6 +1211,7 @@ def explore(grain):
             {"field": f["field"], "op": f["op"], "value": f["value"]}
             for f in fc_filters
         ],
+        "fc_net_new": fc_net_new,
         "filter_errors": filter_errors,
     })
 

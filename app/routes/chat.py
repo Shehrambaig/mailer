@@ -661,7 +661,7 @@ weights: auctions 1.0, foreclosures 1.2, tax liens 0.5, bankruptcies 0.4, short 
 ```
 
 ### County / state aggregation
-County metrics are an active-listing-weighted mean of the Realtor metrics across all ZIPs in the county (using the FIPS→ZIPs map in `zip-by-county.json`). State metrics are the same weighted mean across counties in the state. So a county's `lp` is the active-weighted average of its ZIPs' `median_listing_price`, etc.
+County metrics are an active-listing-weighted mean of the Realtor metrics across all ZIPs in the county (using the FIPS→ZIPs map in `zip-by-county-2020.json`, the Census 2020 ZCTA→county crosswalk). State metrics are the same weighted mean across counties in the state. So a county's `lp` is the active-weighted average of its ZIPs' `median_listing_price`, etc.
 
 ### Map layers (UI button → underlying key)
 Golden (`g`), Buy×Exit Matrix (bivariate `bs`×`es`), Exit Speed (`es`), Buy Opportunity (`bs`), Days on Market (`d`), Price Drops % (`pr`), Hotness Score (`hs`), Pending Ratio (`ppr`), Pre-Foreclosures (`fc_ct`), Auctions (`au_ct`), All Listings (`tot_ct`), **Mail Targets ★** (`mail_score`).
@@ -879,7 +879,7 @@ def _load_static(name):
 
 def _zips_in_county(fips):
     fips = str(fips).zfill(5)
-    zips = _load_static("zip-by-county.json").get(fips, [])
+    zips = _load_static("zip-by-county-2020.json").get(fips, [])
     return {"fips": fips, "zip_count": len(zips), "zips": zips}
 
 

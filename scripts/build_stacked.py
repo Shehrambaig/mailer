@@ -11,7 +11,7 @@ Inputs:
   Mailer_Data_set/Redfin/Monthly_marketing_data.csv                        (UTF-16, top 50 metros)
   app/static/data/listings.json        (county scraped counts)
   app/static/data/listings-zip.json    (ZIP scraped counts)
-  app/static/data/zip-by-county.json   (ZIP↔FIPS crosswalk)
+  app/static/data/zip-by-county-2020.json   (ZIP↔FIPS crosswalk, Census 2020)
 
 Outputs:
   app/static/data/stacked/national.json
@@ -804,7 +804,7 @@ def main():
     print(f"  redfin→cbsa: {len(redfin_to_cbsa)}/{len(redfin)} "
           f" zillow→cbsa: {len(zillow_to_cbsa)}/{sum(1 for m in zillow_metros_index.values() if m['type']=='msa')}")
 
-    zbc = json.load(open(os.path.join(STATIC, "zip-by-county.json")))
+    zbc = json.load(open(os.path.join(STATIC, "zip-by-county-2020.json")))
     zip_to_county = {z: fips for fips, zips in zbc.items() for z in zips}
     # State-FIPS prefix → USPS abbreviation
     SFIPS_TO_ST = {

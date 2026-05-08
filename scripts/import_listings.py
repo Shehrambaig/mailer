@@ -59,8 +59,8 @@ def classify(source, classification):
 
 
 def load_zip_to_fips():
-    """Return {zip5: fips} from existing zip-by-county.json (built earlier)."""
-    path = os.path.join(STATIC, "zip-by-county.json")
+    """Return {zip5: fips} from existing zip-by-county-2020.json (built earlier)."""
+    path = os.path.join(STATIC, "zip-by-county-2020.json")
     if not os.path.exists(path):
         return {}
     with open(path) as f:

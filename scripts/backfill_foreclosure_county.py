@@ -1,23 +1,28 @@
 """
-Backfill foreclosure_records.county for foreclosure_com rows.
+Backfill foreclosure_records.county / county_fips from the ZIP→FIPS crosswalk.
 
 The auction_com source already populates a bare county name (e.g., "Maricopa",
 "Los Angeles"). foreclosure_com rows have ZIP but no county. This script:
 
-  1. Creates a permanent zip_county_map(postal_code, county_fips, county_name,
-     state_id) lookup table in Neon (idempotent — runs CREATE TABLE IF NOT
-     EXISTS + TRUNCATE + COPY).
-  2. Populates it from app/static/data/zip-by-county.json (Census ZIP→FIPS map)
-     joined to realtor_inventory_county (latest month) for the human-readable
-     county name. Names are normalized to match the auction_com format —
-     bare county name, title-cased, no state suffix ("Lowndes" not
-     "lowndes, ga").
-  3. UPDATEs foreclosure_records SET county = zcm.county_name for rows where
-     source='foreclosure_com' AND county IS NULL AND zip joins to the map.
+  1. Ensures the zip_county_map(postal_code, county_fips, county_name,
+     state_id) lookup table exists in Neon, then TRUNCATE + COPY-loads the
+     latest crosswalk JSON.
+  2. Populates it from app/static/data/zip-by-county-2020.json (Census 2020
+     ZCTA → 2020 county PIP) joined to realtor_inventory_county (latest
+     month) for the human-readable county name. Names are normalized to
+     match the auction_com format — bare county name, title-cased, no state
+     suffix ("Lowndes" not "lowndes, ga").
+  3. ALTERs foreclosure_records to add county_fips VARCHAR(5) + index
+     (idempotent IF NOT EXISTS).
+  4. UPDATEs foreclosure_records, filling both county (name) and county_fips
+     (id) wherever the ZIP joins to the map and either column is missing or
+     stale.
 
 Usage:
   python scripts/backfill_foreclosure_county.py            # apply changes
   python scripts/backfill_foreclosure_county.py --dry-run  # preview only
+  python scripts/backfill_foreclosure_county.py --crosswalk app/static/data/zip-by-county-2020.json
+                                                           # use a different source file (default already)
 """
 import argparse
 import io
@@ -35,7 +40,7 @@ NEON_DB = os.getenv("NEON_DB") or os.getenv("PROBATE_DATABASE_URL")
 if not NEON_DB:
     sys.exit("NEON_DB not set")
 
-ZBC_PATH = ROOT / "app" / "static" / "data" / "zip-by-county.json"
+DEFAULT_CROSSWALK = ROOT / "app" / "static" / "data" / "zip-by-county-2020.json"
 
 
 # Title-case county names but preserve common small connectors lowercase.
@@ -78,10 +83,13 @@ CREATE INDEX IF NOT EXISTS zip_county_map_state_idx ON zip_county_map(state_id);
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--crosswalk", default=str(DEFAULT_CROSSWALK),
+                    help="Path to zip-by-county JSON {fips: [zip5, ...]}")
     args = ap.parse_args()
 
-    print(f"Loading {ZBC_PATH.name} ...")
-    zbc = json.loads(ZBC_PATH.read_text())
+    crosswalk_path = Path(args.crosswalk)
+    print(f"Loading {crosswalk_path.relative_to(ROOT)} ...")
+    zbc = json.loads(crosswalk_path.read_text())
     print(f"  {len(zbc)} counties → {sum(len(z) for z in zbc.values()):,} ZIPs")
 
     print("Connecting to Neon...")
@@ -146,34 +154,51 @@ def main():
             n, named = c.fetchone()
         print(f"  zip_county_map populated: {n:,} rows, {named:,} with county_name")
 
-        # Backfill foreclosure_records.county using zip_county_map.
-        print("\nBackfilling foreclosure_records.county (source='foreclosure_com', county IS NULL)...")
+        # Ensure foreclosure_records.county_fips exists for direct FIPS joins.
+        print("\nEnsuring foreclosure_records.county_fips column + index ...")
+        with conn.cursor() as c:
+            c.execute("""
+              ALTER TABLE foreclosure_records
+                ADD COLUMN IF NOT EXISTS county_fips VARCHAR(5);
+              CREATE INDEX IF NOT EXISTS foreclosure_records_county_fips_idx
+                ON foreclosure_records(county_fips);
+            """)
+        conn.commit()
+
+        # Backfill foreclosure_records — fills both county (name, when missing)
+        # and county_fips (id, whenever stale or missing). county_fips is filled
+        # for ALL sources; county (name) is filled only where the scraper left
+        # it empty (auction_com already provides its own).
+        print("\nBackfilling foreclosure_records.county_fips + county ...")
         with conn.cursor() as c:
             c.execute("""
               UPDATE foreclosure_records fr
-              SET county = zcm.county_name
+              SET county_fips = zcm.county_fips,
+                  county      = COALESCE(NULLIF(fr.county, ''), zcm.county_name)
               FROM zip_county_map zcm
               WHERE zcm.postal_code = LPAD(fr.zip, 5, '0')
-                AND fr.source = 'foreclosure_com'
-                AND (fr.county IS NULL OR fr.county = '')
-                AND zcm.county_name IS NOT NULL
+                AND (
+                     fr.county_fips IS DISTINCT FROM zcm.county_fips
+                  OR (fr.county IS NULL OR fr.county = '')
+                )
             """)
             updated = c.rowcount
         conn.commit()
-        print(f"  → updated {updated:,} foreclosure_com rows")
+        print(f"  → updated {updated:,} rows")
 
         # Final state
         with conn.cursor() as c:
             c.execute("""
               SELECT source,
                      COUNT(*),
-                     COUNT(county) FILTER (WHERE county IS NOT NULL AND county <> '')
+                     COUNT(county) FILTER (WHERE county IS NOT NULL AND county <> ''),
+                     COUNT(county_fips) FILTER (WHERE county_fips IS NOT NULL)
               FROM foreclosure_records
               GROUP BY source
             """)
-            print(f"\n{'source':<18} {'total':>10} {'with_county':>12}")
+            print(f"\n{'source':<18} {'total':>10} {'with_county':>12} {'with_fips':>12}")
             for row in c.fetchall():
-                print(f"  {row[0]:<16} {row[1]:>10,} {row[2]:>12,}")
+                print(f"  {row[0]:<16} {row[1]:>10,} {row[2]:>12,} {row[3]:>12,}")
 
             # Spot-check the user's example
             c.execute("""
