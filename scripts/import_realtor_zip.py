@@ -30,7 +30,7 @@ HOT_PATH = ROOT / "Monthly Market Hotness" / "Inventory_Hotness_Metrics_Zip_Hist
 # 36-month window (3 years) — keep inventory + hotness aligned.
 HOTNESS_MIN_YYYYMM = 202304
 INV_MIN_YYYYMM = 202304
-INV_MAX_YYYYMM = 202603
+INV_MAX_YYYYMM = 202604
 
 
 INV_DDL = """
@@ -157,6 +157,7 @@ def _read_csv(path, columns, *, integer_columns=(), month_filter=None, month_max
     """Stream CSV, normalize, yield batches of dicts."""
     int_set = set(integer_columns)
     batch = []
+    dropped_above_cap = {}
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for raw in reader:
@@ -168,6 +169,7 @@ def _read_csv(path, columns, *, integer_columns=(), month_filter=None, month_max
             if month_filter is not None and month < month_filter:
                 continue
             if month_max is not None and month > month_max:
+                dropped_above_cap[month] = dropped_above_cap.get(month, 0) + 1
                 continue
             row["month_date_yyyymm"] = month
             row["postal_code"] = _norm_zip(raw.get("postal_code"))
@@ -193,6 +195,15 @@ def _read_csv(path, columns, *, integer_columns=(), month_filter=None, month_max
                 batch = []
     if batch:
         yield batch
+    if dropped_above_cap:
+        total = sum(dropped_above_cap.values())
+        months = ", ".join(f"{m}={dropped_above_cap[m]}" for m in sorted(dropped_above_cap))
+        print(
+            f"\n  !! WARNING: {path.name} contains {total} rows in months ABOVE the cap "
+            f"month_max={month_max} — DROPPED. Breakdown: {months}.\n"
+            f"  !! Bump INV_MAX_YYYYMM in this script to include them, then re-run.\n",
+            file=sys.stderr,
+        )
 
 
 def _upsert(conn, table, columns, rows):

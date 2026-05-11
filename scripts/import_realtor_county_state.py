@@ -32,7 +32,7 @@ HOT_COUNTY = R / "Monthly Market Hotness"    / "Inventory_Hotness_Metrics_County
 # 36-month window matching realtor_hotness_* tables.
 HOT_MIN_YYYYMM = 202304
 INV_MIN_YYYYMM = 202304
-INV_MAX_YYYYMM = 202603
+INV_MAX_YYYYMM = 202604
 
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
@@ -195,6 +195,7 @@ def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter
     int_set = set(integer_columns)
     key_xform = key_xform or {}
     batch = []
+    dropped_above_cap = {}
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for raw in reader:
@@ -205,6 +206,7 @@ def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter
             if month_filter is not None and month < month_filter:
                 continue
             if month_max is not None and month > month_max:
+                dropped_above_cap[month] = dropped_above_cap.get(month, 0) + 1
                 continue
             row = {"month_date_yyyymm": month}
             for col in columns:
@@ -229,6 +231,15 @@ def _read_csv(path, columns, *, key_xform=None, integer_columns=(), month_filter
                 batch = []
     if batch:
         yield batch
+    if dropped_above_cap:
+        total = sum(dropped_above_cap.values())
+        months = ", ".join(f"{m}={dropped_above_cap[m]}" for m in sorted(dropped_above_cap))
+        print(
+            f"\n  !! WARNING: {path.name} contains {total} rows in months ABOVE the cap "
+            f"month_max={month_max} — DROPPED. Breakdown: {months}.\n"
+            f"  !! Bump INV_MAX_YYYYMM in this script to include them, then re-run.\n",
+            file=sys.stderr,
+        )
 
 
 def _emit_csv(rows, columns):
