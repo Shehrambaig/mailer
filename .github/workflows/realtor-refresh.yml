@@ -1,0 +1,44 @@
+name: Realtor data refresh
+
+# Daily on days 2–31 of each month at 06:00 UTC. The 1st is skipped so we
+# don't hammer Realtor on publication day; from the 2nd onward we
+# HEAD-check S3 and only do a full import when the ETag changes.
+on:
+  schedule:
+    - cron: "0 6 2-31 * *"
+  workflow_dispatch:        # also allow manual triggering from the Actions tab
+    inputs:
+      force:
+        description: "Force refresh even when ETags match"
+        required: false
+        default: "false"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: realtor-refresh
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet psycopg2-binary python-dotenv requests
+
+      - name: Run auto-refresh
+        env:
+          NEON_DB: ${{ secrets.NEON_DB }}
+        run: |
+          test -n "$NEON_DB" || { echo "::error::NEON_DB secret not set"; exit 1; }
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python scripts/auto_refresh_realtor.py --force
+          else
+            python scripts/auto_refresh_realtor.py
+          fi

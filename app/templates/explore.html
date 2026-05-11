@@ -80,6 +80,26 @@
     border-radius: 999px; padding: 1px 6px; font-size: .65rem; font-weight: 700;
 }
 
+/* "Data through {month} · refreshed {date}" badge, pushed to the right edge of the toolbar */
+.data-freshness {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    font-size: .68rem; font-weight: 600; letter-spacing: .3px;
+    color: var(--text-secondary);
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border-glass);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.data-freshness-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-green, #10b981);
+    box-shadow: 0 0 8px rgba(16,185,129,.55);
+}
+.data-freshness.is-stale .data-freshness-dot { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,.55); }
+.data-freshness.is-error .data-freshness-dot { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.55); }
+
 .status-line {
     padding: 8px 16px; font-size: .72rem; color: var(--text-secondary);
     border-bottom: 1px solid var(--border-glass);
@@ -689,6 +709,10 @@
         <button class="btn-tool" onclick="downloadCSV()">
             <i class="bi bi-download"></i> Download CSV
         </button>
+        <span id="data-freshness" class="data-freshness" title="Latest Realtor publication month in the database and when it was last auto-refreshed">
+            <span class="data-freshness-dot"></span>
+            <span id="data-freshness-text">…</span>
+        </span>
     </div>
     <div class="chip-bar" id="chip-bar"></div>
     <div class="status-line">
@@ -2358,6 +2382,42 @@ try {
     if (saved) state.frozenThrough = saved;
 } catch(_) {}
 loadInitial();
+loadFreshness();
+
+async function loadFreshness() {
+    const el      = document.getElementById('data-freshness');
+    const textEl  = document.getElementById('data-freshness-text');
+    if (!el || !textEl) return;
+    try {
+        const res  = await fetch('/api/explore/meta');
+        if (!res.ok) throw new Error('http ' + res.status);
+        const meta = await res.json();
+        const monthLabel = meta.data_month_label || '—';
+
+        // "refreshed" — relative if recent, absolute date otherwise.
+        let refreshedLabel = '';
+        if (meta.imported_at) {
+            const d   = new Date(meta.imported_at);
+            const now = new Date();
+            const days = Math.floor((now - d) / 86_400_000);
+            if (days < 1)       refreshedLabel = 'refreshed today';
+            else if (days === 1) refreshedLabel = 'refreshed yesterday';
+            else if (days < 7)  refreshedLabel = `refreshed ${days} days ago`;
+            else                refreshedLabel = 'refreshed ' + d.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+            if (days > 35) el.classList.add('is-stale');
+        } else {
+            refreshedLabel = 'never auto-refreshed';
+            el.classList.add('is-stale');
+        }
+        textEl.textContent = `Data through ${monthLabel} · ${refreshedLabel}`;
+        el.title = `Latest Realtor publication month in Neon: ${monthLabel}\n`
+                 + `Last successful auto-refresh: ${meta.imported_at || '—'}\n`
+                 + `(refreshes automatically each month starting on the 2nd)`;
+    } catch (e) {
+        el.classList.add('is-error');
+        textEl.textContent = 'data freshness unknown';
+    }
+}
 
 // Hide topbar status pills (those are dashboard-specific; not relevant here)
 ['ds-realtor','ds-zillow','ds-census'].forEach(id => {

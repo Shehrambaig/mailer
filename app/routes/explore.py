@@ -1294,6 +1294,58 @@ def explore_suggest():
     return jsonify({"suggestions": suggestions})
 
 
+@explore_bp.route("/api/explore/meta")
+def explore_meta():
+    """Last-updated metadata for the /explore page header.
+
+    Returns the latest Realtor data month present in Neon plus the
+    timestamp of the most recent successful auto-refresh (from
+    `realtor_refresh_log`). The page renders a "last updated" badge
+    in the top-right from this.
+    """
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(month_date_yyyymm) FROM realtor_inventory_county")
+            inv_county_month = cur.fetchone()[0]
+            cur.execute("SELECT MAX(month_date_yyyymm) FROM realtor_inventory_zip")
+            inv_zip_month = cur.fetchone()[0]
+            cur.execute(
+                "SELECT to_regclass('realtor_refresh_log') IS NOT NULL"
+            )
+            log_exists = cur.fetchone()[0]
+            imported_at = None
+            if log_exists:
+                cur.execute(
+                    "SELECT ran_at FROM realtor_refresh_log "
+                    "WHERE status = 'imported' ORDER BY ran_at DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    imported_at = row[0].isoformat()
+    finally:
+        conn.close()
+
+    def _label(m):
+        if not m:
+            return None
+        y, mo = divmod(m, 100)
+        names = ["", "Jan","Feb","Mar","Apr","May","Jun",
+                 "Jul","Aug","Sep","Oct","Nov","Dec"]
+        return f"{names[mo]} {y}" if 1 <= mo <= 12 else str(m)
+
+    data_month = max(filter(None, [inv_county_month, inv_zip_month]), default=None)
+    return jsonify({
+        "data_month":              data_month,
+        "data_month_label":        _label(data_month),
+        "inv_county_month":        inv_county_month,
+        "inv_county_month_label":  _label(inv_county_month),
+        "inv_zip_month":           inv_zip_month,
+        "inv_zip_month_label":     _label(inv_zip_month),
+        "imported_at":             imported_at,
+    })
+
+
 @explore_bp.route("/api/explore/<grain>/distinct/<col>")
 def explore_distinct(grain, col):
     """Distinct values for a column — feeds the multi-select filter dropdown."""

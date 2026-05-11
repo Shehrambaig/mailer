@@ -32,7 +32,10 @@ HOT_COUNTY = R / "Monthly Market Hotness"    / "Inventory_Hotness_Metrics_County
 # 36-month window matching realtor_hotness_* tables.
 HOT_MIN_YYYYMM = 202304
 INV_MIN_YYYYMM = 202304
-INV_MAX_YYYYMM = 202604
+# Defaults to 202604 (April 2026). The auto-refresh sets
+# REALTOR_INV_MAX_YYYYMM dynamically from the CSV's max month so new
+# publication months are accepted without needing a code bump.
+INV_MAX_YYYYMM = int(os.getenv("REALTOR_INV_MAX_YYYYMM", "202604"))
 
 
 # ── DDL ──────────────────────────────────────────────────────────────────────

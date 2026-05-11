@@ -30,7 +30,10 @@ HOT_PATH = ROOT / "Monthly Market Hotness" / "Inventory_Hotness_Metrics_Zip_Hist
 # 36-month window (3 years) — keep inventory + hotness aligned.
 HOTNESS_MIN_YYYYMM = 202304
 INV_MIN_YYYYMM = 202304
-INV_MAX_YYYYMM = 202604
+# Defaults to 202604 (April 2026). The auto-refresh sets
+# REALTOR_INV_MAX_YYYYMM dynamically from the CSV's max month so new
+# publication months are accepted without needing a code bump.
+INV_MAX_YYYYMM = int(os.getenv("REALTOR_INV_MAX_YYYYMM", "202604"))
 
 
 INV_DDL = """
