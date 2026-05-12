@@ -77,7 +77,22 @@ def index():
         sm = search_methods.get(s.get("key")) or {}
         if sm:
             s["search"] = sm
-    total_records  = sum(int(s.get("total") or 0) for s in sources)
+
+    # Interleave a synthetic "AI extraction" card right after each AI-capable
+    # scraper card. Cards are only emitted when the source actually has rows
+    # with AI extraction, so /scrapers stays compact for scrapers that haven't
+    # been run through extraction yet.
+    interleaved: list[dict] = []
+    for s in sources:
+        interleaved.append(s)
+        bk = s.get("key")
+        if bk in _AI_CAPABLE_KEYS:
+            ai = _compute_ai_card(bk)
+            if ai:
+                interleaved.append(ai)
+    sources = interleaved
+
+    total_records  = sum(int(s.get("total") or 0) for s in sources if not s.get("is_ai_card"))
     total_active = total_closed = 0
     for s in sources:
         b = s.get("buckets", {}) or {}
@@ -89,7 +104,7 @@ def index():
         "total_records":  total_records,
         "total_active":   total_active,
         "total_closed":   total_closed,
-        "total_sources":  len(sources),
+        "total_sources":  sum(1 for s in sources if not s.get("is_ai_card")),
         "computed_at":    sources[0]["computed_at"] if sources else None,
     }
     return render_template("scrapers/index.html", sources=sources, summary=summary)
@@ -242,6 +257,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "case_number", "case_type", "case_type_code",
             "location_name", "county", "style", "file_date",
             "url", "fetch_status", "extraction_status", "extracted_at",
+            "pdfs_synced_at",
             "scraped_at", "derived_status",
         ],
         "detail_json_cols": [
@@ -251,6 +267,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "raw_case_events",
             "raw_disposition_events",
             "pdf_extractions",
+            "tiered_extraction",
         ],
         "search_cols": [
             "case_number", "county", "case_type",
@@ -288,8 +305,12 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "decedent_last", "decedent_suffix",
             "decedent_street", "decedent_city", "decedent_state", "decedent_zip",
             "fetch_status", "scraped_at", "status", "derived_status",
+            "extracted_at", "extraction_status", "pdfs_synced_at",
         ],
-        "detail_json_cols": ["parties", "documents", "raw_detail"],
+        "detail_json_cols": [
+            "parties", "documents", "raw_detail",
+            "pdf_extractions", "tiered_extraction",
+        ],
         "search_cols": [
             "case_number", "county", "court_name",
             "decedent_full", "decedent_first", "decedent_last",
@@ -355,8 +376,12 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_street", "petitioner_city", "petitioner_state", "petitioner_zip",
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
+            "extracted_at", "extraction_status", "pdfs_synced_at",
         ],
-        "detail_json_cols": ["parties", "pdf_refs", "raw"],
+        "detail_json_cols": [
+            "parties", "pdf_refs", "raw",
+            "pdf_extractions", "tiered_extraction",
+        ],
         "search_cols": [
             "case_number", "decedent_full",
             "petitioner_first", "petitioner_last",
@@ -386,8 +411,12 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_street", "petitioner_city", "petitioner_state", "petitioner_zip",
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
+            "extracted_at", "extraction_status", "pdfs_synced_at",
         ],
-        "detail_json_cols": ["parties", "pdf_refs", "raw"],
+        "detail_json_cols": [
+            "parties", "pdf_refs", "raw",
+            "pdf_extractions", "tiered_extraction",
+        ],
         "search_cols": [
             "case_number", "decedent_full",
             "petitioner_first", "petitioner_last",
@@ -447,6 +476,8 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             ("TRIM(BOTH ' ' FROM CONCAT_WS(' ', decedent_first, decedent_middle, decedent_last, decedent_suffix))",
                                  "decedent_full",   "Decedent"),
             ("decedent_dob",     "decedent_dob",    "DOB"),
+            ("(CASE WHEN jsonb_typeof(parties)='array' THEN jsonb_array_length(parties) ELSE 0 END)",
+                                 "n_parties",       "Parties"),
             ("case_status",      "case_status",     "Status"),
             ("fetch_status",     "fetch_status",    "Detail fetch"),
             ("scraped_at::date::text", "scraped_on","Scraped"),
@@ -526,8 +557,12 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_street", "petitioner_city", "petitioner_state", "petitioner_zip",
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
+            "extracted_at", "extraction_status", "pdfs_synced_at",
         ],
-        "detail_json_cols": ["parties", "pdf_urls", "raw"],
+        "detail_json_cols": [
+            "parties", "pdf_urls", "raw",
+            "pdf_extractions", "tiered_extraction",
+        ],
         "search_cols": [
             "case_number", "county",
             "decedent_first", "decedent_middle", "decedent_last",
@@ -576,6 +611,221 @@ SOURCES_INSPECTOR: dict[str, dict] = {
         "order_by": "scraped_at DESC NULLS LAST",
     },
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI-extraction sibling inspectors
+#
+# For every scraper that has Anthropic-extracted rows, a synthetic key
+# "<key>__ai" inspector is auto-generated from the base inspector by:
+#   - AND-ing a "AI extraction is present" predicate into the WHERE clause
+#   - swapping the list_cols for AI-focused columns (extracted_at, model,
+#     #persons, #real_property, tokens)
+# detail_scalar_cols / detail_json_cols are inherited as-is, so the row modal
+# receives the same payload and the JS renderer decides what to highlight.
+
+_AI_CAPABLE_KEYS = (
+    "new_york",
+    "north_carolina",
+    "ga_cobb",
+    "ga_rockdale",
+    "oklahoma",
+    "georgia_probate_records",
+)
+
+# Extraction-presence predicate: a row counts as "AI-extracted" only when the
+# extractor actually produced output. We deliberately exclude rows where
+# `tiered_extraction` exists but AI was disabled at extraction time — these
+# show up as `model='(ai-disabled)'` with 0 input/output tokens, and they
+# would otherwise clutter the AI EXTRACTED card with rows that have nothing
+# in any column (the symptom in img_24.png).
+_AI_PRESENT_SQL = (
+    "("
+    "  COALESCE((tiered_extraction->'totals'->>'input_tokens')::int, 0) > 0"
+    "  OR COALESCE((tiered_extraction->'totals'->>'output_tokens')::int, 0) > 0"
+    "  OR (jsonb_typeof(pdf_extractions) = 'array' AND jsonb_array_length(pdf_extractions) > 0)"
+    ")"
+)
+
+# Per-row doc count — prefer the per-PDF array length when the source has it,
+# otherwise fall back to `tiered_extraction.totals.docs_processed` (NY's
+# consolidated rollup, which has no pdf_extractions[]).
+_AI_N_DOCS_SQL = (
+    "CASE "
+    "  WHEN jsonb_typeof(pdf_extractions) = 'array' AND jsonb_array_length(pdf_extractions) > 0 "
+    "       THEN jsonb_array_length(pdf_extractions) "
+    "  ELSE COALESCE((tiered_extraction->'totals'->>'docs_processed')::int, 0) "
+    "END"
+)
+
+# Persons extracted — prefer the consolidated rollup (`tiered_extraction.persons`).
+# When only per-PDF extractions are available (NC/OK/GPR/Cobb-without-rollup),
+# sum persons across *every* element so multi-doc cases aren't undercounted —
+# the previous code only read `pdf_extractions[0]`.
+_AI_N_PERSONS_SQL = (
+    "CASE "
+    "  WHEN jsonb_typeof(tiered_extraction->'persons') = 'array' "
+    "       THEN jsonb_array_length(tiered_extraction->'persons') "
+    "  ELSE COALESCE("
+    "       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'persons','[]'::jsonb)))::int"
+    "          FROM jsonb_array_elements(COALESCE(pdf_extractions,'[]'::jsonb)) e), 0) "
+    "END"
+)
+
+_AI_N_PROPERTY_SQL = (
+    "CASE "
+    "  WHEN jsonb_typeof(tiered_extraction->'real_property') = 'array' "
+    "       THEN jsonb_array_length(tiered_extraction->'real_property') "
+    "  ELSE COALESCE("
+    "       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'real_property','[]'::jsonb)))::int"
+    "          FROM jsonb_array_elements(COALESCE(pdf_extractions,'[]'::jsonb)) e), 0) "
+    "END"
+)
+
+# Latest extraction timestamp / model — column layout differs per table.
+# `records` (NY) only has `tiered_extracted_at` populated; every other AI-
+# capable table uses `extracted_at`. Model lives in
+# `tiered_extraction.extraction_log[0].model` on NY but in
+# `pdf_extractions[0].model` everywhere else.
+_AI_EXPR_BY_TABLE = {
+    # NY — consolidated extraction only
+    "records": {
+        "extracted_at":  "tiered_extracted_at",
+        "model":         "(tiered_extraction->'extraction_log'->0->>'model')",
+    },
+}
+_AI_EXPR_DEFAULT = {
+    "extracted_at":  "extracted_at",
+    "model":         "(pdf_extractions->0->>'model')",
+}
+
+# Token totals — prefer the rollup in `tiered_extraction.totals`; otherwise
+# sum across the per-PDF `pdf_extractions[]` array. Same expression works on
+# every table because both columns are present everywhere.
+_AI_INPUT_TOKENS_SQL = (
+    "COALESCE("
+    "  (tiered_extraction->'totals'->>'input_tokens')::int,"
+    "  (SELECT COALESCE(SUM((e->>'input_tokens')::int), 0)"
+    "     FROM jsonb_array_elements(COALESCE(pdf_extractions, '[]'::jsonb)) e),"
+    "  0"
+    ")"
+)
+_AI_OUTPUT_TOKENS_SQL = (
+    "COALESCE("
+    "  (tiered_extraction->'totals'->>'output_tokens')::int,"
+    "  (SELECT COALESCE(SUM((e->>'output_tokens')::int), 0)"
+    "     FROM jsonb_array_elements(COALESCE(pdf_extractions, '[]'::jsonb)) e),"
+    "  0"
+    ")"
+)
+
+
+def _ai_expr(table: str, key: str) -> str:
+    return _AI_EXPR_BY_TABLE.get(table, _AI_EXPR_DEFAULT).get(
+        key, _AI_EXPR_DEFAULT[key]
+    )
+
+
+def _build_ai_inspector(base_key: str) -> dict | None:
+    base = SOURCES_INSPECTOR.get(base_key)
+    if not base:
+        return None
+
+    ts_expr    = _ai_expr(base["table"], "extracted_at")
+    model_expr = _ai_expr(base["table"], "model")
+
+    list_cols_base = [
+        ("case_number",          "case_number",      "Case #"),
+        (f"{ts_expr}::date::text", "extracted_on",   "Extracted"),
+        (_AI_N_DOCS_SQL,         "n_docs",           "Docs"),
+        (_AI_N_PERSONS_SQL,      "n_persons",        "Ppl"),
+        (_AI_N_PROPERTY_SQL,     "n_property",       "Prop"),
+        (model_expr,             "model",            "Model"),
+        (_AI_INPUT_TOKENS_SQL,   "input_tokens",     "In tok"),
+        (_AI_OUTPUT_TOKENS_SQL,  "output_tokens",    "Out tok"),
+    ]
+
+    # Find the "case label" col already in the base so we can keep at least one
+    # human-readable label up front. We always include case_number as col 0,
+    # then prepend a "Decedent" label sourced the same way the base does.
+    label_col = None
+    for expr, alias, lbl in base["list_cols"]:
+        if alias in ("decedent_full", "decedent_name"):
+            label_col = (expr, alias, "Decedent")
+            break
+
+    list_cols = [list_cols_base[0]]  # case_number
+    if label_col:
+        list_cols.append(label_col)
+    list_cols += list_cols_base[1:]
+
+    # Compose WHERE: AI present + structural base filters only (e.g. Cobb /
+    # Rockdale split by county). We deliberately drop status-derived filters
+    # like `derived_status IS DISTINCT FROM 'guardianship'`, because:
+    #   1. derived_status doesn't exist on every dev/local schema, and
+    #   2. AI extraction implies non-guardianship by design — operators don't
+    #      run extraction on those rows.
+    where_parts = [_AI_PRESENT_SQL]
+    base_where = base.get("where_filter") or ""
+    if base_where and "derived_status" not in base_where:
+        where_parts.append(base_where)
+    where_filter = " AND ".join(where_parts)
+
+    return {
+        "table":              base["table"],
+        "id_col":             base["id_col"],
+        "list_cols":          list_cols,
+        "detail_scalar_cols": base["detail_scalar_cols"],
+        "detail_json_cols":   base["detail_json_cols"],
+        "search_cols":        base["search_cols"],
+        "order_by":           f"{ts_expr} DESC NULLS LAST",
+        "where_filter":       where_filter,
+        "ai_parent":          base_key,  # marker so the frontend can theme it
+        "ai_ts_expr":         ts_expr,
+        "ai_model_expr":      model_expr,
+    }
+
+
+for _bk in _AI_CAPABLE_KEYS:
+    SOURCES_INSPECTOR[f"{_bk}__ai"] = _build_ai_inspector(_bk)
+
+
+def _compute_ai_card(base_key: str) -> dict | None:
+    """Return a synthetic snapshot-card dict for the AI-extracted sibling of
+    `base_key`, or None if the source has no AI-extracted rows yet."""
+    cfg = SOURCES_INSPECTOR.get(f"{base_key}__ai")
+    if not cfg:
+        return None
+    where_sql = f"WHERE {cfg['where_filter']}"
+    sql = (
+        f"SELECT "
+        f"  COUNT(*) AS n, "
+        f"  MAX({cfg['ai_ts_expr']}) AS latest, "
+        f"  COALESCE(SUM({_AI_INPUT_TOKENS_SQL}), 0) AS in_tok, "
+        f"  COALESCE(SUM({_AI_OUTPUT_TOKENS_SQL}), 0) AS out_tok, "
+        f"  MAX({cfg['ai_model_expr']}) AS model "
+        f'FROM "{cfg["table"]}" {where_sql}'
+    )
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql)
+                r = cur.fetchone()
+    except Exception:
+        return None
+    if not r or not r.get("n"):
+        return None
+    return {
+        "key":          f"{base_key}__ai",
+        "is_ai_card":   True,
+        "ai_parent":    base_key,
+        "name":         "AI extraction",
+        "total":        int(r["n"]),
+        "latest":       r["latest"].isoformat() if r["latest"] else None,
+        "input_tokens":  int(r["in_tok"] or 0),
+        "output_tokens": int(r["out_tok"] or 0),
+        "model":        r["model"],
+    }
 
 
 def _inspector(key: str) -> dict | None:
@@ -628,6 +878,24 @@ def rows(key: str):
     })
 
 
+_TABLE_COLUMNS_CACHE: dict[str, set[str]] = {}
+
+
+def _existing_columns(cur, table: str) -> set[str]:
+    """Return the set of columns actually present on `table`. Cached for the
+    process lifetime — schema doesn't change at runtime, and this lets the
+    inspector tolerate local-vs-Neon drift (e.g. `derived_status` exists on
+    Neon but not on every local schema) instead of 500-ing on the modal."""
+    if table not in _TABLE_COLUMNS_CACHE:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name=%s",
+            (table,),
+        )
+        _TABLE_COLUMNS_CACHE[table] = {r["column_name"] for r in cur.fetchall()}
+    return _TABLE_COLUMNS_CACHE[table]
+
+
 @scrapers_bp.route("/<key>/row/<path:rid>")
 def row_detail(key: str, rid: str):
     cfg = _inspector(key)
@@ -635,11 +903,14 @@ def row_detail(key: str, rid: str):
         return jsonify({"error": f"row inspector not configured for: {key}"}), 404
 
     rid = unquote(rid)
-    cols = list(cfg["detail_scalar_cols"]) + list(cfg["detail_json_cols"])
-    cols_sql = ", ".join(f'"{c}"' for c in cols)
+    requested = list(cfg["detail_scalar_cols"]) + list(cfg["detail_json_cols"])
 
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            present = _existing_columns(cur, cfg["table"])
+            cols = [c for c in requested if c in present]
+            missing = [c for c in requested if c not in present]
+            cols_sql = ", ".join(f'"{c}"' for c in cols)
             cur.execute(
                 f'SELECT {cols_sql} FROM "{cfg["table"]}" WHERE {cfg["id_col"]}::text = %s',
                 (rid,),
@@ -649,4 +920,8 @@ def row_detail(key: str, rid: str):
         return jsonify({"error": f"row not found: {rid}"}), 404
 
     out = {k: row[k] for k in row.keys()}
+    # Expose missing-column NULLs explicitly so the frontend renderer can show
+    # a placeholder instead of `undefined` lookups.
+    for m in missing:
+        out.setdefault(m, None)
     return jsonify(out)

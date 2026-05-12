@@ -43,6 +43,34 @@
 .scr-card:hover { border-color: rgba(0,240,255,.20); }
 .scr-card.inactive { opacity:.55; }
 
+/* AI-extraction sibling card — sits directly under its parent scraper card,
+   amber-themed, slightly inset on the left so the visual grouping reads as
+   "scraper + its AI extraction" rather than two unrelated cards. */
+.scr-card.scr-card-ai {
+    margin-left: 22px;
+    background: linear-gradient(180deg, rgba(245,158,11,.04), rgba(245,158,11,.01));
+    border-color: rgba(245,158,11,.22);
+    margin-top: -6px;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+.scr-card.scr-card-ai:hover { border-color: rgba(245,158,11,.40); }
+.scr-card.scr-card-ai .scr-row { padding: 10px 18px; }
+.scr-card.scr-card-ai .scr-name { font-size: .82rem; color: #fcd34d; font-weight: 600; letter-spacing: .4px; }
+.scr-card.scr-card-ai .scr-count { color: #fcd34d; font-size: .95rem; }
+.scr-card.scr-card-ai .scr-chev { color: rgba(245,158,11,.55); }
+.scr-card.scr-card-ai.open .scr-chev { color: #fcd34d; }
+.scr-pill.ai-pill {
+    background: rgba(245,158,11,.10); color:#fcd34d;
+    border-color: rgba(245,158,11,.28);
+    min-width: 0;
+}
+.scr-ai-meta {
+    display: flex; gap: 14px; font-size: .7rem; color: var(--text-muted);
+    margin-right: 12px; align-items: center;
+}
+.scr-ai-meta strong { color: var(--text-secondary); font-weight: 600; }
+
 .scr-row {
     display:flex; align-items:center; gap:14px;
     padding:14px 18px;
@@ -316,6 +344,40 @@
 
     <div class="scr-list">
         {% for s in sources %}
+        {% if s.is_ai_card %}
+        {# ───── AI-extraction sibling card (compact, amber-themed) ───── #}
+        <div class="scr-card scr-card-ai{% if (s.total or 0) == 0 %} inactive{% endif %}" data-key="{{ s.key }}">
+            <div class="scr-row{% if (s.total or 0) == 0 %} disabled{% endif %}" onclick="toggleScraper('{{ s.key }}')">
+                <span class="scr-chev"><i class="bi bi-chevron-right"></i></span>
+                <span class="scr-name">
+                    AI EXTRACTED
+                    <span class="scr-pill ai-pill" style="margin-left:10px;">{{ s.model or 'sonnet' }}</span>
+                </span>
+                <div class="scr-meta">
+                    <div class="scr-ai-meta">
+                        {% if s.input_tokens or s.output_tokens %}
+                        <span>tokens <strong>{{ "{:,}".format(s.input_tokens or 0) }}</strong> in / <strong>{{ "{:,}".format(s.output_tokens or 0) }}</strong> out</span>
+                        {% endif %}
+                    </div>
+                    <span class="scr-count{% if (s.total or 0) == 0 %} zero{% endif %}">{{ "{:,}".format(s.total or 0) }}</span>
+                    <span class="scr-last">
+                        {% if s.latest %}{{ s.latest[:10] }}{% else %}—{% endif %}
+                    </span>
+                </div>
+            </div>
+            <div class="scr-panel">
+                <div class="scr-section">
+                    <div class="scr-section-title">AI-extracted rows — click any row for the full breakdown</div>
+                    <div class="scr-ny-search">
+                        <input type="search" placeholder="Search by case #, decedent, county…" data-rows-search="{{ s.key }}"/>
+                    </div>
+                    <div class="scr-rows-wrap" data-rows-for="{{ s.key }}">
+                        <div class="scr-ny-empty">Loading…</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
         {% set buckets = s.buckets or {} %}
         {% set b_active     = buckets.get('active',           {}) %}
         {% set b_active_p   = buckets.get('active_pending',   {}) %}
@@ -509,6 +571,7 @@
 
             </div>
         </div>
+        {% endif %}
         {% endfor %}
     </div>
 </div>
@@ -674,20 +737,208 @@ async function openRow(key, rid) {
         const r = await fetch(`/scrapers/${encodeURIComponent(key)}/row/` + encodeURIComponent(rid), { credentials: 'same-origin' });
         const c = await r.json();
         if (c.error) { showModal(`<h3>${c.error}</h3>`); return; }
-        if (key === 'new_york')            renderNyRow(c);
-        else if (key === 'north_carolina') renderNcRow(c);
-        else if (key === 'maryland')       renderMdRow(c);
-        else if (key === 'oklahoma')       renderOkRow(c);
-        else if (key === 'connecticut')    renderCtRow(c);
-        else if (key === 'ga_cobb' || key === 'ga_rockdale') renderGaRow(key, c);
-        else if (key === 'gwinnett')       renderGwRow(c);
-        else if (key === 'georgia_probate_records') renderGprRow(c);
-        else if (key === 'wisconsin')      renderWiRow(c);
-        else if (key === 'indiana')        renderInRow(c);
-        else                               renderGenericRow(key, c);
+        // AI-inspector siblings (e.g. "ga_cobb__ai") use the same per-state
+        // renderer as the parent scraper. Each per-state renderer detects
+        // c.tiered_extraction / c.pdf_extractions and appends the AI section.
+        const parentKey = key.endsWith('__ai') ? key.slice(0, -4) : key;
+        if (parentKey === 'new_york')            renderNyRow(c);
+        else if (parentKey === 'north_carolina') renderNcRow(c);
+        else if (parentKey === 'maryland')       renderMdRow(c);
+        else if (parentKey === 'oklahoma')       renderOkRow(c);
+        else if (parentKey === 'connecticut')    renderCtRow(c);
+        else if (parentKey === 'ga_cobb' || parentKey === 'ga_rockdale') renderGaRow(parentKey, c);
+        else if (parentKey === 'gwinnett')       renderGwRow(c);
+        else if (parentKey === 'georgia_probate_records') renderGprRow(c);
+        else if (parentKey === 'wisconsin')      renderWiRow(c);
+        else if (parentKey === 'indiana')        renderInRow(c);
+        else                                     renderGenericRow(parentKey, c);
     } catch (e) {
         showModal('<h3>Failed to load record</h3>');
     }
+}
+
+/* ───────── AI extraction block — shared across every per-state renderer ─────────
+   The "scraper vs AI" split lives at the *modal* level: per-state renderers
+   emit the scraper section (parties / docs / portal fields), then call
+   renderAiExtractionBlock(c) to append a clearly-banner-separated amber
+   section that surfaces only AI-extracted content (persons, real_property,
+   per-doc drill-down, telemetry).
+
+   Data sources, in priority order:
+     1. c.tiered_extraction  — consolidated rollup (NY, Cobb/Rockdale, ...)
+     2. c.pdf_extractions[]  — per-PDF outputs, aggregate persons/property
+                               across array elements. */
+function _aiFmtAddr(a) {
+    if (!a) return '';
+    if (typeof a === 'string') return a;
+    if (a.raw) return a.raw;
+    return [a.street, a.city, a.state, a.zip].filter(Boolean).join(', ');
+}
+
+function _aiRolePill(role, isPet) {
+    const r = (role || '').toLowerCase();
+    if (isPet || r === 'petitioner')                             return 'petitioner';
+    if (r === 'heir' || r === 'beneficiary' || r === 'distributee') return 'heir';
+    if (r === 'decedent' || r === 'testator' || r === 'testatrix') return 'minor';
+    return '';
+}
+
+function _aiPersonCard(p) {
+    const addr = _aiFmtAddr(p.address);
+    const rolePill = _aiRolePill(p.role, p.is_petitioner);
+    const tags = [];
+    if (p.is_petitioner)      tags.push('petitioner');
+    if (p.signature_present)  tags.push('signed');
+    if (p.is_minor === true)  tags.push('minor');
+    if (p.legibility && p.legibility !== 'clear') tags.push(p.legibility);
+    const phone = p.phone ? ` • ${p.phone}` : '';
+    const email = p.email ? ` • ${p.email}` : '';
+    const srcDocs = Array.isArray(p.source_docs) ? p.source_docs.join(', ') : '';
+    const src     = p.source_field || '';
+    return `
+    <div class="scr-person" style="border-color: rgba(245,158,11,.18);">
+        <div class="role-line">
+            <span class="role-pill ${rolePill}">${p.role || '?'}</span>
+            <span class="name">${p.full_name || '—'}</span>
+            <span class="rel">${p.relationship_to_decedent || ''}</span>
+        </div>
+        <div class="addr">${addr || '<em style="color:var(--text-muted);">no address</em>'}${phone}${email}</div>
+        <div class="meta">${srcDocs}${tags.length ? ' • ' + tags.join(' / ') : ''}${src ? ' • <span style="color:var(--text-muted)">'+src+'</span>' : ''}</div>
+    </div>`;
+}
+
+function _aiPropertyCard(rp) {
+    const addr = _aiFmtAddr(rp.address || rp) || rp.description || '—';
+    const ptype = rp.type || rp.property_type || '';
+    const val   = rp.estimated_value ? ` • $${Number(rp.estimated_value).toLocaleString()}` : '';
+    return `<div class="scr-prop" style="border-color: rgba(245,158,11,.18);"><strong style="color:var(--text-primary);">${addr}</strong>${ptype ? ' <span style="color:var(--text-muted)">• '+ptype+'</span>' : ''}${val}</div>`;
+}
+
+function _aiAggregateFromPdfExtractions(arr) {
+    // For sources that only have per-PDF extractions (no consolidated tiered).
+    // Collapse persons by full_name (case-insensitive) keeping the richest
+    // address; concat real_property; sum totals.
+    const persons = new Map();
+    const property = [];
+    let inTok = 0, outTok = 0, cacheTok = 0, docs = 0, docsFailed = 0;
+    let model = '';
+    const notes = [];
+    for (const e of arr || []) {
+        docs += 1;
+        if (e.error) docsFailed += 1;
+        if (e.model) model = model || e.model;
+        inTok    += +(e.input_tokens || 0);
+        outTok   += +(e.output_tokens || 0);
+        cacheTok += +(e.cache_read_tokens || 0);
+        const d = e.data || {};
+        if (d.extraction_notes) notes.push({doc: e.document_name || e.name || e.doc_name || e.cid, notes: d.extraction_notes, type: d.doc_type_detected || '', error: e.error, tier: e.tier});
+        for (const p of (d.persons || [])) {
+            const key = (p.full_name || '').toLowerCase().trim();
+            if (!key) continue;
+            const existing = persons.get(key);
+            if (!existing || (!_aiFmtAddr(existing.address) && _aiFmtAddr(p.address))) {
+                persons.set(key, p);
+            }
+        }
+        for (const rp of (d.real_property || [])) property.push(rp);
+    }
+    return {
+        persons: Array.from(persons.values()),
+        real_property: property,
+        totals: { input_tokens: inTok, output_tokens: outTok, cache_read_tokens: cacheTok, docs_processed: docs, docs_failed: docsFailed, model },
+        notes,
+    };
+}
+
+function renderAiExtractionBlock(c) {
+    const te = c.tiered_extraction || null;
+    const px = Array.isArray(c.pdf_extractions) ? c.pdf_extractions : [];
+    const hasTiered = te && typeof te === 'object' && Object.keys(te).length > 0;
+    if (!hasTiered && !px.length) return '';  // nothing to render
+
+    // Prefer the consolidated rollup; fall back to aggregating pdf_extractions.
+    const agg = hasTiered
+        ? { persons: te.persons || [], real_property: te.real_property || [], totals: te.totals || {}, notes: [] }
+        : _aiAggregateFromPdfExtractions(px);
+
+    const totals    = agg.totals || {};
+    const extractedAt = c.extracted_at || c.tiered_extracted_at;
+    const model     = totals.model || (px[0] && px[0].model) || '';
+    const banner = `
+        <div style="margin: 24px 0 12px; padding: 14px 16px;
+                    background: linear-gradient(90deg, rgba(245,158,11,.10), rgba(245,158,11,.02));
+                    border: 1px solid rgba(245,158,11,.28); border-radius: 8px;
+                    border-left: 4px solid #f59e0b;">
+            <div style="display:flex; align-items:baseline; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size:.7rem; letter-spacing: 1.6px; text-transform: uppercase;
+                             color: #fcd34d; font-weight: 700;">
+                    From AI extraction
+                </span>
+                <span style="font-size:.72rem; color: var(--text-muted);">
+                    ${totals.docs_processed || px.length || 0} doc${(totals.docs_processed || px.length || 0) === 1 ? '' : 's'} processed
+                    ${totals.docs_failed ? ', '+totals.docs_failed+' failed' : ''}
+                    ${model ? ' • ' + model : ''}
+                    ${extractedAt ? ' • ' + extractedAt.replace('T',' ').slice(0,16) : ''}
+                    • input ${Number(totals.input_tokens || 0).toLocaleString()} / output ${Number(totals.output_tokens || 0).toLocaleString()} tokens
+                    ${totals.cache_read_tokens ? ' • cache reads ' + Number(totals.cache_read_tokens).toLocaleString() : ''}
+                </span>
+            </div>
+        </div>`;
+
+    const personsBlock = agg.persons.length
+        ? `<h4 style="color:#fcd34d;">Persons extracted by AI (${agg.persons.length})</h4>${agg.persons.map(_aiPersonCard).join('')}`
+        : '<h4 style="color:#fcd34d;">Persons extracted by AI</h4><div style="color: var(--text-muted); font-size:.78rem;">— none returned</div>';
+
+    const propBlock = agg.real_property.length
+        ? `<h4 style="color:#fcd34d;">Real property extracted by AI (${agg.real_property.length})</h4>${agg.real_property.map(_aiPropertyCard).join('')}`
+        : '';
+
+    // Per-document drill-down (only when pdf_extractions[] is available — the
+    // tiered-only NY rollup doesn't have a per-doc array on the row itself).
+    const docDrill = px.length
+        ? `<details style="margin-top: 14px;">
+              <summary style="cursor: pointer; color: #fcd34d; font-size: .72rem;
+                              letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">
+                  Per-document drill-down (${px.length})
+              </summary>
+              ${px.map((e, i) => {
+                  const d = e.data || {};
+                  const docName = e.document_name || e.name || e.doc_name || e.event_type || `doc #${i+1}`;
+                  const docType = d.doc_type_detected || '—';
+                  const tokIn   = e.input_tokens  || 0;
+                  const tokOut  = e.output_tokens || 0;
+                  const cn      = e.case_caption || d.case_caption;
+                  const en      = d.extraction_notes;
+                  const err     = e.error;
+                  return `
+                    <div style="margin-top: 10px; padding: 10px 12px;
+                                background: rgba(0,0,0,.25);
+                                border: 1px solid rgba(245,158,11,.14);
+                                border-radius: 6px;">
+                        <div style="display:flex; gap: 10px; align-items: baseline; flex-wrap: wrap;">
+                            <strong style="color: var(--text-primary); font-size: .82rem;">${docName}</strong>
+                            <span style="font-size:.65rem; padding: 2px 8px; border-radius: 3px;
+                                         background: rgba(245,158,11,.10); color:#fcd34d;
+                                         border: 1px solid rgba(245,158,11,.20);">${docType}</span>
+                            ${e.tier ? `<span style="font-size:.62rem; color: var(--text-muted);">tier ${e.tier}</span>` : ''}
+                            <span style="font-size:.62rem; color: var(--text-muted); margin-left:auto;">
+                                in ${tokIn.toLocaleString()} / out ${tokOut.toLocaleString()} tok
+                            </span>
+                        </div>
+                        ${err ? `<div style="font-size:.7rem; color:#fca5a5; margin-top:6px;">error: ${err}</div>` : ''}
+                        ${cn ? `<div style="font-size:.7rem; color: var(--text-secondary); margin-top:6px;"><em style="color:var(--text-muted)">caption:</em> ${cn}</div>` : ''}
+                        ${en ? `<div style="font-size:.7rem; color: var(--text-secondary); margin-top:6px; line-height:1.5;">${en}</div>` : ''}
+                        <div style="display:flex; gap: 14px; margin-top:8px; font-size:.62rem; color: var(--text-muted);">
+                            <span>persons: <strong style="color:var(--text-secondary)">${(d.persons || []).length}</strong></span>
+                            <span>real_property: <strong style="color:var(--text-secondary)">${(d.real_property || []).length}</strong></span>
+                            ${e.url ? `<a href="${e.url}" target="_blank" rel="noopener" style="color:#fcd34d; margin-left:auto;">open PDF →</a>` : ''}
+                        </div>
+                    </div>`;
+              }).join('')}
+           </details>`
+        : '';
+
+    return banner + personsBlock + propBlock + docDrill;
 }
 
 /* ───────── NY-specific row renderer (rich tiered_extraction visualizer) ───────── */
@@ -911,6 +1162,8 @@ function renderNcRow(c) {
         <h4>Documents on file (${documents.length})</h4>
         ${docsList}
 
+        ${renderAiExtractionBlock(c)}
+
         <details style="margin-top: 18px;">
             <summary style="cursor: pointer; color: var(--text-muted); font-size: .72rem; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">Raw Tyler payload</summary>
             <pre style="font-size: .68rem; color: var(--text-muted); overflow-x: auto; max-height: 360px; background: rgba(0,0,0,.3); padding: 10px; border-radius: 4px; margin-top: 6px;">${JSON.stringify({parties: c.parties, raw_case_summary: c.raw_case_summary, raw_case_events: c.raw_case_events, raw_disposition_events: c.raw_disposition_events, pdf_extractions: c.pdf_extractions}, null, 2)}</pre>
@@ -1103,6 +1356,8 @@ function renderOkRow(c) {
 
         <h4>PDF documents on file (${pdfs.length})</h4>
         ${pdfList}
+
+        ${renderAiExtractionBlock(c)}
     `);
 }
 
@@ -1335,6 +1590,8 @@ function renderGaRow(key, c) {
 
         <h4>PDF refs (${pdfRefs.length})</h4>
         ${pdfList}
+
+        ${renderAiExtractionBlock(c)}
     `);
 }
 
@@ -1570,11 +1827,68 @@ function renderGprRow(c) {
 
         <h4>Documents on file (${docs.length})</h4>
         ${docsHtml}
+
+        ${renderAiExtractionBlock(c)}
     `);
 }
 
 
 /* ───────── WI row renderer (column-only — no parties / no events / no addresses) ───────── */
+const WI_PR_TYPES   = new Set(['Personal Representative','Co-Personal Representative','Petitioner','Special Administrator','Conservator','Guardian ad Litem']);
+const WI_HEIR_TYPES = new Set(['Heir','Beneficiary','Interested Person','Spouse','Successor trustee','Trustee','Corporate Trustee']);
+
+function _wiBucket(type) {
+    if (type === 'Decedent') return 'decedent';
+    if (WI_PR_TYPES.has(type))   return 'pr';
+    if (WI_HEIR_TYPES.has(type)) return 'heir';
+    return 'other';
+}
+
+function _wiFmtAddr(p) {
+    if (p.address) return p.address;
+    return [p.street, p.city, p.state, p.zip].filter(Boolean).join(', ');
+}
+
+function _wiAttysFor(c, partyIdx, partyName) {
+    const detail = c.raw_case_detail && c.raw_case_detail.result;
+    if (!detail || !Array.isArray(detail.parties)) return [];
+    const match = detail.parties[partyIdx];
+    if (match && (match.name === partyName) && Array.isArray(match.attys)) return match.attys;
+    const byName = detail.parties.find(p => p && p.name === partyName);
+    return (byName && Array.isArray(byName.attys)) ? byName.attys : [];
+}
+
+function _wiPartyCard(p, idx, c) {
+    const type   = p.type || 'party';
+    const bucket = _wiBucket(type);
+    const pill   = bucket === 'decedent' ? 'minor'
+                 : bucket === 'pr'       ? 'petitioner'
+                 : bucket === 'heir'     ? 'heir' : '';
+    const addr   = _wiFmtAddr(p);
+    const dob    = p.dob ? ` • DOB ${p.dob}` : '';
+    const attys  = _wiAttysFor(c, idx, p.name);
+    const detailParty = c.raw_case_detail && c.raw_case_detail.result && Array.isArray(c.raw_case_detail.result.parties) ? c.raw_case_detail.result.parties[idx] : null;
+    const dodStr = (detailParty && detailParty.dod) ? ` • DOD ${detailParty.dod}` : '';
+
+    const attyHtml = attys.map(a => {
+        const range = a.entered
+            ? `${a.entered}${a.withdrawn ? ' → ' + a.withdrawn : ''}`
+            : '';
+        return `<div style="font-size:.7rem; color: var(--text-muted); margin-top: 4px; padding-left: 12px; border-left: 2px solid rgba(245,158,11,.18);">attorney: ${a.name || '—'}${a.isGal ? ' • GAL' : ''}${range ? ' • ' + range : ''}</div>`;
+    }).join('');
+
+    return `
+        <div class="scr-person">
+            <div class="role-line">
+                <span class="role-pill ${pill}">${type}</span>
+                <span class="name">${p.name || '—'}</span>
+                ${dob || dodStr ? `<span class="rel">${(dob + dodStr).replace(/^ • /, '')}</span>` : ''}
+            </div>
+            <div class="addr">${addr || '<em style="color:var(--text-muted);">no address on file</em>'}</div>
+            ${attyHtml}
+        </div>`;
+}
+
 function renderWiRow(c) {
     const decFull = [c.decedent_first, c.decedent_middle, c.decedent_last, c.decedent_suffix].filter(Boolean).join(' ').trim() || '—';
     const status = c.case_status || '—';
@@ -1587,12 +1901,30 @@ function renderWiRow(c) {
         ? `<span class="scr-pill ${fetchOk ? 'active' : 'unknown'}" style="font-size:.6rem;">${c.fetch_status}</span>`
         : '';
 
-    const fetchErrBlock = c.last_fetch_error
-        ? `<div style="margin-top: 12px; padding: 10px 12px; background: rgba(239,68,68,.06); border: 1px solid rgba(239,68,68,.18); border-radius: 6px;">
-              <div style="font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; color:#fca5a5; font-weight:700; margin-bottom:4px;">Detail-fetch error</div>
-              <div style="font-size:.74rem; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; word-break: break-word;">${c.last_fetch_error}</div>
-              ${c.last_fetch_error_at ? `<div style="font-size:.66rem; color: var(--text-muted); margin-top:4px;">${c.last_fetch_error_at.replace('T',' ').slice(0,16)} (attempt ${c.fetch_attempts || 1})</div>` : ''}
-           </div>`
+    // Parties: prefer top-level `parties` (normalized), fall back to raw_case_detail.result.parties.
+    let parties = Array.isArray(c.parties) ? c.parties : [];
+    if (!parties.length && c.raw_case_detail && c.raw_case_detail.result && Array.isArray(c.raw_case_detail.result.parties)) {
+        parties = c.raw_case_detail.result.parties;
+    }
+    const indexed = parties.map((p, i) => ({ p, i, bucket: _wiBucket(p.type) }));
+    const decedents = indexed.filter(x => x.bucket === 'decedent');
+    const prs       = indexed.filter(x => x.bucket === 'pr');
+    const heirs     = indexed.filter(x => x.bucket === 'heir');
+    const others    = indexed.filter(x => x.bucket === 'other');
+
+    const sec = (title, group) => group.length
+        ? `<h4>${title} (${group.length})</h4>${group.map(x => _wiPartyCard(x.p, x.i, c)).join('')}`
+        : '';
+
+    const partiesBlock = parties.length
+        ? `${sec('Decedent', decedents)}${sec('Personal Representative', prs)}${sec('Heirs / Beneficiaries', heirs)}${sec('Other parties', others)}`
+        : `<h4>Parties</h4><div style="color: var(--text-muted); font-size:.78rem;">No parties on record for this case.</div>`;
+
+    const jsonBlock = (label, obj) => obj
+        ? `<details class="scr-section scr-collapsible" style="margin-top: 14px;">
+              <summary class="scr-summary" style="font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase; color: var(--text-muted); cursor:pointer; padding: 8px 0;">${label}</summary>
+              <pre style="font-size:.66rem; color: var(--text-secondary); background: rgba(0,0,0,.25); padding: 10px; border-radius: 4px; overflow:auto; max-height: 360px; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; word-break: break-word;">${JSON.stringify(obj, null, 2)}</pre>
+           </details>`
         : '';
 
     showModal(`
@@ -1613,23 +1945,10 @@ function renderWiRow(c) {
             <div><span class="lbl">Scraped</span><span class="val">${c.scraped_at ? c.scraped_at.replace('T',' ').slice(0,16) : '—'}</span></div>
         </div>
 
-        <h4>Decedent</h4>
-        <div class="scr-person">
-            <div class="role-line">
-                <span class="role-pill minor">Decedent</span>
-                <span class="name">${decFull}</span>
-                ${c.decedent_dob ? `<span class="rel">DOB ${c.decedent_dob}${c.decedent_dob_sealed ? ' • sealed' : ''}</span>` : ''}
-            </div>
-            <div class="addr"><em style="color:var(--text-muted)">decedent address not captured by WI WCCA — would require detail-fetch (currently hCaptcha-blocked)</em></div>
-        </div>
+        ${partiesBlock}
 
-        <h4>Personal Representative</h4>
-        <div style="color: var(--text-muted); font-size:.78rem;">
-            Not captured. The WCCA party endpoint that lists PR + heirs is gated by hCaptcha; until detail-fetch is unblocked,
-            WI rows can only be enriched via name + DOB match against propstream / elitress.
-        </div>
-
-        ${fetchErrBlock}
+        ${jsonBlock('Raw case-search payload', c.raw_search)}
+        ${jsonBlock('Raw case detail', c.raw_case_detail)}
     `);
 }
 
