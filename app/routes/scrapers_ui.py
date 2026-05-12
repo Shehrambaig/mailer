@@ -699,27 +699,6 @@ _AI_EXPR_DEFAULT = {
     "model":         "(pdf_extractions->0->>'model')",
 }
 
-# Token totals — prefer the rollup in `tiered_extraction.totals`; otherwise
-# sum across the per-PDF `pdf_extractions[]` array. Same expression works on
-# every table because both columns are present everywhere.
-_AI_INPUT_TOKENS_SQL = (
-    "COALESCE("
-    "  (tiered_extraction->'totals'->>'input_tokens')::int,"
-    "  (SELECT COALESCE(SUM((e->>'input_tokens')::int), 0)"
-    "     FROM jsonb_array_elements(COALESCE(pdf_extractions, '[]'::jsonb)) e),"
-    "  0"
-    ")"
-)
-_AI_OUTPUT_TOKENS_SQL = (
-    "COALESCE("
-    "  (tiered_extraction->'totals'->>'output_tokens')::int,"
-    "  (SELECT COALESCE(SUM((e->>'output_tokens')::int), 0)"
-    "     FROM jsonb_array_elements(COALESCE(pdf_extractions, '[]'::jsonb)) e),"
-    "  0"
-    ")"
-)
-
-
 def _ai_expr(table: str, key: str) -> str:
     return _AI_EXPR_BY_TABLE.get(table, _AI_EXPR_DEFAULT).get(
         key, _AI_EXPR_DEFAULT[key]
@@ -741,8 +720,6 @@ def _build_ai_inspector(base_key: str) -> dict | None:
         (_AI_N_PERSONS_SQL,      "n_persons",        "Ppl"),
         (_AI_N_PROPERTY_SQL,     "n_property",       "Prop"),
         (model_expr,             "model",            "Model"),
-        (_AI_INPUT_TOKENS_SQL,   "input_tokens",     "In tok"),
-        (_AI_OUTPUT_TOKENS_SQL,  "output_tokens",    "Out tok"),
     ]
 
     # Find the "case label" col already in the base so we can keep at least one
@@ -797,12 +774,15 @@ def _compute_ai_card(base_key: str) -> dict | None:
     if not cfg:
         return None
     where_sql = f"WHERE {cfg['where_filter']}"
+    # Tokens deliberately omitted — the upstream extractor only records the
+    # uncached delta (~2 input tokens/doc on every source), which is
+    # misleading. Output_tokens is honest but on its own is more noise than
+    # signal at the card level, so we drop both until the pipeline records
+    # true input including cache reads.
     sql = (
         f"SELECT "
         f"  COUNT(*) AS n, "
         f"  MAX({cfg['ai_ts_expr']}) AS latest, "
-        f"  COALESCE(SUM({_AI_INPUT_TOKENS_SQL}), 0) AS in_tok, "
-        f"  COALESCE(SUM({_AI_OUTPUT_TOKENS_SQL}), 0) AS out_tok, "
         f"  MAX({cfg['ai_model_expr']}) AS model "
         f'FROM "{cfg["table"]}" {where_sql}'
     )
@@ -822,8 +802,6 @@ def _compute_ai_card(base_key: str) -> dict | None:
         "name":         "AI extraction",
         "total":        int(r["n"]),
         "latest":       r["latest"].isoformat() if r["latest"] else None,
-        "input_tokens":  int(r["in_tok"] or 0),
-        "output_tokens": int(r["out_tok"] or 0),
         "model":        r["model"],
     }
 

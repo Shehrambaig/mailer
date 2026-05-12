@@ -354,11 +354,6 @@
                     <span class="scr-pill ai-pill" style="margin-left:10px;">{{ s.model or 'sonnet' }}</span>
                 </span>
                 <div class="scr-meta">
-                    <div class="scr-ai-meta">
-                        {% if s.input_tokens or s.output_tokens %}
-                        <span>tokens <strong>{{ "{:,}".format(s.input_tokens or 0) }}</strong> in / <strong>{{ "{:,}".format(s.output_tokens or 0) }}</strong> out</span>
-                        {% endif %}
-                    </div>
                     <span class="scr-count{% if (s.total or 0) == 0 %} zero{% endif %}">{{ "{:,}".format(s.total or 0) }}</span>
                     <span class="scr-last">
                         {% if s.latest %}{{ s.latest[:10] }}{% else %}—{% endif %}
@@ -879,8 +874,6 @@ function renderAiExtractionBlock(c) {
                     ${totals.docs_failed ? ', '+totals.docs_failed+' failed' : ''}
                     ${model ? ' • ' + model : ''}
                     ${extractedAt ? ' • ' + extractedAt.replace('T',' ').slice(0,16) : ''}
-                    • input ${Number(totals.input_tokens || 0).toLocaleString()} / output ${Number(totals.output_tokens || 0).toLocaleString()} tokens
-                    ${totals.cache_read_tokens ? ' • cache reads ' + Number(totals.cache_read_tokens).toLocaleString() : ''}
                 </span>
             </div>
         </div>`;
@@ -905,8 +898,6 @@ function renderAiExtractionBlock(c) {
                   const d = e.data || {};
                   const docName = e.document_name || e.name || e.doc_name || e.event_type || `doc #${i+1}`;
                   const docType = d.doc_type_detected || '—';
-                  const tokIn   = e.input_tokens  || 0;
-                  const tokOut  = e.output_tokens || 0;
                   const cn      = e.case_caption || d.case_caption;
                   const en      = d.extraction_notes;
                   const err     = e.error;
@@ -921,9 +912,6 @@ function renderAiExtractionBlock(c) {
                                          background: rgba(245,158,11,.10); color:#fcd34d;
                                          border: 1px solid rgba(245,158,11,.20);">${docType}</span>
                             ${e.tier ? `<span style="font-size:.62rem; color: var(--text-muted);">tier ${e.tier}</span>` : ''}
-                            <span style="font-size:.62rem; color: var(--text-muted); margin-left:auto;">
-                                in ${tokIn.toLocaleString()} / out ${tokOut.toLocaleString()} tok
-                            </span>
                         </div>
                         ${err ? `<div style="font-size:.7rem; color:#fca5a5; margin-top:6px;">error: ${err}</div>` : ''}
                         ${cn ? `<div style="font-size:.7rem; color: var(--text-secondary); margin-top:6px;"><em style="color:var(--text-muted)">caption:</em> ${cn}</div>` : ''}
