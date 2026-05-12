@@ -354,6 +354,11 @@
                     <span class="scr-pill ai-pill" style="margin-left:10px;">{{ s.model or 'sonnet' }}</span>
                 </span>
                 <div class="scr-meta">
+                    {% if s.skipped and s.skipped > 0 %}
+                    <span class="scr-ai-meta" title="{{ s.skipped }} additional case{{ '' if s.skipped == 1 else 's' }} the extractor touched but skipped — typically no PDF on file.">
+                        <span><strong>{{ s.total }}</strong> ok / <strong>{{ s.skipped }}</strong> skipped</span>
+                    </span>
+                    {% endif %}
                     <span class="scr-count{% if (s.total or 0) == 0 %} zero{% endif %}">{{ "{:,}".format(s.total or 0) }}</span>
                     <span class="scr-last">
                         {% if s.latest %}{{ s.latest[:10] }}{% else %}—{% endif %}

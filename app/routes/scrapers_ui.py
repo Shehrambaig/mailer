@@ -774,33 +774,59 @@ def _compute_ai_card(base_key: str) -> dict | None:
     if not cfg:
         return None
     where_sql = f"WHERE {cfg['where_filter']}"
+    base_table = cfg["table"]
+    # `n` = rows the extractor produced output for (matches the inspector list).
+    # `attempted` = rows the extractor *touched* — succeeded + skipped. The
+    # delta lets the operator see e.g. "9 extracted / 11 skipped" on the card
+    # so it's obvious why fewer-than-20 rows appear inside.
     # Tokens deliberately omitted — the upstream extractor only records the
-    # uncached delta (~2 input tokens/doc on every source), which is
-    # misleading. Output_tokens is honest but on its own is more noise than
-    # signal at the card level, so we drop both until the pipeline records
-    # true input including cache reads.
+    # uncached delta (~2 input tokens/doc), which is misleading.
     sql = (
         f"SELECT "
         f"  COUNT(*) AS n, "
         f"  MAX({cfg['ai_ts_expr']}) AS latest, "
         f"  MAX({cfg['ai_model_expr']}) AS model "
-        f'FROM "{cfg["table"]}" {where_sql}'
+        f'FROM "{base_table}" {where_sql}'
     )
+    # `attempted` is best derived from `extraction_status IS NOT NULL` (the
+    # extractor records 'ok' or 'skipped'); fall back to extracted_at when
+    # that column doesn't exist on the table.
+    attempted_where = (
+        "extraction_status IS NOT NULL OR extracted_at IS NOT NULL OR "
+        + cfg["ai_ts_expr"] + " IS NOT NULL"
+    )
+    base_where_no_ai = ""
+    # Reuse the base where filter (Cobb/Rockdale county split) — but drop
+    # `_AI_PRESENT_SQL`. The simplest way: take the base inspector's where.
+    base_cfg = SOURCES_INSPECTOR.get(base_key) or {}
+    if base_cfg.get("where_filter") and "derived_status" not in base_cfg["where_filter"]:
+        base_where_no_ai = " AND " + base_cfg["where_filter"]
+    attempted_sql = (
+        f'SELECT COUNT(*) AS n FROM "{base_table}" '
+        f"WHERE ({attempted_where}){base_where_no_ai}"
+    )
+
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(sql)
                 r = cur.fetchone()
+                cur.execute(attempted_sql)
+                a = cur.fetchone() or {"n": 0}
     except Exception:
         return None
     if not r or not r.get("n"):
         return None
+    succeeded = int(r["n"])
+    attempted = max(int(a["n"] or 0), succeeded)
     return {
         "key":          f"{base_key}__ai",
         "is_ai_card":   True,
         "ai_parent":    base_key,
         "name":         "AI extraction",
-        "total":        int(r["n"]),
+        "total":        succeeded,
+        "attempted":    attempted,
+        "skipped":      attempted - succeeded,
         "latest":       r["latest"].isoformat() if r["latest"] else None,
         "model":        r["model"],
     }
