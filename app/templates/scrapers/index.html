@@ -850,88 +850,127 @@ function _aiAggregateFromPdfExtractions(arr) {
     };
 }
 
-function renderAiExtractionBlock(c) {
-    const te = c.tiered_extraction || null;
-    const px = Array.isArray(c.pdf_extractions) ? c.pdf_extractions : [];
+// Build an "extraction side" object — the aggregated view used by one model's
+// column. te is the consolidated tiered_extraction object (or null), px is
+// the per-PDF array (or []). Returns null if the model produced nothing.
+function _aiBuildSide(te, px, extractedAt) {
     const hasTiered = te && typeof te === 'object' && Object.keys(te).length > 0;
-    if (!hasTiered && !px.length) return '';  // nothing to render
-
-    // Prefer the consolidated rollup; fall back to aggregating pdf_extractions.
+    const pxArr = Array.isArray(px) ? px : [];
+    if (!hasTiered && !pxArr.length) return null;
     const agg = hasTiered
-        ? { persons: te.persons || [], real_property: te.real_property || [], totals: te.totals || {}, notes: [] }
-        : _aiAggregateFromPdfExtractions(px);
+        ? { persons: te.persons || [], real_property: te.real_property || [], totals: te.totals || {} }
+        : _aiAggregateFromPdfExtractions(pxArr);
+    const totals = agg.totals || {};
+    const model  = totals.model || (pxArr[0] && pxArr[0].model) || (te && te.extraction_log && te.extraction_log[0] && te.extraction_log[0].model) || '';
+    return {
+        persons: agg.persons,
+        real_property: agg.real_property,
+        totals,
+        px: pxArr,
+        model,
+        extractedAt,
+        docCount: totals.docs_processed || pxArr.length || 0,
+    };
+}
 
-    const totals    = agg.totals || {};
-    const extractedAt = c.extracted_at || c.tiered_extracted_at;
-    const model     = totals.model || (px[0] && px[0].model) || '';
-    const banner = `
-        <div style="margin: 24px 0 12px; padding: 14px 16px;
-                    background: linear-gradient(90deg, rgba(245,158,11,.10), rgba(245,158,11,.02));
-                    border: 1px solid rgba(245,158,11,.28); border-radius: 8px;
-                    border-left: 4px solid #f59e0b;">
-            <div style="display:flex; align-items:baseline; gap: 12px; flex-wrap: wrap;">
-                <span style="font-size:.7rem; letter-spacing: 1.6px; text-transform: uppercase;
-                             color: #fcd34d; font-weight: 700;">
-                    From AI extraction
-                </span>
-                <span style="font-size:.72rem; color: var(--text-muted);">
-                    ${totals.docs_processed || px.length || 0} doc${(totals.docs_processed || px.length || 0) === 1 ? '' : 's'} processed
-                    ${totals.docs_failed ? ', '+totals.docs_failed+' failed' : ''}
-                    ${model ? ' • ' + model : ''}
-                    ${extractedAt ? ' • ' + extractedAt.replace('T',' ').slice(0,16) : ''}
-                </span>
-            </div>
-        </div>`;
-
-    const personsBlock = agg.persons.length
-        ? `<h4 style="color:#fcd34d;">Persons extracted by AI (${agg.persons.length})</h4>${agg.persons.map(_aiPersonCard).join('')}`
-        : '<h4 style="color:#fcd34d;">Persons extracted by AI</h4><div style="color: var(--text-muted); font-size:.78rem;">— none returned</div>';
-
-    const propBlock = agg.real_property.length
-        ? `<h4 style="color:#fcd34d;">Real property extracted by AI (${agg.real_property.length})</h4>${agg.real_property.map(_aiPropertyCard).join('')}`
-        : '';
-
-    // Per-document drill-down (only when pdf_extractions[] is available — the
-    // tiered-only NY rollup doesn't have a per-doc array on the row itself).
-    const docDrill = px.length
-        ? `<details style="margin-top: 14px;">
-              <summary style="cursor: pointer; color: #fcd34d; font-size: .72rem;
-                              letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700;">
-                  Per-document drill-down (${px.length})
+function _aiSideColumn(label, accent, side) {
+    if (!side) {
+        return `
+            <div style="flex: 1; min-width: 0; padding: 12px 14px; background: rgba(0,0,0,.20);
+                        border: 1px dashed rgba(255,255,255,.10); border-radius: 6px;">
+                <div style="font-size:.66rem; letter-spacing: 1.4px; text-transform: uppercase;
+                            color: var(--text-muted); font-weight: 700; margin-bottom: 8px;">
+                    ${label}
+                </div>
+                <div style="color: var(--text-muted); font-size:.75rem;">
+                    — no extraction by this model
+                </div>
+            </div>`;
+    }
+    const docDrill = side.px.length
+        ? `<details style="margin-top: 12px;">
+              <summary style="cursor: pointer; color: ${accent}; font-size: .65rem;
+                              letter-spacing: 1.3px; text-transform: uppercase; font-weight: 700;">
+                  Per-document (${side.px.length})
               </summary>
-              ${px.map((e, i) => {
+              ${side.px.map((e, i) => {
                   const d = e.data || {};
                   const docName = e.document_name || e.name || e.doc_name || e.event_type || `doc #${i+1}`;
                   const docType = d.doc_type_detected || '—';
-                  const cn      = e.case_caption || d.case_caption;
                   const en      = d.extraction_notes;
                   const err     = e.error;
                   return `
-                    <div style="margin-top: 10px; padding: 10px 12px;
-                                background: rgba(0,0,0,.25);
-                                border: 1px solid rgba(245,158,11,.14);
-                                border-radius: 6px;">
-                        <div style="display:flex; gap: 10px; align-items: baseline; flex-wrap: wrap;">
-                            <strong style="color: var(--text-primary); font-size: .82rem;">${docName}</strong>
-                            <span style="font-size:.65rem; padding: 2px 8px; border-radius: 3px;
-                                         background: rgba(245,158,11,.10); color:#fcd34d;
-                                         border: 1px solid rgba(245,158,11,.20);">${docType}</span>
-                            ${e.tier ? `<span style="font-size:.62rem; color: var(--text-muted);">tier ${e.tier}</span>` : ''}
+                    <div style="margin-top: 8px; padding: 8px 10px;
+                                background: rgba(0,0,0,.28); border-radius: 5px;
+                                border: 1px solid ${accent}22;">
+                        <div style="display:flex; gap: 8px; align-items: baseline; flex-wrap: wrap;">
+                            <strong style="color: var(--text-primary); font-size: .76rem;">${docName}</strong>
+                            <span style="font-size:.6rem; padding: 1px 6px; border-radius: 3px;
+                                         background: ${accent}1a; color: ${accent};
+                                         border: 1px solid ${accent}33;">${docType}</span>
+                            ${e.tier ? `<span style="font-size:.58rem; color: var(--text-muted);">tier ${e.tier}</span>` : ''}
                         </div>
-                        ${err ? `<div style="font-size:.7rem; color:#fca5a5; margin-top:6px;">error: ${err}</div>` : ''}
-                        ${cn ? `<div style="font-size:.7rem; color: var(--text-secondary); margin-top:6px;"><em style="color:var(--text-muted)">caption:</em> ${cn}</div>` : ''}
-                        ${en ? `<div style="font-size:.7rem; color: var(--text-secondary); margin-top:6px; line-height:1.5;">${en}</div>` : ''}
-                        <div style="display:flex; gap: 14px; margin-top:8px; font-size:.62rem; color: var(--text-muted);">
-                            <span>persons: <strong style="color:var(--text-secondary)">${(d.persons || []).length}</strong></span>
-                            <span>real_property: <strong style="color:var(--text-secondary)">${(d.real_property || []).length}</strong></span>
-                            ${e.url ? `<a href="${e.url}" target="_blank" rel="noopener" style="color:#fcd34d; margin-left:auto;">open PDF →</a>` : ''}
-                        </div>
+                        ${err ? `<div style="font-size:.65rem; color:#fca5a5; margin-top:4px;">error: ${err}</div>` : ''}
+                        ${en ? `<div style="font-size:.66rem; color: var(--text-secondary); margin-top:4px; line-height:1.45;">${en}</div>` : ''}
                     </div>`;
               }).join('')}
            </details>`
         : '';
 
-    return banner + personsBlock + propBlock + docDrill;
+    return `
+        <div style="flex: 1; min-width: 0; padding: 12px 14px; background: rgba(0,0,0,.20);
+                    border: 1px solid ${accent}33; border-radius: 6px; border-left: 3px solid ${accent};">
+            <div style="font-size:.66rem; letter-spacing: 1.4px; text-transform: uppercase;
+                        color: ${accent}; font-weight: 700; margin-bottom: 4px;">
+                ${label}
+            </div>
+            <div style="font-size:.65rem; color: var(--text-muted); margin-bottom: 12px;">
+                ${side.model || '—'}
+                ${side.docCount ? ' • ' + side.docCount + ' doc' + (side.docCount === 1 ? '' : 's') : ''}
+                ${side.extractedAt ? ' • ' + side.extractedAt.replace('T',' ').slice(0,16) : ''}
+            </div>
+            <h4 style="color:${accent}; font-size:.72rem; margin: 14px 0 8px;">Persons (${side.persons.length})</h4>
+            ${side.persons.length
+                ? side.persons.map(_aiPersonCard).join('')
+                : '<div style="color: var(--text-muted); font-size:.74rem;">— none returned</div>'}
+            ${side.real_property.length
+                ? `<h4 style="color:${accent}; font-size:.72rem; margin: 14px 0 8px;">Real property (${side.real_property.length})</h4>${side.real_property.map(_aiPropertyCard).join('')}`
+                : ''}
+            ${docDrill}
+        </div>`;
+}
+
+function renderAiExtractionBlock(c) {
+    const claude = _aiBuildSide(
+        c.tiered_extraction,
+        c.pdf_extractions,
+        c.tiered_extracted_at || c.extracted_at
+    );
+    const gemini = _aiBuildSide(
+        c.tiered_extraction_gemini,
+        c.pdf_extractions_gemini,
+        c.tiered_extraction_gemini_at || c.extracted_at_gemini
+    );
+    if (!claude && !gemini) return '';
+
+    const banner = `
+        <div style="margin: 24px 0 12px; padding: 12px 16px;
+                    background: linear-gradient(90deg, rgba(245,158,11,.10), rgba(245,158,11,.02));
+                    border: 1px solid rgba(245,158,11,.28); border-radius: 8px;
+                    border-left: 4px solid #f59e0b;">
+            <span style="font-size:.7rem; letter-spacing: 1.6px; text-transform: uppercase;
+                         color: #fcd34d; font-weight: 700;">
+                From AI extraction — side-by-side comparison
+            </span>
+        </div>`;
+
+    // Two columns: Claude (purple) on left, Gemini (cyan) on right. Stack on
+    // narrow screens via flex-wrap.
+    return banner + `
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch;">
+            ${_aiSideColumn('Claude', '#c4b5fd', claude)}
+            ${_aiSideColumn('Gemini', '#67e8f9', gemini)}
+        </div>`;
 }
 
 /* ───────── NY-specific row renderer (rich tiered_extraction visualizer) ───────── */
@@ -1018,22 +1057,9 @@ function renderNyRow(c) {
         <h4>Documents on file (${docs.length})</h4>
         <div>${docsHtml}</div>
 
-        <h4>Persons extracted (${persons.length})</h4>
-        <div>${personHtml}</div>
-
-        <h4>Real property (${props.length})</h4>
-        <div>${propHtml}</div>
-
         ${otherHtml ? `<h4>Other parties (${otherParties.length})</h4><div>${otherHtml}</div>` : ''}
 
-        ${totals && (totals.docs_processed || totals.input_tokens || totals.output_tokens) ? `
-            <h4>Extraction telemetry</h4>
-            <div style="font-size:.74rem; color: var(--text-secondary);">
-                ${totals.docs_processed || 0} doc${totals.docs_processed === 1 ? '' : 's'} processed
-                ${totals.docs_failed ? ', '+totals.docs_failed+' failed' : ''}
-                • input ${Number(totals.input_tokens || 0).toLocaleString()} / output ${Number(totals.output_tokens || 0).toLocaleString()} tokens
-                ${totals.cache_read_tokens ? ' • cache reads ' + Number(totals.cache_read_tokens).toLocaleString() : ''}
-            </div>` : ''}
+        ${renderAiExtractionBlock(c)}
     `);
 }
 

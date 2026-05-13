@@ -219,6 +219,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_active", "petitioner_appointed_date",
             "pdf_url", "pdf_status", "pdf_last_attempted_at", "pdf_error",
             "scrape_timestamp", "tiered_extracted_at", "derived_status",
+            "tiered_extraction_gemini_at",
         ],
         "detail_json_cols": [
             "decedent", "decedent_address",
@@ -226,6 +227,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "other_parties",
             "document_names",
             "tiered_extraction",
+            "tiered_extraction_gemini",
         ],
         "search_cols": [
             "case_number",
@@ -257,6 +259,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "case_number", "case_type", "case_type_code",
             "location_name", "county", "style", "file_date",
             "url", "fetch_status", "extraction_status", "extracted_at",
+            "extraction_status_gemini", "extracted_at_gemini",
             "pdfs_synced_at",
             "scraped_at", "derived_status",
         ],
@@ -267,6 +270,7 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "raw_case_events",
             "raw_disposition_events",
             "pdf_extractions",
+            "pdf_extractions_gemini",
             "tiered_extraction",
         ],
         "search_cols": [
@@ -306,10 +310,11 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "decedent_street", "decedent_city", "decedent_state", "decedent_zip",
             "fetch_status", "scraped_at", "status", "derived_status",
             "extracted_at", "extraction_status", "pdfs_synced_at",
+            "extracted_at_gemini", "extraction_status_gemini",
         ],
         "detail_json_cols": [
             "parties", "documents", "raw_detail",
-            "pdf_extractions", "tiered_extraction",
+            "pdf_extractions", "pdf_extractions_gemini", "tiered_extraction",
         ],
         "search_cols": [
             "case_number", "county", "court_name",
@@ -377,10 +382,11 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
             "extracted_at", "extraction_status", "pdfs_synced_at",
+            "extracted_at_gemini", "extraction_status_gemini",
         ],
         "detail_json_cols": [
             "parties", "pdf_refs", "raw",
-            "pdf_extractions", "tiered_extraction",
+            "pdf_extractions", "pdf_extractions_gemini", "tiered_extraction",
         ],
         "search_cols": [
             "case_number", "decedent_full",
@@ -412,10 +418,11 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
             "extracted_at", "extraction_status", "pdfs_synced_at",
+            "extracted_at_gemini", "extraction_status_gemini",
         ],
         "detail_json_cols": [
             "parties", "pdf_refs", "raw",
-            "pdf_extractions", "tiered_extraction",
+            "pdf_extractions", "pdf_extractions_gemini", "tiered_extraction",
         ],
         "search_cols": [
             "case_number", "decedent_full",
@@ -558,10 +565,11 @@ SOURCES_INSPECTOR: dict[str, dict] = {
             "petitioner_phone", "petitioner_email",
             "pdf_extracted_at", "scraped_at", "derived_status",
             "extracted_at", "extraction_status", "pdfs_synced_at",
+            "extracted_at_gemini", "extraction_status_gemini",
         ],
         "detail_json_cols": [
             "parties", "pdf_urls", "raw",
-            "pdf_extractions", "tiered_extraction",
+            "pdf_extractions", "pdf_extractions_gemini", "tiered_extraction",
         ],
         "search_cols": [
             "case_number", "county",
@@ -633,54 +641,127 @@ _AI_CAPABLE_KEYS = (
     "georgia_probate_records",
 )
 
-# Extraction-presence predicate: a row counts as "AI-extracted" only when the
-# extractor actually produced output. We deliberately exclude rows where
-# `tiered_extraction` exists but AI was disabled at extraction time — these
-# show up as `model='(ai-disabled)'` with 0 input/output tokens, and they
-# would otherwise clutter the AI EXTRACTED card with rows that have nothing
-# in any column (the symptom in img_24.png).
+# Extraction-presence predicate: a row counts as "AI-extracted" only when *some*
+# model (Claude or Gemini) actually produced output. We deliberately exclude
+# rows where `tiered_extraction` exists but AI was disabled at extraction time
+# — these show up as `model='(ai-disabled)'` with 0 input/output tokens, and
+# they would otherwise clutter the AI EXTRACTED card with rows that have
+# nothing in any column.
+def _ai_present_expr(*, te: str = "tiered_extraction", px: str = "pdf_extractions") -> str:
+    return (
+        "("
+        f"  COALESCE(({te}->'totals'->>'input_tokens')::int, 0) > 0"
+        f"  OR COALESCE(({te}->'totals'->>'output_tokens')::int, 0) > 0"
+        f"  OR (jsonb_typeof({px}) = 'array' AND jsonb_array_length({px}) > 0)"
+        ")"
+    )
+
+
 _AI_PRESENT_SQL = (
-    "("
-    "  COALESCE((tiered_extraction->'totals'->>'input_tokens')::int, 0) > 0"
-    "  OR COALESCE((tiered_extraction->'totals'->>'output_tokens')::int, 0) > 0"
-    "  OR (jsonb_typeof(pdf_extractions) = 'array' AND jsonb_array_length(pdf_extractions) > 0)"
-    ")"
+    "(" + _ai_present_expr() + " OR " +
+    _ai_present_expr(te="tiered_extraction_gemini", px="pdf_extractions_gemini") + ")"
 )
+
 
 # Per-row doc count — prefer the per-PDF array length when the source has it,
 # otherwise fall back to `tiered_extraction.totals.docs_processed` (NY's
 # consolidated rollup, which has no pdf_extractions[]).
-_AI_N_DOCS_SQL = (
-    "CASE "
-    "  WHEN jsonb_typeof(pdf_extractions) = 'array' AND jsonb_array_length(pdf_extractions) > 0 "
-    "       THEN jsonb_array_length(pdf_extractions) "
-    "  ELSE COALESCE((tiered_extraction->'totals'->>'docs_processed')::int, 0) "
-    "END"
-)
+def _n_docs_expr(*, te: str = "tiered_extraction", px: str = "pdf_extractions") -> str:
+    return (
+        "CASE "
+        f"  WHEN jsonb_typeof({px}) = 'array' AND jsonb_array_length({px}) > 0 "
+        f"       THEN jsonb_array_length({px}) "
+        f"  ELSE COALESCE(({te}->'totals'->>'docs_processed')::int, 0) "
+        "END"
+    )
+
+
+_AI_N_DOCS_SQL = _n_docs_expr()
+
 
 # Persons extracted — prefer the consolidated rollup (`tiered_extraction.persons`).
 # When only per-PDF extractions are available (NC/OK/GPR/Cobb-without-rollup),
-# sum persons across *every* element so multi-doc cases aren't undercounted —
-# the previous code only read `pdf_extractions[0]`.
-_AI_N_PERSONS_SQL = (
-    "CASE "
-    "  WHEN jsonb_typeof(tiered_extraction->'persons') = 'array' "
-    "       THEN jsonb_array_length(tiered_extraction->'persons') "
-    "  ELSE COALESCE("
-    "       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'persons','[]'::jsonb)))::int"
-    "          FROM jsonb_array_elements(COALESCE(pdf_extractions,'[]'::jsonb)) e), 0) "
-    "END"
-)
+# sum persons across *every* element so multi-doc cases aren't undercounted.
+def _n_persons_expr(*, te: str = "tiered_extraction", px: str = "pdf_extractions") -> str:
+    return (
+        "CASE "
+        f"  WHEN jsonb_typeof({te}->'persons') = 'array' "
+        f"       THEN jsonb_array_length({te}->'persons') "
+        f"  ELSE COALESCE("
+        f"       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'persons','[]'::jsonb)))::int"
+        f"          FROM jsonb_array_elements(COALESCE({px},'[]'::jsonb)) e), 0) "
+        "END"
+    )
 
-_AI_N_PROPERTY_SQL = (
-    "CASE "
-    "  WHEN jsonb_typeof(tiered_extraction->'real_property') = 'array' "
-    "       THEN jsonb_array_length(tiered_extraction->'real_property') "
-    "  ELSE COALESCE("
-    "       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'real_property','[]'::jsonb)))::int"
-    "          FROM jsonb_array_elements(COALESCE(pdf_extractions,'[]'::jsonb)) e), 0) "
-    "END"
-)
+
+def _n_property_expr(*, te: str = "tiered_extraction", px: str = "pdf_extractions") -> str:
+    return (
+        "CASE "
+        f"  WHEN jsonb_typeof({te}->'real_property') = 'array' "
+        f"       THEN jsonb_array_length({te}->'real_property') "
+        f"  ELSE COALESCE("
+        f"       (SELECT SUM(jsonb_array_length(COALESCE(e->'data'->'real_property','[]'::jsonb)))::int"
+        f"          FROM jsonb_array_elements(COALESCE({px},'[]'::jsonb)) e), 0) "
+        "END"
+    )
+
+
+_AI_N_PERSONS_SQL = _n_persons_expr()
+_AI_N_PROPERTY_SQL = _n_property_expr()
+
+
+# Probe information_schema once per process to figure out which Gemini-mirror
+# columns exist on each AI-capable table. Gemini schema is not symmetric with
+# Claude:
+#   - `records` (NY) has `tiered_extraction_gemini` only — no `pdf_extractions_gemini`.
+#   - other tables have `pdf_extractions_gemini` only — no `tiered_extraction_gemini`.
+# We use this to splice the right `<column>` / `NULL::jsonb` literal into the
+# Gemini SQL so it parses regardless of which columns the target table has.
+_GEMINI_COLS_CACHE: dict[str, dict[str, str]] = {}
+
+
+def _gemini_refs(table: str) -> dict[str, str]:
+    """Returns SQL expressions for Gemini's `te` and `px` column references
+    on `table`. Falls back to `NULL::jsonb` literal when the column doesn't
+    exist, so every other expression that wraps them parses cleanly."""
+    if table not in _GEMINI_COLS_CACHE:
+        try:
+            with _connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='public' AND table_name=%s",
+                        (table,),
+                    )
+                    present = {r[0] for r in cur.fetchall()}
+        except Exception:
+            present = set()
+        _GEMINI_COLS_CACHE[table] = {
+            "te": "tiered_extraction_gemini" if "tiered_extraction_gemini" in present
+                  else "(NULL::jsonb)",
+            "px": "pdf_extractions_gemini" if "pdf_extractions_gemini" in present
+                  else "(NULL::jsonb)",
+        }
+    return _GEMINI_COLS_CACHE[table]
+
+
+def _n_persons_gemini_sql(table: str) -> str:
+    refs = _gemini_refs(table)
+    return _n_persons_expr(te=refs["te"], px=refs["px"])
+
+
+def _n_property_gemini_sql(table: str) -> str:
+    refs = _gemini_refs(table)
+    return _n_property_expr(te=refs["te"], px=refs["px"])
+
+
+def _ai_present_with_gemini(table: str) -> str:
+    """Per-table presence predicate: Claude OR Gemini produced any output."""
+    refs = _gemini_refs(table)
+    return (
+        "(" + _ai_present_expr() + " OR " +
+        _ai_present_expr(te=refs["te"], px=refs["px"]) + ")"
+    )
 
 # Latest extraction timestamp / model — column layout differs per table.
 # `records` (NY) only has `tiered_extracted_at` populated; every other AI-
@@ -714,12 +795,13 @@ def _build_ai_inspector(base_key: str) -> dict | None:
     model_expr = _ai_expr(base["table"], "model")
 
     list_cols_base = [
-        ("case_number",          "case_number",      "Case #"),
-        (f"{ts_expr}::date::text", "extracted_on",   "Extracted"),
-        (_AI_N_DOCS_SQL,         "n_docs",           "Docs"),
-        (_AI_N_PERSONS_SQL,      "n_persons",        "Ppl"),
-        (_AI_N_PROPERTY_SQL,     "n_property",       "Prop"),
-        (model_expr,             "model",            "Model"),
+        ("case_number",                          "case_number",       "Case #"),
+        (f"{ts_expr}::date::text",               "extracted_on",      "Extracted"),
+        (_AI_N_DOCS_SQL,                         "n_docs",            "Docs"),
+        (_AI_N_PERSONS_SQL,                      "n_persons",         "Cl Ppl"),
+        (_n_persons_gemini_sql(base["table"]),   "n_persons_gemini",  "Ge Ppl"),
+        (_AI_N_PROPERTY_SQL,                     "n_property",        "Cl Prop"),
+        (_n_property_gemini_sql(base["table"]),  "n_property_gemini", "Ge Prop"),
     ]
 
     # Find the "case label" col already in the base so we can keep at least one
@@ -736,13 +818,14 @@ def _build_ai_inspector(base_key: str) -> dict | None:
         list_cols.append(label_col)
     list_cols += list_cols_base[1:]
 
-    # Compose WHERE: AI present + structural base filters only (e.g. Cobb /
-    # Rockdale split by county). We deliberately drop status-derived filters
-    # like `derived_status IS DISTINCT FROM 'guardianship'`, because:
+    # Compose WHERE: any model (Claude or Gemini) present + structural base
+    # filters only (e.g. Cobb / Rockdale split by county). We deliberately
+    # drop status-derived filters like `derived_status IS DISTINCT FROM
+    # 'guardianship'`, because:
     #   1. derived_status doesn't exist on every dev/local schema, and
     #   2. AI extraction implies non-guardianship by design — operators don't
     #      run extraction on those rows.
-    where_parts = [_AI_PRESENT_SQL]
+    where_parts = [_ai_present_with_gemini(base["table"])]
     base_where = base.get("where_filter") or ""
     if base_where and "derived_status" not in base_where:
         where_parts.append(base_where)
