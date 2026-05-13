@@ -852,16 +852,21 @@ function _aiAggregateFromPdfExtractions(arr) {
 
 // Build an "extraction side" object — the aggregated view used by one model's
 // column. te is the consolidated tiered_extraction object (or null), px is
-// the per-PDF array (or []). Returns null if the model produced nothing.
-function _aiBuildSide(te, px, extractedAt) {
+// the per-PDF array (or []). Returns null when the model was never touched
+// for this row, or a side object whose `state` distinguishes:
+//   'ok'      — produced output (persons / real_property non-empty or doc list)
+//   'skipped' — extractor ran but stored an empty result (no usable PDF, etc.)
+function _aiBuildSide(te, px, extractedAt, status) {
     const hasTiered = te && typeof te === 'object' && Object.keys(te).length > 0;
     const pxArr = Array.isArray(px) ? px : [];
-    if (!hasTiered && !pxArr.length) return null;
+    const everTouched = hasTiered || pxArr.length > 0 || !!status || !!extractedAt;
+    if (!everTouched) return null;
     const agg = hasTiered
         ? { persons: te.persons || [], real_property: te.real_property || [], totals: te.totals || {} }
         : _aiAggregateFromPdfExtractions(pxArr);
     const totals = agg.totals || {};
     const model  = totals.model || (pxArr[0] && pxArr[0].model) || (te && te.extraction_log && te.extraction_log[0] && te.extraction_log[0].model) || '';
+    const hasContent = agg.persons.length > 0 || agg.real_property.length > 0 || pxArr.length > 0;
     return {
         persons: agg.persons,
         real_property: agg.real_property,
@@ -869,11 +874,17 @@ function _aiBuildSide(te, px, extractedAt) {
         px: pxArr,
         model,
         extractedAt,
+        status,
+        state: hasContent ? 'ok' : 'skipped',
         docCount: totals.docs_processed || pxArr.length || 0,
     };
 }
 
 function _aiSideColumn(label, accent, side) {
+    // Three states this branch handles:
+    //   - side === null     : model never ran on this row
+    //   - side.state==='skipped' : model ran, stored an empty result
+    //   - side.state==='ok'      : model produced extracted content
     if (!side) {
         return `
             <div style="flex: 1; min-width: 0; padding: 12px 14px; background: rgba(0,0,0,.20);
@@ -883,7 +894,25 @@ function _aiSideColumn(label, accent, side) {
                     ${label}
                 </div>
                 <div style="color: var(--text-muted); font-size:.75rem;">
-                    — no extraction by this model
+                    — never run on this row
+                </div>
+            </div>`;
+    }
+    if (side.state === 'skipped') {
+        return `
+            <div style="flex: 1; min-width: 0; padding: 12px 14px; background: rgba(0,0,0,.20);
+                        border: 1px dashed ${accent}55; border-radius: 6px;">
+                <div style="font-size:.66rem; letter-spacing: 1.4px; text-transform: uppercase;
+                            color: ${accent}; font-weight: 700; margin-bottom: 4px;">
+                    ${label}
+                </div>
+                <div style="font-size:.65rem; color: var(--text-muted); margin-bottom: 12px;">
+                    ${side.model || '—'}
+                    ${side.extractedAt ? ' • ' + side.extractedAt.replace('T',' ').slice(0,16) : ''}
+                </div>
+                <div style="color: var(--text-muted); font-size:.78rem; line-height: 1.55;">
+                    <strong style="color: ${accent};">status: ${side.status || 'skipped'}</strong> — the extractor ran on this case but produced no content
+                    (typically no usable PDF on the docket, or the document was unreadable / irrelevant).
                 </div>
             </div>`;
     }
@@ -944,12 +973,14 @@ function renderAiExtractionBlock(c) {
     const claude = _aiBuildSide(
         c.tiered_extraction,
         c.pdf_extractions,
-        c.tiered_extracted_at || c.extracted_at
+        c.tiered_extracted_at || c.extracted_at,
+        c.extraction_status
     );
     const gemini = _aiBuildSide(
         c.tiered_extraction_gemini,
         c.pdf_extractions_gemini,
-        c.tiered_extraction_gemini_at || c.extracted_at_gemini
+        c.tiered_extraction_gemini_at || c.extracted_at_gemini,
+        c.extraction_status_gemini
     );
     if (!claude && !gemini) return '';
 
