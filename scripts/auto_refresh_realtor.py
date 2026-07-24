@@ -51,7 +51,9 @@ SOURCES = [
      "https://econdata.s3-us-west-2.amazonaws.com/Reports/Hotness/RDC_Inventory_Hotness_Metrics_County_History.csv",
      HOT_DIR / "Inventory_Hotness_Metrics_County_History.csv"),
     ("zip_hot",
-     "https://econdata.s3-us-west-2.amazonaws.com/Reports/Core/RDC_Inventory_Hotness_Metrics_Zip_History.csv",
+     # NOTE: the /Reports/Core/ copy of this file went stale at 202602 — the
+     # canonical, still-updated location is /Reports/Hotness/.
+     "https://econdata.s3-us-west-2.amazonaws.com/Reports/Hotness/RDC_Inventory_Hotness_Metrics_Zip_History.csv",
      HOT_DIR / "Inventory_Hotness_Metrics_Zip_History.csv"),
 ]
 
