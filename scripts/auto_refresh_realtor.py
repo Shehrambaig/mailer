@@ -108,6 +108,7 @@ def db_max_month(conn):
 
 def download(url, dest):
     """Stream URL → dest.part → atomic rename."""
+    dest.parent.mkdir(parents=True, exist_ok=True)   # CI checkout lacks the gitignored data dirs
     tmp = dest.with_suffix(dest.suffix + ".part")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 mailer-auto-refresh"})
     with urllib.request.urlopen(req, timeout=600) as r:

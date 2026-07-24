@@ -400,6 +400,11 @@ COUNTY_COLUMNS = [
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share", "default":True, "source":"inv"},
+    # Zillow pending rate — our own scrape (county_pending_rate), refreshed on demand;
+    # (with_pending − for_sale) / with_pending over active for-sale houses.
+    {"key":"pending_rate_pct",       "label":"Zillow Pending %",      "type":"number",    "default":True,  "source":"pr"},
+    {"key":"for_sale",               "label":"Zillow For Sale",       "type":"integer",   "default":False, "source":"pr"},
+    {"key":"with_pending",           "label":"Zillow Active+Pending", "type":"integer",   "default":False, "source":"pr"},
     {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
     # Derived scores (precomputed in realtor_scores_county)
     {"key":"exit_score",             "label":"Exit Speed",            "type":"integer",   "default":True,  "source":"sc"},
@@ -455,6 +460,11 @@ ZIP_COLUMNS = [
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
     {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share","default":True, "source":"inv"},
+    # Zillow pending rate — our own scrape (zip_pending_rate, all 33,791 ZIPs);
+    # low_confidence = fewer than 25 active for-sale houses in the ZIP.
+    {"key":"pending_rate_pct",       "label":"Zillow Pending %",      "type":"number",    "default":True,  "source":"pr"},
+    {"key":"for_sale",               "label":"Zillow For Sale",       "type":"integer",   "default":False, "source":"pr"},
+    {"key":"with_pending",           "label":"Zillow Active+Pending", "type":"integer",   "default":False, "source":"pr"},
     {"key":"foreclosure_count",      "label":"Foreclosures",          "type":"integer",   "default":True,  "source":"fc"},
     {"key":"exit_score",             "label":"Exit Speed",            "type":"integer",   "default":True,  "source":"sc"},
     {"key":"buy_score",              "label":"Buy Score",             "type":"integer",   "default":False, "source":"sc"},
@@ -505,6 +515,8 @@ GRAIN_CONFIG = {
         "fc_key":       "county_fips",
         "score_table":  "realtor_scores_county",          # see scripts/refresh_score_tables.py
         "score_key":    "county_fips",
+        "pr_table":     "county_pending_rate",            # Zillow pending-rate scrape
+        "pr_key":       "county_fips",
         "key":          "county_fips",
         "search_cols":  ["county_fips", "county_name"],
         "default_sort": "active_listing_count",
@@ -517,6 +529,8 @@ GRAIN_CONFIG = {
         "fc_key":       "postal_code",
         "score_table":  "realtor_scores_zip",
         "score_key":    "postal_code",
+        "pr_table":     "zip_pending_rate",               # Zillow pending-rate scrape
+        "pr_key":       "zip",
         "key":          "postal_code",
         "search_cols":  ["postal_code", "zip_name"],
         "default_sort": "active_listing_count",
@@ -690,6 +704,16 @@ def _resolve_pct_thresholds(grain, filters, exit_expr=None, custom_col_sql=None)
                 f"(ORDER BY sc.{f['col']}) "
                 f"FROM {cfg['score_table']} sc "
                 f"WHERE sc.{f['col']} IS NOT NULL"
+            ))
+        elif src == "pr":
+            parts.append((
+                f"thr_{i}",
+                f"SELECT PERCENTILE_CONT({pct}) WITHIN GROUP "
+                f"(ORDER BY pr.{f['col']}) "
+                f"FROM {inv_t} i "
+                f"LEFT JOIN {cfg['pr_table']} pr ON pr.{cfg['pr_key']} = i.{key} "
+                f"WHERE i.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {inv_t}) "
+                f"AND pr.{f['col']} IS NOT NULL"
             ))
         else:
             qual = "i" if src == "inv" else "h"
@@ -898,6 +922,7 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
     hot_cols = [c["key"] for c in cols if c["source"] == "hot"]
     fc_cols  = [c["key"] for c in cols if c["source"] == "fc"]
     sc_cols  = [c["key"] for c in cols if c["source"] == "sc"]
+    pr_cols  = [c["key"] for c in cols if c["source"] == "pr"]
 
     # SELECT list — qualify each column to avoid ambiguity (some keys overlap,
     # e.g. median_days_on_market exists in both inventory and hotness).
@@ -915,6 +940,8 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
             select_parts.append(f"({exit_expr}) AS {k}")
         else:
             select_parts.append(f"sc.{k} AS {k}")
+    for k in pr_cols:
+        select_parts.append(f"pr.{k} AS {k}")
     if custom_col_sql:
         select_parts.append(f"({custom_col_sql}) AS custom_col")
 
@@ -931,7 +958,7 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     # Per-column filters — each translates to a clause referencing the
     # appropriate table alias.
-    SRC_QUALIFIER = {"inv": "i", "hot": "h", "fc": "fc", "sc": "sc", "custom": "i"}
+    SRC_QUALIFIER = {"inv": "i", "hot": "h", "fc": "fc", "sc": "sc", "pr": "pr", "custom": "i"}
     for f in filters:
         qual = SRC_QUALIFIER.get(f["source"], "i")
         clause, fparams = _filter_to_sql(grain, f, qual, exit_expr=exit_expr, custom_col_sql=custom_col_sql)
@@ -956,12 +983,15 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
 
     sc_t   = cfg["score_table"]
     sc_key = cfg["score_key"]
+    pr_t   = cfg["pr_table"]
+    pr_key = cfg["pr_key"]
     base_from = (
         f"FROM {inv_t} i "
         f"LEFT JOIN {hot_t} h ON h.{key} = i.{key} "
         f"  AND h.month_date_yyyymm = (SELECT MAX(month_date_yyyymm) FROM {hot_t}) "
         f"LEFT JOIN {fc_join_table} fc ON fc.{fc_key} = i.{key} "
         f"LEFT JOIN {sc_t} sc ON sc.{sc_key} = i.{key} "
+        f"LEFT JOIN {pr_t} pr ON pr.{pr_key} = i.{key} "
         f"WHERE {' AND '.join(where)}"
     )
 
@@ -985,13 +1015,15 @@ def _build_query(grain: str, q: str, sort: str, sort_dir: str, want_count: bool,
         order_sort = f"({exit_expr})"
     elif sort in sc_cols:
         order_sort = f"sc.{sort}"
+    elif sort in pr_cols:
+        order_sort = f"pr.{sort}"
     elif sort in (inv_cols + [key]):
         order_sort = derived.get(sort, f"i.{sort}")
     else:
         order_sort = f"h.{sort}"
     order_sql = f"ORDER BY {order_sort} {sort_dir} NULLS LAST, i.{key} ASC"
 
-    cols_in_order = [key] + inv_cols + hot_cols + fc_cols + sc_cols
+    cols_in_order = [key] + inv_cols + hot_cols + fc_cols + sc_cols + pr_cols
     if custom_col_sql:
         cols_in_order.append("custom_col")
     sql = f"{fc_prefix}SELECT {', '.join(select_parts)} {base_from} {order_sql}"
