@@ -9,11 +9,10 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "postgresql://localhost:5432/mailer")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # PostcardMania
-    PCM_API_KEY = os.getenv("PCM_API_KEY")
-    PCM_API_SECRET = os.getenv("PCM_API_SECRET")
-    PCM_CHILD_REF_NBR = os.getenv("PCM_CHILD_REF_NBR")
-    PCM_BASE_URL = "https://v3.pcmintegrations.com"
+    # OpenLetterConnect — defaults to the demo environment until a live
+    # account exists; set OLC_BASE_URL to the production URL to go live.
+    OLC_API_KEY = os.getenv("OLC_API_KEY")
+    OLC_BASE_URL = os.getenv("OLC_BASE_URL", "https://demoapi.openletterconnect.com/api/v1")
 
     # Cloudflare
     CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")

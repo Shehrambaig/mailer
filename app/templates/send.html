@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+{% block title %}Send Mail — OLC{% endblock %}
+{% block tagline %}Direct Mail — OpenLetterConnect Campaign Sender{% endblock %}
+
+{% block extra_head %}
+<style>
+    .badge-flag { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.4px; padding: 3px 7px; border-radius: 5px; margin-right: 3px; text-transform: uppercase; }
+    .bf-invalid  { background: rgba(239,68,68,0.14);  color: var(--accent-red); }
+    .bf-dup      { background: rgba(245,158,11,0.14); color: var(--accent-amber); }
+    .bf-sent     { background: rgba(124,58,237,0.18); color: #b794f6; }
+    .bf-export   { background: rgba(0,240,255,0.10);  color: var(--accent-cyan); }
+    .bf-noname   { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+    .bf-live     { background: rgba(239,68,68,0.14);  color: var(--accent-red); }
+    .bf-demo     { background: rgba(16,185,129,0.12); color: var(--accent-green); }
+
+    .stat-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px;
+                 background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); font-size: 0.78rem; }
+    .stat-chip b { font-size: 0.95rem; }
+
+    #review-table-wrap { max-height: 480px; overflow: auto; }
+    #review-table tbody tr.deselected { opacity: 0.38; }
+    #review-table tbody tr { cursor: default; }
+
+    #send-bar { position: sticky; bottom: 0; z-index: 5; background: rgba(5,5,14,0.95); backdrop-filter: blur(14px);
+                border: 1px solid var(--border-glass); border-radius: 12px; padding: 14px 20px;
+                display: none; align-items: center; justify-content: space-between; }
+
+    .order-items-row td { background: rgba(0,0,0,0.25); }
+    .upload-zone { border: 1px dashed var(--border-glass); border-radius: 10px; padding: 22px; text-align: center;
+                   color: var(--text-secondary); transition: border-color .15s; }
+    .upload-zone.dragover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+    .spin { display:inline-block; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+    <!-- Setup banner (shown when OLC_API_KEY missing) -->
+    <div class="col-12" id="setup-banner" style="display:none">
+        <div class="alert alert-info mb-0">
+            <b>OpenLetterConnect isn't connected yet.</b>
+            <span id="setup-message"></span><br>
+            <span style="font-size:0.82rem">
+                1) Create an account at <a href="https://app.openletterconnect.com/" target="_blank">app.openletterconnect.com</a>
+                &nbsp;·&nbsp; 2) Profile icon → Settings → API Keys → Create
+                &nbsp;·&nbsp; 3) Add <code>OLC_API_KEY=...</code> to <code>.env</code> (and Vercel env)
+                &nbsp;·&nbsp; 4) Design a letter template in their dashboard.
+                You can still upload &amp; review lists now — sending needs the key.
+            </span>
+        </div>
+    </div>
+
+    <!-- Compose -->
+    <div class="col-lg-5 slide-up">
+        <div class="glass-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="gradient-text" style="font-weight:700">1 · Compose</span>
+                <span id="env-chip"></span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Order name</label>
+                    <input type="text" class="form-control" id="order-name" placeholder="e.g. foreclosure-aug-week-1">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Product</label>
+                    <select class="form-select" id="product-select"><option value="">— connect OLC to load —</option></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Template</label>
+                    <select class="form-select" id="template-select"><option value="">— connect OLC to load —</option></select>
+                </div>
+                <button class="btn btn-outline-primary btn-sm" id="reload-meta">
+                    <i class="bi bi-arrow-clockwise"></i> Reload products &amp; templates
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="col-lg-7 slide-up">
+        <div class="glass-card h-100">
+            <div class="card-header"><span class="gradient-text" style="font-weight:700">2 · Recipients</span></div>
+            <div class="card-body">
+                <div class="upload-zone" id="upload-zone">
+                    <i class="bi bi-file-earmark-spreadsheet" style="font-size:1.6rem"></i><br>
+                    Drop the sendable <b>.xlsx / .csv</b> here or
+                    <label class="text-decoration-underline" style="cursor:pointer; color: var(--accent-cyan)">
+                        browse<input type="file" id="file-input" accept=".xlsx,.csv" hidden>
+                    </label>
+                    <div style="font-size:0.72rem; margin-top:6px">
+                        Needs Street / City / State / Zip columns · optional First&nbsp;Name, Last&nbsp;Name,
+                        Auction&nbsp;Date, Estimated&nbsp;Value, Offer&nbsp;Value, Campaign&nbsp;Phone
+                    </div>
+                </div>
+                <div class="text-center mt-2" style="font-size:0.75rem; color: var(--text-muted)">— or —</div>
+                <button class="btn btn-outline-primary btn-sm w-100 mt-2" id="load-queue"
+                        title="Load rows the pipeline queued in the mailer table (mailed_at IS NULL)">
+                    <i class="bi bi-database-down"></i> Load queued from mailer table
+                </button>
+                <div id="parse-status" class="mt-3" style="font-size:0.85rem; color: var(--text-secondary)"></div>
+                <div id="summary-chips" class="mt-3 d-flex flex-wrap gap-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Review -->
+    <div class="col-12 slide-up" id="review-card" style="display:none">
+        <div class="glass-card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span class="gradient-text" style="font-weight:700">3 · Review</span>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <select class="form-select form-select-sm" id="view-filter" style="width:auto">
+                        <option value="all">Show all</option>
+                        <option value="selected">Selected only</option>
+                        <option value="flagged">Flagged only</option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" id="select-clean">Select all clean</button>
+                    <button class="btn btn-outline-primary btn-sm" id="deselect-all">Deselect all</button>
+                    <button class="btn btn-outline-primary btn-sm" id="preview-proof" title="Render the first selected recipient as a PDF proof — free, nothing is mailed">
+                        <i class="bi bi-file-earmark-pdf"></i> Preview proof
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="review-table-wrap">
+                    <table class="table mb-0" id="review-table">
+                        <thead style="position:sticky; top:0; background: var(--bg-surface); z-index:2">
+                            <tr>
+                                <th style="width:34px"></th><th>Name</th><th>Street</th><th>City</th>
+                                <th>ST</th><th>Zip</th><th>Auction</th><th>Est. Value</th><th>Offer</th><th>Flags</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div id="table-truncated" class="p-2 text-center" style="display:none; font-size:0.78rem; color: var(--text-secondary)"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send bar -->
+    <div class="col-12"><div id="send-bar">
+        <div>
+            <b id="send-count">0</b> recipients selected
+            <span id="send-detail" style="color: var(--text-secondary); font-size: 0.82rem"></span>
+        </div>
+        <button class="btn btn-primary" id="send-btn"><i class="bi bi-send"></i> Place OLC order</button>
+    </div></div>
+
+    <div class="col-12" id="send-result"></div>
+
+    <!-- Order history -->
+    <div class="col-12 slide-up">
+        <div class="glass-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="gradient-text" style="font-weight:700">Sent orders</span>
+                <button class="btn btn-outline-primary btn-sm" id="reload-orders"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table mb-0" id="orders-table">
+                    <thead><tr>
+                        <th>#</th><th>Created</th><th>Name</th><th>Product</th><th>Recipients</th>
+                        <th>Status</th><th>Delivered</th><th>Cost</th><th>Mode</th><th>Last poll</th><th></th>
+                    </tr></thead>
+                    <tbody><tr><td colspan="11" class="text-center py-4" style="color:var(--text-secondary)">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    "use strict";
+    const $ = (s) => document.querySelector(s);
+    const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
+        (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])));
+
+    const RENDER_CAP = 1500;
+    let rows = [];              // parsed recipients (full set, holds .selected)
+    let meta = { configured: false, products: [], templates: [] };
+    let uploadedFilename = null;
+    let queueMode = false;      // rows came from the mailer queue, not a file
+                                // (history flags warn but don't block selection)
+
+    // ── Meta / compose ──────────────────────────────────────────────
+    async function loadMeta() {
+        $("#env-chip").innerHTML = '<span class="spin"><i class="bi bi-arrow-repeat"></i></span>';
+        try {
+            meta = await (await fetch("/api/olc/meta")).json();
+        } catch (e) {
+            meta = { configured: false, message: "Could not reach the app API." };
+        }
+        const banner = $("#setup-banner");
+        if (!meta.configured) {
+            banner.style.display = "";
+            $("#setup-message").textContent = " " + (meta.message || "");
+            $("#env-chip").innerHTML = '<span class="badge-flag bf-noname">not connected</span>';
+        } else {
+            banner.style.display = "none";
+            $("#env-chip").innerHTML = meta.live
+                ? '<span class="badge-flag bf-live">LIVE</span>'
+                : '<span class="badge-flag bf-demo">DEMO</span>';
+        }
+        if (meta.error) {
+            banner.style.display = "";
+            $("#setup-message").textContent = " OLC API error: " + meta.error;
+        }
+        const pSel = $("#product-select"), tSel = $("#template-select");
+        pSel.innerHTML = tSel.innerHTML = "";
+        (meta.products || []).forEach((p) => {
+            const label = [p.name, p.envelopeType, p.paperSize].filter(Boolean).join(" · ");
+            pSel.insertAdjacentHTML("beforeend",
+                `<option value="${esc(p.id)}">${esc(label)} (#${esc(p.id)})</option>`);
+        });
+        (meta.templates || []).forEach((t) => {
+            const label = t.title || t.name || `template ${t.id}`;
+            tSel.insertAdjacentHTML("beforeend",
+                `<option value="${esc(t.id)}">${esc(label)} (#${esc(t.id)})</option>`);
+        });
+        if (!pSel.options.length) pSel.innerHTML = '<option value="">— connect OLC to load —</option>';
+        if (!tSel.options.length) tSel.innerHTML = '<option value="">— connect OLC to load —</option>';
+    }
+    $("#reload-meta").addEventListener("click", loadMeta);
+
+    // ── Upload / parse ──────────────────────────────────────────────
+    const zone = $("#upload-zone"), fileInput = $("#file-input");
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+        e.preventDefault(); zone.classList.remove("dragover");
+        if (e.dataTransfer.files.length) parseFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => { if (fileInput.files.length) parseFile(fileInput.files[0]); });
+
+    async function parseFile(file) {
+        uploadedFilename = file.name;
+        queueMode = false;
+        $("#parse-status").innerHTML =
+            `<span class="spin"><i class="bi bi-arrow-repeat"></i></span> Parsing <b>${esc(file.name)}</b> and checking send history…`;
+        const fd = new FormData();
+        fd.append("file", file);
+        let resp, body;
+        try {
+            resp = await fetch("/api/olc/recipients/parse", { method: "POST", body: fd });
+            body = await resp.json();
+        } catch (e) {
+            $("#parse-status").innerHTML = `<span style="color:var(--accent-red)">Upload failed: ${esc(e.message)}</span>`;
+            return;
+        }
+        if (!resp.ok) {
+            $("#parse-status").innerHTML = `<span style="color:var(--accent-red)">${esc(body.error || "Parse failed")}</span>`;
+            return;
+        }
+        rows = body.rows;
+        $("#parse-status").innerHTML = `Loaded <b>${esc(file.name)}</b>`;
+        renderSummary(body.summary);
+        renderTable();
+        $("#review-card").style.display = "";
+        updateSendBar();
+    }
+
+    // ── Queue (mailer table rows with mailed_at IS NULL) ────────────
+    $("#load-queue").addEventListener("click", async () => {
+        const btn = $("#load-queue");
+        btn.disabled = true;
+        $("#parse-status").innerHTML =
+            '<span class="spin"><i class="bi bi-arrow-repeat"></i></span> Loading queued rows and checking send history…';
+        let resp, body;
+        try {
+            resp = await fetch("/api/olc/queue");
+            body = await resp.json();
+        } catch (e) {
+            body = { error: e.message };
+        }
+        btn.disabled = false;
+        if (!resp || !resp.ok) {
+            $("#parse-status").innerHTML =
+                `<span style="color:var(--accent-red)">${esc((body && body.error) || "Queue load failed")}</span>`;
+            return;
+        }
+        rows = body.rows;
+        queueMode = true;
+        uploadedFilename = "mailer-queue";
+        if (!rows.length) {
+            $("#parse-status").innerHTML = "Queue is empty — nothing in <code>mailer</code> with <code>mailed_at IS NULL</code>.";
+            $("#review-card").style.display = "none";
+            $("#summary-chips").innerHTML = "";
+            updateSendBar();
+            return;
+        }
+        $("#parse-status").innerHTML =
+            `Loaded <b>${rows.length.toLocaleString()}</b> queued rows from the mailer table` +
+            (body.truncated ? ` <span style="color:var(--accent-amber)">(of ${body.queued_total.toLocaleString()} queued — send in batches)</span>` : "") +
+            ` — send-history flags are <b>warnings only</b> for queue rows (the pipeline already applied the weekly dedupe rule).`;
+        renderSummary(body.summary);
+        renderTable();
+        $("#review-card").style.display = "";
+        updateSendBar();
+    });
+
+    function renderSummary(s) {
+        const chips = [
+            ["Total", s.total, ""],
+            ["Selected", s.selected, "color:var(--accent-green)"],
+            ["Invalid", s.invalid, "color:var(--accent-red)"],
+            ["Dup in file", s.dup_in_file, "color:var(--accent-amber)"],
+            ["Already sent (OLC)", s.sent_olc, "color:#b794f6"],
+            ["In mailer history", s.sent_mailer, "color:#b794f6"],
+            ["Previously exported", s.exported, "color:var(--accent-cyan)"],
+            ["No name", s.no_name, "color:var(--text-secondary)"],
+            ["No offer value", s.no_offer || 0, "color:var(--accent-amber)"],
+        ];
+        $("#summary-chips").innerHTML = chips
+            .map(([label, v, style]) =>
+                `<span class="stat-chip"><b style="${style}">${v}</b> ${label}</span>`).join("");
+    }
+
+    function flagsHTML(r) {
+        const out = [];
+        (r.invalid || []).forEach((p) => out.push(`<span class="badge-flag bf-invalid">${esc(p)}</span>`));
+        if (r.dup_in_file) out.push('<span class="badge-flag bf-dup">dup</span>');
+        if (r.sent_olc) out.push('<span class="badge-flag bf-sent">sent · olc</span>');
+        if (r.sent_mailer) out.push('<span class="badge-flag bf-sent">sent · mailer</span>');
+        if (r.exported) out.push('<span class="badge-flag bf-export">exported</span>');
+        if (r.no_name) out.push('<span class="badge-flag bf-noname">no name</span>');
+        if (r.no_offer) out.push('<span class="badge-flag bf-dup">no offer</span>');
+        return out.join("");
+    }
+
+    function visibleRows() {
+        const mode = $("#view-filter").value;
+        if (mode === "selected") return rows.filter((r) => r.selected);
+        if (mode === "flagged") return rows.filter((r) =>
+            (r.invalid && r.invalid.length) || r.dup_in_file || r.sent_olc || r.sent_mailer || r.exported);
+        return rows;
+    }
+
+    function renderTable() {
+        const tbody = $("#review-table tbody");
+        const vis = visibleRows();
+        const shown = vis.slice(0, RENDER_CAP);
+        tbody.innerHTML = shown.map((r) => {
+            const i = rows.indexOf(r);
+            const money = (v) => v == null ? "" : "$" + Number(v).toLocaleString();
+            return `<tr class="${r.selected ? "" : "deselected"}" data-i="${i}">
+                <td><input type="checkbox" class="form-check-input row-check" ${r.selected ? "checked" : ""}
+                     ${r.invalid && r.invalid.length ? "disabled" : ""}></td>
+                <td>${esc([r.first_name, r.last_name].filter(Boolean).join(" ")) || "<span style='color:var(--text-muted)'>Current Resident</span>"}</td>
+                <td>${esc(r.street)}</td><td>${esc(r.city)}</td><td>${esc(r.state)}</td><td>${esc(r.zip_code)}</td>
+                <td>${esc(r.auction_date || "")}</td>
+                <td>${money(r.estimated_value)}</td><td>${money(r.offer_value)}</td>
+                <td>${flagsHTML(r)}</td>
+            </tr>`;
+        }).join("");
+        const trunc = $("#table-truncated");
+        if (vis.length > RENDER_CAP) {
+            trunc.style.display = "";
+            trunc.textContent = `Showing first ${RENDER_CAP.toLocaleString()} of ${vis.length.toLocaleString()} rows — selection buttons act on ALL rows.`;
+        } else trunc.style.display = "none";
+    }
+
+    $("#review-table").addEventListener("change", (e) => {
+        if (!e.target.classList.contains("row-check")) return;
+        const tr = e.target.closest("tr");
+        const r = rows[Number(tr.dataset.i)];
+        r.selected = e.target.checked;
+        tr.classList.toggle("deselected", !r.selected);
+        updateSendBar();
+    });
+    $("#view-filter").addEventListener("change", renderTable);
+    $("#select-clean").addEventListener("click", () => {
+        rows.forEach((r) => {
+            const histBlocked = queueMode ? false : (r.sent_olc || r.sent_mailer || r.exported);
+            r.selected = !(r.invalid && r.invalid.length) && !r.dup_in_file && !histBlocked;
+        });
+        renderTable(); updateSendBar();
+    });
+    $("#deselect-all").addEventListener("click", () => {
+        rows.forEach((r) => { r.selected = false; });
+        renderTable(); updateSendBar();
+    });
+
+    $("#preview-proof").addEventListener("click", async () => {
+        const r = rows.find((x) => x.selected);
+        const tSel = $("#template-select");
+        if (!r) { alert("Select at least one recipient first."); return; }
+        if (!tSel.value) { alert("Pick a template first."); return; }
+        const btn = $("#preview-proof");
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spin"><i class="bi bi-arrow-repeat"></i></span> Rendering…';
+        try {
+            const resp = await fetch("/api/olc/proof", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ templateId: Number(tSel.value), contact: r }),
+            });
+            if (!resp.ok) {
+                const b = await resp.json().catch(() => ({}));
+                alert("Proof failed: " + (b.error || resp.status));
+            } else {
+                window.open(URL.createObjectURL(await resp.blob()), "_blank");
+            }
+        } catch (e) {
+            alert("Proof failed: " + e.message);
+        }
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
+
+    function updateSendBar() {
+        const n = rows.filter((r) => r.selected).length;
+        $("#send-bar").style.display = rows.length ? "flex" : "none";
+        $("#send-count").textContent = n.toLocaleString();
+        const p = $("#product-select"), t = $("#template-select");
+        const pTxt = p.selectedOptions[0] ? p.selectedOptions[0].textContent : "?";
+        const tTxt = t.selectedOptions[0] ? t.selectedOptions[0].textContent : "?";
+        $("#send-detail").textContent = ` · ${pTxt} · ${tTxt}`;
+        $("#send-btn").disabled = !n || !meta.configured || !p.value || !t.value;
+    }
+    $("#product-select").addEventListener("change", updateSendBar);
+    $("#template-select").addEventListener("change", updateSendBar);
+
+    // ── Send ────────────────────────────────────────────────────────
+    $("#send-btn").addEventListener("click", async () => {
+        const selected = rows.filter((r) => r.selected);
+        if (!selected.length) return;
+        const pSel = $("#product-select"), tSel = $("#template-select");
+        const msg = `Place a ${meta.live ? "LIVE" : "demo"} OLC order for ${selected.length} recipients?\n\n` +
+                    `Product: ${pSel.selectedOptions[0].textContent}\nTemplate: ${tSel.selectedOptions[0].textContent}`;
+        if (!window.confirm(msg)) return;
+
+        const btn = $("#send-btn");
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spin"><i class="bi bi-arrow-repeat"></i></span> Sending…';
+        let resp, body;
+        try {
+            resp = await fetch("/api/olc/orders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: $("#order-name").value.trim(),
+                    productId: Number(pSel.value),
+                    templateId: Number(tSel.value),
+                    productName: pSel.selectedOptions[0].textContent,
+                    templateName: tSel.selectedOptions[0].textContent,
+                    sourceNote: uploadedFilename,
+                    contacts: selected,
+                }),
+            });
+            body = await resp.json();
+        } catch (e) {
+            body = { error: e.message };
+        }
+        btn.innerHTML = '<i class="bi bi-send"></i> Place OLC order';
+        btn.disabled = false;
+
+        const box = $("#send-result");
+        if (body && body.ok) {
+            box.innerHTML = `<div class="alert alert-success">
+                Order placed — OLC id <b>${esc(body.order.olc_order_id)}</b>,
+                status <b>${esc(body.order.status || "?")}</b>,
+                ${esc(body.order.recipient_count)} recipients${body.order.cost != null ? `, cost $${esc(body.order.cost)}` : ""}.${body.order.queue_rows_stamped ? ` <b>${esc(body.order.queue_rows_stamped)}</b> queue rows marked mailed.` : ""}
+            </div>`;
+            rows = []; queueMode = false; $("#review-card").style.display = "none"; updateSendBar();
+            loadOrders();
+        } else {
+            box.innerHTML = `<div class="alert alert-danger">Send failed: ${esc((body && body.error) || "unknown error")}</div>`;
+        }
+        box.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    // ── Order history ───────────────────────────────────────────────
+    async function loadOrders() {
+        const tbody = $("#orders-table tbody");
+        let body;
+        try {
+            body = await (await fetch("/api/olc/orders")).json();
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4" style="color:var(--accent-red)">Failed to load orders</td></tr>`;
+            return;
+        }
+        const orders = body.orders || [];
+        if (!orders.length) {
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4" style="color:var(--text-secondary)">No OLC orders yet</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = orders.map((o) => `
+            <tr data-oid="${o.id}">
+                <td>${o.id}</td>
+                <td>${esc((o.created_at || "").slice(0, 16).replace("T", " "))}</td>
+                <td>${esc(o.name || "")}</td>
+                <td>${esc(o.product_name || o.product_id || "")}</td>
+                <td>${o.recipient_count}</td>
+                <td>${esc(o.status || "—")}</td>
+                <td>${o.delivered_count} / ${o.item_count}</td>
+                <td>${o.cost != null ? "$" + o.cost.toLocaleString() : "—"}</td>
+                <td>${o.is_live_mode
+                        ? '<span class="badge-flag bf-live">LIVE</span>'
+                        : '<span class="badge-flag bf-demo">DEMO</span>'}</td>
+                <td>${o.last_polled_at ? esc(o.last_polled_at.slice(0, 16).replace("T", " ")) : "never"}</td>
+                <td class="text-nowrap">
+                    <button class="btn btn-outline-primary btn-sm btn-refresh" title="Poll OLC for status"><i class="bi bi-arrow-clockwise"></i></button>
+                    <button class="btn btn-outline-primary btn-sm btn-expand" title="Show recipients"><i class="bi bi-chevron-down"></i></button>
+                </td>
+            </tr>`).join("");
+    }
+    $("#reload-orders").addEventListener("click", loadOrders);
+
+    $("#orders-table").addEventListener("click", async (e) => {
+        const refreshBtn = e.target.closest(".btn-refresh");
+        const expandBtn = e.target.closest(".btn-expand");
+        if (!refreshBtn && !expandBtn) return;
+        const tr = e.target.closest("tr");
+        const oid = tr.dataset.oid;
+
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<span class="spin"><i class="bi bi-arrow-repeat"></i></span>';
+            try {
+                const resp = await fetch(`/api/olc/orders/${oid}/refresh`, { method: "POST" });
+                const body = await resp.json();
+                if (!resp.ok) alert("Refresh failed: " + (body.error || resp.status));
+            } catch (err) { alert("Refresh failed: " + err.message); }
+            loadOrders();
+            return;
+        }
+
+        // expand — lazy-load recipients under this row
+        const existing = tr.nextElementSibling;
+        if (existing && existing.classList.contains("order-items-row")) { existing.remove(); return; }
+        document.querySelectorAll(".order-items-row").forEach((el) => el.remove());
+        const body = await (await fetch(`/api/olc/orders/${oid}/items`)).json();
+        const items = (body.items || []).slice(0, 200);
+        const inner = items.map((it) => `
+            <tr>
+                <td>${esc([it.first_name, it.last_name].filter(Boolean).join(" ")) || "Current Resident"}</td>
+                <td>${esc(it.street)}, ${esc(it.city)}, ${esc(it.state)} ${esc(it.zip_code)}</td>
+                <td>${esc(it.status || "—")}</td>
+                <td>${it.is_delivered ? "✓ delivered" : "—"}</td>
+                <td>${esc(it.tracking_code || "")}</td>
+            </tr>`).join("");
+        tr.insertAdjacentHTML("afterend", `
+            <tr class="order-items-row"><td colspan="11" class="p-0">
+                <table class="table mb-0" style="font-size:0.78rem">
+                    <thead><tr><th>Recipient</th><th>Address</th><th>Status</th><th>Delivered</th><th>Tracking</th></tr></thead>
+                    <tbody>${inner}</tbody>
+                </table>
+                ${(body.items || []).length > 200 ? `<div class="p-2 text-center" style="font-size:0.75rem;color:var(--text-secondary)">Showing 200 of ${body.items.length}</div>` : ""}
+            </td></tr>`);
+    });
+
+    loadMeta();
+    loadOrders();
+})();
+</script>
+{% endblock %}

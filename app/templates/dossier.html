@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Probate Intelligence — April 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f8fafc;
+  --bg-sunk: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-faint: #94a3b8;
+  --primary: #0369a1;
+  --primary-soft: #e0f2fe;
+  --primary-line: #bae6fd;
+  --match: #16a34a;
+  --match-soft: #dcfce7;
+  --match-line: #bbf7d0;
+  --flag: #dc2626;
+  --flag-soft: #fee2e2;
+  --flag-line: #fecaca;
+  --amber: #d97706;
+  --amber-soft: #fef3c7;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.04), 0 1px 1px rgba(15,23,42,0.03);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-lg: 0 24px 48px -12px rgba(15,23,42,0.12);
+  --radius: 10px;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg-soft);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ─────────────────────────  HEADER  ────────────────────────── */
+.app-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 28px 40px 22px;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: var(--shadow-sm);
+}
+.app-header h1 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.app-header .subhead {
+  color: var(--text-muted);
+  font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.app-header .subhead .dot { width:4px; height:4px; border-radius:50%; background:var(--text-faint); }
+
+/* Stats strip */
+.stats {
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  gap: 12px; margin-top: 18px;
+}
+.stat {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.stat .v {
+  font-family: var(--font-serif);
+  font-size: 26px; font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.stat .v.match { color: var(--match); }
+.stat .v.flag { color: var(--flag); }
+.stat .v.primary { color: var(--primary); }
+.stat .l {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-faint);
+  margin-top: 6px; font-weight: 600;
+}
+.stat .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+/* ─────────────────────────  FILTER BAR  ─────────────────────── */
+.filter-bar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 40px;
+  position: sticky; top: 196px; z-index: 49;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+}
+.filter-bar .search {
+  flex: 1; min-width: 260px;
+  position: relative;
+}
+.filter-bar .search input {
+  width: 100%;
+  height: 38px;
+  padding: 0 14px 0 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.filter-bar .search input:focus {
+  background: var(--bg);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.filter-bar .search svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint);
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12px; font-weight: 500; color: var(--text-muted);
+  cursor: pointer; user-select: none;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip.active {
+  background: var(--text);
+  color: white;
+  border-color: var(--text);
+}
+.chip.flag-chip.active { background: var(--flag); border-color: var(--flag); }
+.chip.match-chip.active { background: var(--match); border-color: var(--match); }
+.chip .count {
+  font-family: var(--font-mono); font-size: 11px;
+  background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 999px;
+}
+.chip.active .count { background: rgba(255,255,255,0.2); }
+
+select.chip-select {
+  height: 34px; padding: 0 30px 0 14px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg); color: var(--text); font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer; outline: none;
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%2394a3b8' d='M6 8.5L2 4.5h8z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.filter-meta {
+  font-size: 12px; color: var(--text-faint);
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+.filter-meta b { color: var(--text); font-weight: 600; }
+
+/* ─────────────────────────  GRID  ──────────────────────────── */
+.grid-wrap { padding: 28px 40px 80px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+  gap: 20px;
+}
+
+/* ─────────────────────────  CARD  ──────────────────────────── */
+.card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: box-shadow .18s, transform .18s, border-color .18s;
+  position: relative;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+.card.has-oos { border-left: 3px solid var(--flag); }
+
+.card-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);
+}
+.card-head .case-no {
+  font-family: var(--font-mono);
+  font-size: 15px; font-weight: 600;
+  color: var(--primary);
+  letter-spacing: -0.01em;
+}
+.card-head .decedent {
+  font-family: var(--font-serif);
+  font-size: 17px; font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+  letter-spacing: -0.01em;
+}
+.card-head .meta {
+  font-family: var(--font-mono);
+  font-size: 11px; color: var(--text-faint);
+  margin-top: 4px;
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.card-head .meta .sep { color: var(--border-strong); }
+
+.card-head .head-flags { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px; font-weight: 600;
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.pill.flag { background: var(--flag-soft); color: var(--flag); }
+.pill.match { background: var(--match-soft); color: var(--match); }
+.pill.primary { background: var(--primary-soft); color: var(--primary); }
+.pill.neutral { background: var(--bg-sunk); color: var(--text-muted); }
+.pill.amber { background: var(--amber-soft); color: var(--amber); }
+.pill .num { font-family: var(--font-mono); }
+
+/* Property block */
+.property {
+  padding: 16px 18px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+}
+.property .row1 {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px;
+}
+.property .addr {
+  font-family: var(--font-mono);
+  font-size: 12.5px; font-weight: 500;
+  color: var(--text);
+  flex: 1; min-width: 0;
+}
+.property .addr .label {
+  font-family: var(--font-sans);
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-faint);
+  display: block; margin-bottom: 4px;
+}
+.property .value {
+  text-align: right;
+}
+.property .value .v {
+  font-family: var(--font-serif);
+  font-size: 22px; font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.property .value .l {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-faint); font-weight: 600; margin-bottom: 4px;
+}
+
+.equity-bar {
+  margin-top: 12px;
+  height: 6px; background: var(--bg-sunk); border-radius: 3px;
+  overflow: hidden; position: relative;
+}
+.equity-bar > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--match) 0%, #22c55e 100%);
+  border-radius: 3px;
+}
+.equity-meta {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10.5px; color: var(--text-muted);
+  margin-top: 6px;
+}
+.property .specs {
+  display: flex; gap: 14px; margin-top: 10px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted);
+}
+.property .specs span b { color: var(--text); font-weight: 600; }
+
+.match-line {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.match-line .score {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  background: var(--match-soft); color: var(--match);
+  padding: 2px 8px; border-radius: 999px;
+}
+.match-line .score.partial { background: var(--amber-soft); color: var(--amber); }
+.match-line .owner { color: var(--text); font-weight: 600; }
+
+.property.none {
+  background: repeating-linear-gradient(45deg, var(--bg-soft) 0 10px, var(--bg-sunk) 10px 11px);
+  font-size: 12px; color: var(--text-faint);
+  font-family: var(--font-mono);
+  text-align: center;
+  padding: 20px;
+}
+
+/* People section */
+.people {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.people .section-label {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.people .section-label .geo {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0;
+  display: flex; gap: 6px;
+  text-transform: none;
+  font-weight: 500;
+}
+.people .section-label .geo .st { padding: 1px 6px; border-radius: 4px; background: var(--bg-sunk); }
+.people .section-label .geo .st.oos { background: var(--flag-soft); color: var(--flag); font-weight: 600; }
+
+.person {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  align-items: flex-start;
+}
+.person:last-child { border-bottom: 0; }
+.person .icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  background: var(--bg-sunk); color: var(--text-muted);
+  margin-top: 1px;
+}
+.person.petitioner .icon { background: var(--primary); color: white; }
+.person.heir .icon { background: var(--bg); border: 1.5px solid var(--border-strong); color: var(--text-muted); }
+.person.affiant .icon { background: var(--bg-sunk); color: var(--text-muted); }
+.person.decedent .icon { background: var(--text); color: white; }
+.person.other .icon { background: var(--bg-sunk); color: var(--text-faint); }
+
+.person .name {
+  font-weight: 600; font-size: 13px; color: var(--text);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.person .rel {
+  font-size: 11.5px; color: var(--text-muted);
+  font-style: italic;
+  margin-top: 1px;
+}
+.person .addr {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  word-break: break-word;
+}
+.person .addr.missing { color: var(--text-faint); font-style: italic; }
+.person .contact {
+  font-family: var(--font-mono); font-size: 11px;
+  margin-top: 3px;
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+.person .contact .ch { color: var(--text); display: inline-flex; align-items: center; gap: 4px; }
+.person .contact .ch .glyph { color: var(--text-faint); }
+.person .contact .belongs {
+  color: var(--text-faint);
+  font-style: italic; font-family: var(--font-sans);
+}
+
+.person .right {
+  text-align: right;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.role-tag {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--bg-sunk);
+  border-radius: 4px;
+}
+.role-tag.petitioner { background: var(--primary-soft); color: var(--primary); }
+.role-tag.heir { background: var(--bg-sunk); color: var(--text-muted); border: 1px solid var(--border); }
+.role-tag.affiant { background: var(--bg-sunk); color: var(--text-muted); }
+.role-tag.decedent { background: #111; color: white; }
+.role-tag.other { background: var(--bg-sunk); color: var(--text-faint); }
+
+.state-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px; font-weight: 700;
+  padding: 2px 6px;
+  background: var(--bg-sunk); color: var(--text-muted);
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.state-badge.oos {
+  background: var(--flag-soft); color: var(--flag);
+}
+
+/* Out-of-state wax-stamp annotation on a person */
+.oos-stamp {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--flag);
+  border: 1.5px solid var(--flag);
+  padding: 1px 6px;
+  border-radius: 3px;
+  transform: rotate(-1deg);
+}
+
+/* PR strip */
+.pr-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.pr-strip .pr-cell {
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.pr-strip .pr-cell:last-child { border-right: 0; }
+.pr-strip .l {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.pr-strip .v {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text);
+  word-break: break-word;
+}
+.pr-strip .v.empty { color: var(--text-faint); font-style: italic; font-family: var(--font-sans); }
+
+/* Card footer */
+.card-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 18px;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.card-foot button {
+  font-family: var(--font-sans);
+  font-size: 11.5px; font-weight: 600;
+  color: var(--primary);
+  background: transparent;
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.card-foot button:hover { background: var(--primary-soft); }
+
+/* ─────────────────  PAGINATION  ───────────────── */
+.pager {
+  display: flex; justify-content: center; align-items: center;
+  gap: 6px; margin: 28px 0 0;
+  flex-wrap: wrap;
+}
+.pager button {
+  min-width: 34px; height: 34px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  font-family: var(--font-mono); font-size: 12px;
+  cursor: pointer;
+  padding: 0 10px;
+  transition: all .12s;
+}
+.pager button:hover:not(:disabled) { border-color: var(--text); }
+.pager button.active { background: var(--text); color: white; border-color: var(--text); }
+.pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pager .ellipsis { color: var(--text-faint); font-family: var(--font-mono); padding: 0 4px; }
+
+/* ───────────────── DRAWER ─────────────────── */
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 100;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(720px, 92vw);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 101;
+  transform: translateX(100%);
+  transition: transform .26s cubic-bezier(.22,.61,.36,1);
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.drawer-head .t {
+  font-family: var(--font-serif); font-size: 18px; font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.drawer-head .case {
+  font-family: var(--font-mono); color: var(--primary); font-size: 13px;
+  margin-top: 2px;
+}
+.drawer-close {
+  background: var(--bg-soft); border: 1px solid var(--border);
+  width: 32px; height: 32px; border-radius: 8px;
+  cursor: pointer; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.drawer-close:hover { background: var(--bg-sunk); color: var(--text); }
+.drawer-body {
+  padding: 20px 24px;
+  overflow: auto;
+  flex: 1;
+}
+.drawer-body pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 18px 20px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.drawer-body pre .k { color: #93c5fd; }
+.drawer-body pre .s { color: #86efac; }
+.drawer-body pre .n { color: #fcd34d; }
+.drawer-body pre .b { color: #f9a8d4; }
+.drawer-body pre .null { color: #94a3b8; font-style: italic; }
+.drawer-section {
+  margin-bottom: 18px;
+}
+.drawer-section h4 {
+  font-family: var(--font-sans); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-faint); margin: 0 0 8px;
+}
+
+.kv {
+  display: grid; grid-template-columns: 160px 1fr;
+  gap: 4px 14px;
+  font-size: 12.5px;
+}
+.kv dt { color: var(--text-faint); font-family: var(--font-sans); }
+.kv dd { margin: 0; font-family: var(--font-mono); color: var(--text); }
+
+/* ─────────────────  LOADING  ───────────────── */
+.loading {
+  text-align: center; padding: 80px 20px;
+  color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 13px;
+}
+.loading .spin {
+  width: 28px; height: 28px;
+  border: 3px solid var(--bg-sunk);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-faint);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .stats { grid-template-columns: repeat(3, 1fr); }
+  .app-header, .filter-bar, .grid-wrap { padding-left: 20px; padding-right: 20px; }
+  .filter-bar { top: 260px; }
+  .grid { grid-template-columns: 1fr; }
+  .pr-strip { grid-template-columns: 1fr; }
+  .pr-strip .pr-cell { border-right: 0; border-bottom: 1px solid var(--border); }
+  .pr-strip .pr-cell:last-child { border-bottom: 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Probate Intelligence — April 2026</h1>
+  <div class="subhead">
+    <span>NY Surrogate Court records · Eliteress parcel match</span>
+    <span class="dot"></span>
+    <span>Excludes Voluntary Admin Affidavits (Article 13)</span>
+  </div>
+
+  <div class="stats" id="stats">
+    <div class="stat"><div class="v" id="s-total">—</div><div class="l">Cases</div><div class="sub">April 1 – April 30</div></div>
+    <div class="stat"><div class="v match" id="s-match">—</div><div class="l">Owner match</div><div class="sub" id="s-match-pct">—</div></div>
+    <div class="stat"><div class="v flag" id="s-oos">—</div><div class="l">Out-of-state</div><div class="sub" id="s-oos-pct">PR or heir</div></div>
+    <div class="stat"><div class="v primary" id="s-phone">—</div><div class="l">w/ Phone</div><div class="sub">on any party</div></div>
+    <div class="stat"><div class="v primary" id="s-email">—</div><div class="l">w/ Email</div><div class="sub">on any party</div></div>
+    <div class="stat"><div class="v" id="s-equity">—</div><div class="l">Est. equity captured</div><div class="sub">sum across matched parcels</div></div>
+  </div>
+</header>
+
+<div class="filter-bar">
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Search case #, decedent, address, owner, person…" autocomplete="off" />
+  </div>
+  <button class="chip flag-chip" data-filter="oos">⚑ OOS only <span class="count" id="c-oos">0</span></button>
+  <button class="chip" data-filter="phone">☏ Has phone <span class="count" id="c-phone">0</span></button>
+  <button class="chip" data-filter="email">✉ Has email <span class="count" id="c-email">0</span></button>
+  <button class="chip match-chip" data-filter="match">✓ Full match <span class="count" id="c-match">0</span></button>
+  <select class="chip-select" id="proceeding">
+    <option value="">All proceedings</option>
+  </select>
+  <select class="chip-select" id="sort">
+    <option value="filed_desc">Sort: Filed date (newest)</option>
+    <option value="filed_asc">Sort: Filed date (oldest)</option>
+    <option value="equity_desc">Sort: Equity (highest)</option>
+    <option value="value_desc">Sort: Market value (highest)</option>
+    <option value="oos_desc">Sort: Out-of-state heirs (most)</option>
+  </select>
+  <div class="filter-meta" id="filter-meta">— of 730</div>
+</div>
+
+<div class="grid-wrap">
+  <div id="loading" class="loading">
+    <div class="spin"></div>
+    Loading 730 case dossiers…
+  </div>
+  <div class="grid" id="grid" style="display:none"></div>
+  <div class="pager" id="pager"></div>
+</div>
+
+<div class="drawer-backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="t">Full Eliteress payload</div>
+      <div class="case" id="drawer-case"></div>
+    </div>
+    <button class="drawer-close" id="drawer-close" aria-label="Close">×</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<script>
+// ──────────────────────  STATE  ──────────────────────
+const state = {
+  all: [],
+  filtered: [],
+  page: 1,
+  perPage: 12,
+  filters: { oos:false, phone:false, email:false, match:false, proceeding:'', q:'' },
+  sort: 'filed_desc',
+};
+
+// ──────────────────────  HELPERS  ────────────────────
+const fmtNum = n => (n == null ? '—' : new Intl.NumberFormat('en-US').format(n));
+const esc = s => (s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])));
+const titleCase = s => s ? s.replace(/\b\w/g, c => c.toUpperCase()) : s;
+const fmtDate = s => {
+  if (!s) return '—';
+  // accept "MM/DD/YYYY" or "YYYY-MM-DD"
+  let d;
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(s)) {
+    const [m, dd, y] = s.split(/[\/\s]/);
+    d = new Date(`${y}-${m}-${dd}`);
+  } else { d = new Date(s); }
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+};
+const parseFiled = s => {
+  if (!s) return 0;
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(s)) {
+    const [m, dd, y] = s.split(/[\/\s]/);
+    return new Date(`${y}-${m}-${dd}`).getTime();
+  }
+  return new Date(s).getTime() || 0;
+};
+
+const ROLE_GLYPH = { petitioner:'★', heir:'◆', affiant:'§', decedent:'†', other:'·' };
+
+function clsRole(role) { return role && ['petitioner','heir','affiant','decedent','other'].includes(role) ? role : 'other'; }
+
+// ──────────────────────  RENDER  ─────────────────────
+function renderCard(c) {
+  const oosClass = c.any_oos ? 'has-oos' : '';
+  const prop = c.property;
+
+  // Property block
+  let propHtml;
+  if (!prop) {
+    propHtml = `<div class="property none">No parcel match in Eliteress</div>`;
+  } else {
+    const eqPct = prop.equity_pct;
+    const eqBar = (eqPct == null) ? '' : `
+      <div class="equity-bar"><span style="width:${Math.min(100, Math.max(0, eqPct))}%"></span></div>
+      <div class="equity-meta">
+        <span>Equity ${eqPct}%</span>
+        <span>${prop.estimated_equity_fmt ?? '—'} of ${prop.estimated_value_fmt ?? prop.market_value_fmt ?? '—'}</span>
+      </div>`;
+    const specs = [
+      prop.year_built && `Built <b>${prop.year_built}</b>`,
+      (prop.beds != null) && `<b>${prop.beds}</b>bd`,
+      (prop.baths != null) && `<b>${prop.baths}</b>ba`,
+      prop.sqft && `<b>${fmtNum(prop.sqft)}</b> sqft`,
+      prop.lot_sqft && `Lot <b>${fmtNum(prop.lot_sqft)}</b>`,
+    ].filter(Boolean).join(' · ');
+
+    const om = c.owner_match || {};
+    const matchHtml = om.level ? `
+      <div class="match-line">
+        <span class="score ${om.level === 'full' ? '' : 'partial'}">${om.level === 'full' ? '✓' : '~'} ${om.score != null ? Math.round(om.score) : '?'}%</span>
+        <span>owner <span class="owner">${esc(om.owner || '—')}</span></span>
+        <span style="color:var(--text-faint)">· ${esc(om.reason || '')}</span>
+      </div>` : '';
+
+    propHtml = `
+      <div class="property">
+        <div class="row1">
+          <div class="addr">
+            <span class="label">Property</span>
+            ${esc(prop.address)}
+          </div>
+          <div class="value">
+            <div class="l">Market</div>
+            <div class="v">${prop.market_value_fmt ?? prop.estimated_value_fmt ?? '—'}</div>
+          </div>
+        </div>
+        ${eqBar}
+        ${specs ? `<div class="specs"><span>${specs}</span></div>` : ''}
+        ${matchHtml}
+      </div>`;
+  }
+
+  // Geographic distribution chip strip
+  const stateBadges = Object.entries(c.state_counts || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([s, n]) => `<span class="st ${s !== 'NY' ? 'oos' : ''}">${esc(s)}${n > 1 ? '×'+n : ''}</span>`)
+    .join('');
+
+  // People list
+  const peopleHtml = c.persons.map(p => {
+    const role = clsRole(p.role);
+    const addr = p.address;
+    const addrLine = addr && addr.usps
+      ? `<div class="addr">${esc(addr.usps)}</div>`
+      : addr && (addr.street || addr.city || addr.raw)
+        ? `<div class="addr">${esc([addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', '))}</div>`
+        : `<div class="addr missing">No address on file</div>`;
+
+    const contactParts = [];
+    if (p.phone) contactParts.push(`<span class="ch"><span class="glyph">☏</span>${esc(p.phone)}</span>`);
+    if (p.email) contactParts.push(`<span class="ch"><span class="glyph">✉</span>${esc(p.email)}</span>`);
+    if (p.phone_belongs_to && p.phone_belongs_to !== p.full_name)
+      contactParts.push(`<span class="belongs">→ ${esc(p.phone_belongs_to)}</span>`);
+    const contactLine = contactParts.length ? `<div class="contact">${contactParts.join('')}</div>` : '';
+
+    const state = addr?.state;
+    return `
+      <div class="person ${role}">
+        <div class="icon">${ROLE_GLYPH[role] || '·'}</div>
+        <div>
+          <div class="name">
+            ${esc(p.full_name || '—')}
+            ${p.is_minor ? '<span class="pill amber">minor</span>' : ''}
+            ${p.oos ? '<span class="oos-stamp">⚑ OOS</span>' : ''}
+          </div>
+          ${p.relationship ? `<div class="rel">${esc(p.relationship)}</div>` : ''}
+          ${addrLine}
+          ${contactLine}
+        </div>
+        <div class="right">
+          <span class="role-tag ${role}">${role}</span>
+          ${state ? `<span class="state-badge ${p.oos ? 'oos':''}">${esc(state)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // PR strip (court-recorded petitioner contact)
+  const pr = c.pr || {};
+  const prAddr = pr.address ? [pr.address.street, pr.address.city, pr.address.state, pr.address.zip].filter(Boolean).join(', ') : '';
+  const prAddrCell = prAddr
+    ? `<div class="v">${esc(prAddr)}${pr.oos ? ' <span class="pill flag" style="margin-left:6px">OOS</span>' : ''}</div>`
+    : `<div class="v empty">no address</div>`;
+  const prPhoneCell = pr.phone ? `<div class="v">${esc(pr.phone)}</div>` : `<div class="v empty">no phone</div>`;
+  const prEmailCell = pr.email ? `<div class="v">${esc(pr.email)}</div>` : `<div class="v empty">no email</div>`;
+
+  // Head flags
+  const flags = [];
+  if (c.any_oos) flags.push(`<span class="pill flag">⚑ ${c.heirs_oos_count || 1} OOS</span>`);
+  if (c.owner_match?.level === 'full') flags.push(`<span class="pill match">✓ match</span>`);
+  if (c.has_phone) flags.push(`<span class="pill primary">☏</span>`);
+  if (c.has_email) flags.push(`<span class="pill primary">✉</span>`);
+
+  return `
+    <article class="card ${oosClass}" data-case="${esc(c.case_number)}">
+      <div class="card-head">
+        <div style="min-width:0; flex:1">
+          <div class="case-no">${esc(c.case_number || '—')}</div>
+          <div class="decedent">${esc(c.decedent_name || 'Unknown decedent')}</div>
+          <div class="meta">
+            <span>${fmtDate(c.filed_date)}</span>
+            <span class="sep">·</span>
+            <span>${esc(c.proceeding || '—')}</span>
+            ${c.court ? `<span class="sep">·</span><span>${esc(c.court)}</span>` : ''}
+          </div>
+        </div>
+        <div class="head-flags">${flags.join('')}</div>
+      </div>
+      ${propHtml}
+      <div class="people">
+        <div class="section-label">
+          <span>Parties (${c.n_persons})</span>
+          <span class="geo">${stateBadges}</span>
+        </div>
+        ${peopleHtml || '<div style="color:var(--text-faint); font-style:italic; font-size:12px">No parties extracted.</div>'}
+      </div>
+      <div class="pr-strip">
+        <div class="pr-cell">
+          <div class="l">PR Name & Address</div>
+          ${pr.full_name ? `<div class="v" style="font-weight:600">${esc(pr.full_name)}</div>` : ''}
+          ${prAddrCell}
+        </div>
+        <div class="pr-cell">
+          <div class="l">PR Phone</div>
+          ${prPhoneCell}
+        </div>
+        <div class="pr-cell">
+          <div class="l">PR Email</div>
+          ${prEmailCell}
+        </div>
+      </div>
+      <div class="card-foot">
+        <span>Eliteress source: ${esc(c.eliteress_source || '—')}${c.additional_properties_count ? ' · +'+c.additional_properties_count+' addl props' : ''}</span>
+        <button data-action="view-eliteress" data-case="${esc(c.case_number)}">View full Eliteress data →</button>
+      </div>
+    </article>`;
+}
+
+function paint() {
+  const start = (state.page - 1) * state.perPage;
+  const slice = state.filtered.slice(start, start + state.perPage);
+  const grid = document.getElementById('grid');
+  if (!slice.length) {
+    grid.innerHTML = '<div class="empty">No cases match the current filters.</div>';
+  } else {
+    grid.innerHTML = slice.map(renderCard).join('');
+  }
+  document.getElementById('filter-meta').innerHTML =
+    `<b>${state.filtered.length}</b> of ${state.all.length} · page <b>${state.page}</b>/${Math.max(1, Math.ceil(state.filtered.length / state.perPage))}`;
+  paintPager();
+  window.scrollTo({ top: document.querySelector('.filter-bar').offsetTop - 100, behavior: 'smooth' });
+}
+
+function paintPager() {
+  const total = Math.ceil(state.filtered.length / state.perPage);
+  const p = state.page;
+  const pager = document.getElementById('pager');
+  if (total <= 1) { pager.innerHTML = ''; return; }
+  const btn = (n, label = n, active = false, disabled = false) =>
+    `<button data-page="${n}" ${active ? 'class="active"' : ''} ${disabled ? 'disabled' : ''}>${label}</button>`;
+  const parts = [];
+  parts.push(btn(p - 1, '‹', false, p === 1));
+  const pages = new Set([1, total, p - 1, p, p + 1, 2, total - 1]);
+  const sorted = [...pages].filter(n => n >= 1 && n <= total).sort((a,b)=>a-b);
+  let prev = 0;
+  for (const n of sorted) {
+    if (n - prev > 1) parts.push('<span class="ellipsis">…</span>');
+    parts.push(btn(n, n, n === p));
+    prev = n;
+  }
+  parts.push(btn(p + 1, '›', false, p === total));
+  pager.innerHTML = parts.join('');
+}
+
+function applyFilters() {
+  const f = state.filters;
+  const q = f.q.toLowerCase().trim();
+  state.filtered = state.all.filter(c => {
+    if (f.oos && !c.any_oos) return false;
+    if (f.phone && !c.has_phone) return false;
+    if (f.email && !c.has_email) return false;
+    if (f.match && !(c.owner_match && c.owner_match.level === 'full')) return false;
+    if (f.proceeding && c.proceeding !== f.proceeding) return false;
+    if (q) {
+      const hay = [
+        c.case_number, c.decedent_name, c.proceeding,
+        c.property?.address, c.property?.owner1, c.property?.owner2,
+        c.pr?.full_name, c.pr?.email, c.pr?.phone,
+        ...(c.persons || []).map(p => p.full_name),
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // sort
+  const sorters = {
+    filed_desc: (a,b) => parseFiled(b.filed_date) - parseFiled(a.filed_date),
+    filed_asc:  (a,b) => parseFiled(a.filed_date) - parseFiled(b.filed_date),
+    equity_desc:(a,b) => (b.property?.estimated_equity || 0) - (a.property?.estimated_equity || 0),
+    value_desc: (a,b) => (b.property?.market_value || 0) - (a.property?.market_value || 0),
+    oos_desc:   (a,b) => (b.heirs_oos_count || 0) - (a.heirs_oos_count || 0),
+  };
+  state.filtered.sort(sorters[state.sort] || sorters.filed_desc);
+
+  state.page = 1;
+  paint();
+}
+
+// ──────────────────────  DRAWER  ─────────────────────
+function syntaxJSON(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  return json
+    .replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+    .replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?)(\s*:)?/g, (m, _g1, _g2, _g3, _g4, _g5, colon) => {
+      if (colon) return `<span class="k">${m}</span>`;
+      if (/^"/.test(m)) return `<span class="s">${m}</span>`;
+      if (/true|false/.test(m)) return `<span class="b">${m}</span>`;
+      if (/null/.test(m)) return `<span class="null">${m}</span>`;
+      return `<span class="n">${m}</span>`;
+    });
+}
+
+function openDrawer(caseNo) {
+  const c = state.all.find(x => x.case_number === caseNo);
+  if (!c) return;
+  document.getElementById('drawer-case').textContent = caseNo;
+
+  const om = c.owner_match || {};
+  const eliteressRaw = c.eliteress_raw || {};
+  const decAddr = eliteressRaw.decedent_address || {};
+  const summary = `
+    <div class="drawer-section">
+      <h4>Lookup summary</h4>
+      <dl class="kv">
+        <dt>Query sent</dt><dd>${esc(c.eliteress_query || '—')}</dd>
+        <dt>Decedent address</dt><dd>${esc([decAddr.street, decAddr.city, decAddr.state, decAddr.zip].filter(Boolean).join(', ') || '—')}</dd>
+        <dt>Address source</dt><dd>${esc(c.eliteress_source || '—')}</dd>
+        <dt>Owner match</dt><dd>${esc(om.level || '—')} · ${esc(om.owner || '—')} · ${om.score != null ? Math.round(om.score)+'%' : '—'}</dd>
+        <dt>Reason</dt><dd>${esc(om.reason || '—')}</dd>
+        <dt>Linked parcels</dt><dd>${eliteressRaw.linked_total ?? 0}${eliteressRaw.linked_truncated ? ' (truncated)' : ''}</dd>
+        <dt>Additional props</dt><dd>${(eliteressRaw.additional_properties || []).length}</dd>
+        <dt>Fetched at</dt><dd>${esc(eliteressRaw.fetched_at || '—')}</dd>
+      </dl>
+    </div>
+    <div class="drawer-section">
+      <h4>Raw eliteress_data payload</h4>
+      <pre>${syntaxJSON(eliteressRaw)}</pre>
+    </div>
+  `;
+  document.getElementById('drawer-body').innerHTML = summary;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('backdrop').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('backdrop').classList.remove('open');
+}
+
+// ──────────────────────  EVENTS  ─────────────────────
+document.addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (chip) {
+    const key = chip.dataset.filter;
+    state.filters[key] = !state.filters[key];
+    chip.classList.toggle('active');
+    applyFilters();
+    return;
+  }
+  const pageBtn = e.target.closest('[data-page]');
+  if (pageBtn && !pageBtn.disabled) {
+    state.page = parseInt(pageBtn.dataset.page, 10);
+    paint();
+    return;
+  }
+  const action = e.target.closest('[data-action="view-eliteress"]');
+  if (action) {
+    openDrawer(action.dataset.case);
+    return;
+  }
+  if (e.target.id === 'backdrop' || e.target.id === 'drawer-close') closeDrawer();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+
+document.getElementById('q').addEventListener('input', e => {
+  state.filters.q = e.target.value;
+  applyFilters();
+});
+document.getElementById('proceeding').addEventListener('change', e => {
+  state.filters.proceeding = e.target.value;
+  applyFilters();
+});
+document.getElementById('sort').addEventListener('change', e => {
+  state.sort = e.target.value;
+  applyFilters();
+});
+
+// ──────────────────────  BOOT  ───────────────────────
+async function boot() {
+  const res = await fetch('/dossier/api/cases');
+  const data = await res.json();
+  state.all = data.cases;
+  state.filtered = data.cases.slice();
+
+  // Stats
+  const s = data.stats;
+  document.getElementById('s-total').textContent = fmtNum(s.total);
+  document.getElementById('s-match').textContent = fmtNum(s.with_match);
+  document.getElementById('s-match-pct').textContent = `${Math.round(100*s.with_match/s.total)}% of cases`;
+  document.getElementById('s-oos').textContent = fmtNum(s.oos);
+  document.getElementById('s-oos-pct').textContent = `${Math.round(100*s.oos/s.total)}% of cases — PR or heir`;
+  document.getElementById('s-phone').textContent = fmtNum(s.with_phone);
+  document.getElementById('s-email').textContent = fmtNum(s.with_email);
+  document.getElementById('s-equity').textContent = s.total_equity_fmt || '—';
+
+  // Filter chip counts
+  document.getElementById('c-oos').textContent = s.oos;
+  document.getElementById('c-phone').textContent = s.with_phone;
+  document.getElementById('c-email').textContent = s.with_email;
+  document.getElementById('c-match').textContent = s.with_match;
+
+  // Proceeding select
+  const sel = document.getElementById('proceeding');
+  for (const p of data.proceedings) {
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('grid').style.display = 'grid';
+  applyFilters();
+}
+
+boot().catch(err => {
+  document.getElementById('loading').innerHTML = `<div style="color:var(--flag)">Failed to load: ${esc(err.message)}</div>`;
+});
+</script>
+
+</body>
+</html>

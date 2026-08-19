@@ -399,7 +399,9 @@ COUNTY_COLUMNS = [
     {"key":"active_listing_count",   "label":"Active Listings",       "type":"integer",   "default":True,  "source":"inv"},
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
-    {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share", "default":True, "source":"inv"},
+    # Realtor pending ratio — hidden by default (Zillow Pending % is the preferred
+    # metric); still selectable from the column picker.
+    {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share", "default":False, "source":"inv"},
     # Zillow pending rate — our own scrape (county_pending_rate), refreshed on demand;
     # (with_pending − for_sale) / with_pending over active for-sale houses.
     {"key":"pending_rate_pct",       "label":"Zillow Pending %",      "type":"number",    "default":True,  "source":"pr"},
@@ -459,7 +461,9 @@ ZIP_COLUMNS = [
     {"key":"active_listing_count",   "label":"Active Listings",       "type":"integer",   "default":True,  "source":"inv"},
     {"key":"median_days_on_market",  "label":"DOM",                   "type":"integer",   "default":True,  "source":"inv"},
     {"key":"new_listing_count",      "label":"New Listings",          "type":"integer",   "default":True,  "source":"inv"},
-    {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share","default":True, "source":"inv"},
+    # Realtor pending ratio — hidden by default (Zillow Pending % is the preferred
+    # metric); still selectable from the column picker.
+    {"key":"pending_ratio",          "label":"Pending Ratio",         "type":"percent_share","default":False, "source":"inv"},
     # Zillow pending rate — our own scrape (zip_pending_rate, all 33,791 ZIPs);
     # low_confidence = fewer than 25 active for-sale houses in the ZIP.
     {"key":"pending_rate_pct",       "label":"Zillow Pending %",      "type":"number",    "default":True,  "source":"pr"},

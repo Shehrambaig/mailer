@@ -25,3 +25,4 @@ migrations/
 /app/static/data/listings-zip.json
 /app/static/data/stacked/zip.json
 /Mailer_Data_set/
+/proofs/

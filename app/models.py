@@ -76,63 +76,6 @@ class Lead(db.Model):
         db.Index("idx_leads_source", "source"),
     )
 
-    mail_pieces = db.relationship("MailPiece", backref="lead", lazy="dynamic")
-
-
-class Campaign(db.Model):
-    __tablename__ = "campaigns"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text)
-    mail_type = db.Column(db.String(20), nullable=False)  # postcard, letter
-    design_id = db.Column(db.String(100))
-
-    target_criteria = db.Column(db.JSON)
-    merge_template = db.Column(db.JSON)
-
-    scheduled_date = db.Column(db.Date)
-    send_before_auction_days = db.Column(db.Integer, default=14)
-
-    # Stats
-    total_pieces = db.Column(db.Integer, default=0)
-    pieces_sent = db.Column(db.Integer, default=0)
-    pieces_delivered = db.Column(db.Integer, default=0)
-    pieces_returned = db.Column(db.Integer, default=0)
-
-    status = db.Column(db.String(20), default="draft")
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    mail_pieces = db.relationship("MailPiece", backref="campaign", lazy="dynamic")
-
-
-class MailPiece(db.Model):
-    __tablename__ = "mail_pieces"
-
-    id = db.Column(db.Integer, primary_key=True)
-    campaign_id = db.Column(db.Integer, db.ForeignKey("campaigns.id"), nullable=False)
-    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False)
-
-    pcm_order_id = db.Column(db.String(100))
-    pcm_piece_id = db.Column(db.String(100))
-
-    merge_data = db.Column(db.JSON)
-    proof_url = db.Column(db.Text)
-
-    status = db.Column(db.String(30), default="pending")
-    status_updated_at = db.Column(db.DateTime)
-
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-    __table_args__ = (
-        db.UniqueConstraint("campaign_id", "lead_id", name="uq_campaign_lead"),
-        db.Index("idx_mail_pieces_campaign", "campaign_id"),
-        db.Index("idx_mail_pieces_lead", "lead_id"),
-        db.Index("idx_mail_pieces_status", "status"),
-        db.Index("idx_mail_pieces_pcm_order", "pcm_order_id"),
-    )
-
 
 class ScraperRun(db.Model):
     __tablename__ = "scraper_runs"
@@ -147,13 +90,3 @@ class ScraperRun(db.Model):
     records_updated = db.Column(db.Integer, default=0)
     error_message = db.Column(db.Text)
     run_config = db.Column(db.JSON)
-
-
-class WebhookEvent(db.Model):
-    __tablename__ = "webhook_events"
-
-    id = db.Column(db.Integer, primary_key=True)
-    received_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    event_type = db.Column(db.String(50))
-    payload = db.Column(db.JSON, nullable=False)
-    processed = db.Column(db.Boolean, default=False)
