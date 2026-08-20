@@ -16,6 +16,7 @@ def create_app(config_name="default"):
     from app.routes.dossier import dossier_bp
     from app.routes.olc_send import olc_bp
     from app.routes.olc_webhook import olc_webhook_bp, WEBHOOK_PATH
+    from app.routes.ledger import ledger_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -26,6 +27,7 @@ def create_app(config_name="default"):
     app.register_blueprint(dossier_bp)
     app.register_blueprint(olc_bp)
     app.register_blueprint(olc_webhook_bp)
+    app.register_blueprint(ledger_bp)
 
     # ── HTTP Basic Auth ────────────────────────────────────────────
     # No password default: this repo is public, so a literal here is a

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Mail Ledger — OLC{% endblock %}
+{% block tagline %}Mail Ledger — every piece placed, what it cost, where it is now{% endblock %}
+
+{% macro n(v) %}{{ "{:,}".format(v) }}{% endmacro %}
+
+{% block extra_head %}
+<style>
+  .lg-nums { font-variant-numeric: tabular-nums; }
+
+  .lg-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .lg-totals .t { padding: 14px 16px; }
+  .lg-totals .v { display: block; font-size: 1.55rem; font-weight: 700; letter-spacing: -.02em; }
+  .lg-totals .k { font-size: .68rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.4px; }
+
+  /* status ladder — one colour per state, used identically everywhere */
+  .lg-matrix { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .lg-cell {
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(255,255,255,.02);
+    border: 1px solid var(--border-glass);
+  }
+  .lg-cell .cn { display: block; font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
+  .lg-cell .cl { font-size: .66rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+  .lg-cell.is-zero { opacity: .38; }
+  .lg-cell.s-live   { border-color: rgba(0,240,255,.28); }
+  .lg-cell.s-good   { border-color: rgba(16,185,129,.34); }
+  .lg-cell.s-bad    { border-color: rgba(239,68,68,.40); background: rgba(239,68,68,.07); }
+  .lg-cell.s-live  .cn { color: var(--accent-cyan); }
+  .lg-cell.s-good  .cn { color: var(--accent-green); }
+  .lg-cell.s-bad   .cn { color: var(--accent-red); }
+
+  .lg-order { padding: 16px 18px; margin-bottom: 12px; }
+  .lg-order .head { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .lg-order .nm { font-size: 1rem; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+  .lg-order .mt { font-size: .72rem; color: var(--text-muted); }
+  .lg-order .amt { font-size: 1rem; font-weight: 700; }
+  .lg-order .qty { font-size: .72rem; color: var(--text-secondary); }
+
+  .lg-pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: .64rem; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
+    border: 1px solid currentColor;
+  }
+  .lg-pill.p-live { color: var(--accent-cyan); }
+  .lg-pill.p-wait { color: var(--accent-amber); }
+  .lg-pill.p-good { color: var(--accent-green); }
+
+  .lg-fail-wrap { overflow-x: auto; }
+  .lg-fail { width: 100%; border-collapse: collapse; min-width: 620px; }
+  .lg-fail th {
+    text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--text-secondary); font-weight: 500;
+    padding: 8px 12px; border-bottom: 1px solid var(--border-glass);
+  }
+  .lg-fail td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.04); font-size: .84rem; }
+  .lg-fail td.st { color: var(--accent-red); font-weight: 600; white-space: nowrap; }
+  .lg-fail tr:hover td { background: rgba(255,255,255,.02); }
+
+  .lg-empty { padding: 26px; text-align: center; color: var(--text-secondary); }
+  .lg-empty strong { display: block; color: var(--text-primary); margin-bottom: 6px; letter-spacing: .5px; }
+
+  .lg-feed { font-size: .74rem; color: var(--text-muted); }
+  .lg-sec-title {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text-secondary); margin: 26px 0 10px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── account totals ─────────────────────────────────────────────── #}
+<div class="lg-totals lg-nums">
+  <div class="glass-card t"><span class="v">{{ orders|length }}</span><span class="k">Orders</span></div>
+  <div class="glass-card t"><span class="v">{{ "{:,}".format(total_pieces) }}</span><span class="k">Pieces</span></div>
+  <div class="glass-card t"><span class="v">{{ "{:,}".format(reported) }}</span><span class="k">Reporting</span></div>
+  <div class="glass-card t"><span class="v">${{ "{:,.2f}".format(total_cost) }}</span><span class="k">Spent</span></div>
+  <div class="glass-card t"><span class="v">${{ "%.2f"|format(per_piece) }}</span><span class="k">Per piece</span></div>
+</div>
+
+{# ── every piece, every state ───────────────────────────────────── #}
+<div class="lg-sec-title">All pieces by status</div>
+<div class="glass-card" style="padding:16px">
+  <div class="lg-matrix lg-nums">
+    {% for key, label in ladder %}
+      {% set v = grand[key] %}
+      <div class="lg-cell {{ 'is-zero' if not v }}
+                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
+                     else ('s-good' if key == 'Delivered'
+                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
+        <span class="cn">{{ "{:,}".format(v) }}</span>
+        <span class="cl">{{ label }}</span>
+      </div>
+    {% endfor %}
+    {% for key, v in other_grand.items() %}
+      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
+    {% endfor %}
+  </div>
+  <div class="lg-feed" style="margin-top:14px">
+    {{ "{:,}".format(events.count) }} webhook event{{ '' if events.count == 1 else 's' }} received ·
+    {{ "{:,}".format(events.rows) }} piece update{{ '' if events.rows == 1 else 's' }} applied
+    {%- if events.last %} · last {{ events.last.strftime('%d %b %H:%M') }} UTC{% endif %}
+    {%- if qr.rows %} · {{ "{:,}".format(qr.scans) }} QR scan{{ '' if qr.scans == 1 else 's' }}
+      ({{ qr.matched }} matched to a piece){% endif %}
+  </div>
+</div>
+
+{# ── per order ──────────────────────────────────────────────────── #}
+<div class="lg-sec-title">Orders</div>
+{% for o in orders %}
+<div class="glass-card lg-order">
+  <div class="head">
+    <div>
+      <div class="nm">{{ o.name }}</div>
+      <div class="mt">
+        Order {{ o.olc_order_id or '—' }}
+        {%- if o.created_at %} · placed {{ o.created_at.strftime('%d %b') }}{% endif %}
+        {%- if o.template_id %} · template {{ o.template_id }}{% endif %}
+        {%- if not o.is_live %} · <span style="color:var(--accent-amber)">TEST MODE</span>{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="amt lg-nums">{{ '$%0.2f'|format(o.cost) if o.cost else '—' }}</div>
+      <div class="qty lg-nums">{{ "{:,}".format(o.pieces) }} pieces</div>
+      <div style="margin-top:5px">
+        <span class="lg-pill {{ 'p-good' if o.status == 'Delivered'
+                                else ('p-live' if o.status in ('Mailed','In Transit','Processing') else 'p-wait') }}">
+          {{ o.status or 'unknown' }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="lg-matrix lg-nums">
+    {% for key, label in ladder %}
+      {% set v = o.counts[key] %}
+      <div class="lg-cell {{ 'is-zero' if not v }}
+                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
+                     else ('s-good' if key == 'Delivered'
+                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
+        <span class="cn">{{ "{:,}".format(v) }}</span>
+        <span class="cl">{{ label }}</span>
+      </div>
+    {% endfor %}
+    {% for key, v in o.other.items() %}
+      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{# ── the pieces that did not make it ────────────────────────────── #}
+<div class="lg-sec-title">
+  Did not arrive — {{ failures|length }}{{ '+' if failures|length == 500 }}
+</div>
+<div class="glass-card" style="padding:{{ '0' if failures else '0' }}">
+  {% if failures %}
+  <div class="lg-fail-wrap">
+    <table class="lg-fail">
+      <thead>
+        <tr><th>Status</th><th>Payee</th><th>Address</th><th>Order</th><th>Reported</th></tr>
+      </thead>
+      <tbody>
+        {% for f in failures %}
+        <tr>
+          <td class="st">{{ f.status }}</td>
+          <td>{{ f.name }}</td>
+          <td style="color:var(--text-secondary)">{{ f.addr }}</td>
+          <td style="color:var(--text-muted)">{{ f.olc_order_id }}</td>
+          <td style="color:var(--text-muted)" class="lg-nums">
+            {{ f.at.strftime('%d %b %H:%M') if f.at else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="lg-empty">
+    <strong>Nothing has failed yet</strong>
+    Returned, failed and canceled pieces land here as delivery scans arrive —
+    ready to strip from next week's build.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
