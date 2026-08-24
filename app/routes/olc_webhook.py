@@ -33,6 +33,7 @@ import psycopg2.extras
 from flask import Blueprint, jsonify, request
 
 from app.api import slack_log
+from app.routes.piece_scans import record_scan
 from app.routes.olc_send import _conn, addr_key, loose_addr_key
 
 olc_webhook_bp = Blueprint("olc_webhook", __name__)
@@ -314,6 +315,11 @@ def olc_webhook():
                           str(item_id) if item_id else None, now,
                           local_order_id, str(item_id) if item_id else None, key, loose))
                 updated += cur.rowcount
+
+                # tracking_code holds only the newest scan, so keep the history
+                # separately: OLC sends In Transit, Out For Delivery and
+                # Delivered, and a piece can have several.
+                record_scan(cur, local_order_id, olc_order_id, item, tracking)
 
             cur.execute("UPDATE olc_webhook_events SET rows_updated = %s WHERE id = %s",
                         (updated, event_row_id))
