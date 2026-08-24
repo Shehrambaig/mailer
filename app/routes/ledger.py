@@ -43,7 +43,8 @@ def _collect():
                 SELECT o.id, o.olc_order_id, o.name, o.status, o.cost,
                        o.template_id, o.recipient_count, o.created_at,
                        o.is_live_mode, o.last_polled_at,
-                       o.olc_status, o.deliverable_quantity, o.delivered_date
+                       o.olc_status, o.deliverable_quantity, o.delivered_date,
+                       o.mailed_date, o.in_transit_date, o.expected_delivery_date
                 FROM olc_orders o ORDER BY o.id DESC
             """)
             orders = [{
@@ -52,6 +53,8 @@ def _collect():
                 "template_id": r[5], "recipient_count": r[6], "created_at": r[7],
                 "is_live": r[8], "last_polled_at": r[9],
                 "olc_status": r[10], "deliverable": r[11], "delivered_date": r[12],
+                "mailed_date": r[13], "in_transit_date": r[14], "expected_date": r[15],
+                "first_scan": None, "last_scan": None, "scans": {},
                 "counts": _blank_counts(), "other": {}, "pieces": 0,
                 "inferred": 0,
             } for r in cur.fetchall()]
@@ -88,6 +91,23 @@ def _collect():
                                               f"{r[7] or ''} {r[8] or ''}".strip()) if p),
                 "item_id": r[9], "at": r[10],
             } for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT order_id, MIN(scanned_at), MAX(scanned_at)
+                FROM olc_piece_scans WHERE order_id IS NOT NULL GROUP BY 1
+            """)
+            for order_id, lo, hi in cur.fetchall():
+                if order_id in by_id:
+                    by_id[order_id]["first_scan"] = lo
+                    by_id[order_id]["last_scan"] = hi
+
+            cur.execute("""
+                SELECT order_id, event_message, COUNT(*)
+                FROM olc_piece_scans WHERE order_id IS NOT NULL GROUP BY 1, 2
+            """)
+            for order_id, msg, n in cur.fetchall():
+                if order_id in by_id:
+                    by_id[order_id]["scans"][msg or "?"] = n
 
             cur.execute("""
                 SELECT order_id, COUNT(*) FROM olc_order_items
@@ -175,7 +195,8 @@ def ledger_json():
     """Same numbers as the page, for polling or a quick curl."""
     d = _collect()
     for o in d["orders"]:
-        for k in ("created_at", "last_polled_at", "delivered_date"):
+        for k in ("created_at", "last_polled_at", "delivered_date", "mailed_date",
+                  "in_transit_date", "expected_date", "first_scan", "last_scan"):
             o[k] = o[k].isoformat() if o[k] else None
     for f in d["failures"]:
         f["at"] = f["at"].isoformat() if f["at"] else None

@@ -54,6 +54,8 @@
   }
   .lg-chip.c-olc   { border-color: rgba(0,240,255,.26); }
   .lg-chip.c-olc   .cv { color: var(--accent-cyan); }
+  .lg-chip.c-scan  { border-color: rgba(124,58,237,.34); }
+  .lg-chip.c-scan  .cv { color: #a78bfa; }
   .lg-chip.c-warn  { border-color: rgba(245,158,11,.34); background: rgba(245,158,11,.06); }
   .lg-chip.c-warn  .cv { color: var(--accent-amber); }
   .lg-chip.c-test  { border-color: rgba(245,158,11,.34); }
@@ -194,6 +196,18 @@
         {% if o.template_id %}
         <span class="lg-chip"><span class="ck">Template</span><span class="cv">{{ o.template_id }}</span></span>
         {% endif %}
+        {% if o.mailed_date %}
+        <span class="lg-chip" title="OLC handed the batch to USPS"><span class="ck">To USPS</span><span class="cv">{{ o.mailed_date.strftime('%d %b %H:%M') }}</span></span>
+        {% endif %}
+        {% if o.in_transit_date %}
+        <span class="lg-chip"><span class="ck">In transit</span><span class="cv">{{ o.in_transit_date.strftime('%d %b %H:%M') }}</span></span>
+        {% endif %}
+        {% if o.first_scan %}
+        <span class="lg-chip c-scan" title="The first time a USPS machine actually read a barcode on this order"><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
+        {% endif %}
+        {% if o.expected_date %}
+        <span class="lg-chip"><span class="ck">Expected</span><span class="cv">{{ o.expected_date.strftime('%d %b') }}</span></span>
+        {% endif %}
         {% if o.olc_status %}
         <span class="lg-chip c-olc"><span class="ck">OLC says</span><span class="cv">{{ o.olc_status }}</span></span>
         {% endif %}
@@ -225,6 +239,14 @@
     </div>
   </div>
 
+  {% if o.scans %}
+  <div class="lg-feed" style="margin-top:10px">
+    USPS scans on this order —
+    {{ o.scans.items() | map('join', ' ') | join(' · ') }}
+    {%- if o.first_scan and o.last_scan %}, {{ o.first_scan.strftime('%d %b') }}
+      to {{ o.last_scan.strftime('%d %b') }}{% endif %}
+  </div>
+  {% endif %}
   <div class="lg-matrix lg-nums">
     {% for key, label in ladder %}
       {% set v = o.counts[key] %}
