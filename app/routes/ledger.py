@@ -55,6 +55,7 @@ def _collect():
                 "olc_status": r[10], "deliverable": r[11], "delivered_date": r[12],
                 "mailed_date": r[13], "in_transit_date": r[14], "expected_date": r[15],
                 "first_scan": None, "last_scan": None, "scans": {},
+                "usps_delivered": 0, "usps_delivered_on": None,
                 "counts": _blank_counts(), "other": {}, "pieces": 0,
                 "inferred": 0,
             } for r in cur.fetchall()]
@@ -100,6 +101,18 @@ def _collect():
                 if order_id in by_id:
                     by_id[order_id]["first_scan"] = lo
                     by_id[order_id]["last_scan"] = hi
+
+            # real USPS delivery scans, as opposed to OLC's batch stamp
+            cur.execute("""
+                SELECT order_id, COUNT(*), MIN(scanned_at), MAX(scanned_at)
+                FROM olc_piece_scans
+                WHERE event_message = 'Delivered' AND order_id IS NOT NULL
+                GROUP BY 1
+            """)
+            for order_id, n, lo, hi in cur.fetchall():
+                if order_id in by_id:
+                    by_id[order_id]["usps_delivered"] = n
+                    by_id[order_id]["usps_delivered_on"] = lo
 
             cur.execute("""
                 SELECT order_id, event_message, COUNT(*)
@@ -205,7 +218,8 @@ def ledger_json():
     d = _collect()
     for o in d["orders"]:
         for k in ("created_at", "last_polled_at", "delivered_date", "mailed_date",
-                  "in_transit_date", "expected_date", "first_scan", "last_scan"):
+                  "in_transit_date", "expected_date", "first_scan", "last_scan",
+                  "usps_delivered_on"):
             o[k] = o[k].isoformat() if o[k] else None
     for f in d["failures"]:
         f["at"] = f["at"].isoformat() if f["at"] else None

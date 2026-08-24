@@ -216,8 +216,10 @@
         {% if o.deliverable %}
         <span class="lg-chip"><span class="ck">Deliverable</span><span class="cv">{{ "{:,}".format(o.deliverable) }}</span></span>
         {% endif %}
-        {% if o.delivered_date %}
-        <span class="lg-chip"><span class="ck">Delivered</span><span class="cv">{{ o.delivered_date.strftime('%d %b') }}</span></span>
+        {% if o.usps_delivered %}
+        <span class="lg-chip c-scan"
+              title="Pieces with a genuine USPS Delivered scan. OLC's own deliveredDate is stamped identically across every order, so it records when their job ran, not when mail arrived."
+        ><span class="ck">USPS delivered scans</span><span class="cv">{{ "{:,}".format(o.usps_delivered) }} · {{ o.usps_delivered_on.strftime('%d %b') }}</span></span>
         {% endif %}
         {% if o.inferred %}
         <span class="lg-chip c-warn"
