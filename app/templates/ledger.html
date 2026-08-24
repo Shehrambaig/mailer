@@ -37,6 +37,28 @@
   .lg-order .amt { font-size: 1rem; font-weight: 700; }
   .lg-order .qty { font-size: .72rem; color: var(--text-secondary); }
 
+  .lg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .lg-chip {
+    padding: 5px 10px; border-radius: 7px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--border-glass);
+    line-height: 1.25;
+  }
+  .lg-chip .ck {
+    display: block; font-size: .58rem; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .lg-chip .cv {
+    display: block; font-size: .78rem; font-weight: 600;
+    color: var(--text-primary); font-variant-numeric: tabular-nums;
+  }
+  .lg-chip.c-olc   { border-color: rgba(0,240,255,.26); }
+  .lg-chip.c-olc   .cv { color: var(--accent-cyan); }
+  .lg-chip.c-warn  { border-color: rgba(245,158,11,.34); background: rgba(245,158,11,.06); }
+  .lg-chip.c-warn  .cv { color: var(--accent-amber); }
+  .lg-chip.c-test  { border-color: rgba(245,158,11,.34); }
+  .lg-chip.c-test  .cv { color: var(--accent-amber); }
+
   .lg-pill {
     display: inline-block; padding: 3px 10px; border-radius: 999px;
     font-size: .64rem; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
@@ -157,15 +179,29 @@
   <div class="head">
     <div>
       <div class="nm">{{ o.name }}</div>
-      <div class="mt">
-        Order {{ o.olc_order_id or '—' }}
-        {%- if o.created_at %} · placed {{ o.created_at.strftime('%d %b') }}{% endif %}
-        {%- if o.template_id %} · template {{ o.template_id }}{% endif %}
-        {%- if o.olc_status %} · OLC says <span style="color:var(--text-secondary)">{{ o.olc_status }}</span>
-          {%- if o.deliverable %}, {{ "{:,}".format(o.deliverable) }} deliverable{% endif %}{% endif %}
-        {%- if o.inferred %} · <span style="color:var(--accent-amber)">{{ "{:,}".format(o.inferred) }}
-          delivered from the order record, not a per-piece event</span>{% endif %}
-        {%- if not o.is_live %} · <span style="color:var(--accent-amber)">TEST MODE</span>{% endif %}
+      <div class="lg-chips">
+        <span class="lg-chip"><span class="ck">Order</span><span class="cv">{{ o.olc_order_id or '—' }}</span></span>
+        {% if o.created_at %}
+        <span class="lg-chip"><span class="ck">Placed</span><span class="cv">{{ o.created_at.strftime('%d %b') }}</span></span>
+        {% endif %}
+        {% if o.template_id %}
+        <span class="lg-chip"><span class="ck">Template</span><span class="cv">{{ o.template_id }}</span></span>
+        {% endif %}
+        {% if o.olc_status %}
+        <span class="lg-chip c-olc"><span class="ck">OLC says</span><span class="cv">{{ o.olc_status }}</span></span>
+        {% endif %}
+        {% if o.deliverable %}
+        <span class="lg-chip"><span class="ck">Deliverable</span><span class="cv">{{ "{:,}".format(o.deliverable) }}</span></span>
+        {% endif %}
+        {% if o.delivered_date %}
+        <span class="lg-chip"><span class="ck">Delivered</span><span class="cv">{{ o.delivered_date.strftime('%d %b') }}</span></span>
+        {% endif %}
+        {% if o.inferred %}
+        <span class="lg-chip c-warn"><span class="ck">From order record</span><span class="cv">{{ "{:,}".format(o.inferred) }}</span></span>
+        {% endif %}
+        {% if not o.is_live %}
+        <span class="lg-chip c-test"><span class="ck">Mode</span><span class="cv">TEST</span></span>
+        {% endif %}
       </div>
     </div>
     <div style="text-align:right">
