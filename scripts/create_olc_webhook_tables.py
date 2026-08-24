@@ -43,6 +43,8 @@ DDL = [
         utm                  JSONB
     )
     """,
+    # undocumented, but present on every scan: OLC's own piece id
+    "ALTER TABLE olc_qr_scans ADD COLUMN IF NOT EXISTS olc_item_id TEXT",
     "CREATE INDEX IF NOT EXISTS olc_qr_scans_order_idx ON olc_qr_scans (order_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS olc_qr_scans_item_idx  ON olc_qr_scans (item_id)",
     "ALTER TABLE olc_order_items ADD COLUMN IF NOT EXISTS olc_item_id   TEXT",

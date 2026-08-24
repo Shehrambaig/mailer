@@ -121,16 +121,16 @@
   <div class="lg-fail-wrap">
     <table class="lg-fail lg-resp">
       <thead>
-        <tr><th>Scanned</th><th>Who</th><th>Property</th><th>Mailed to</th><th>Scans</th><th>Order</th></tr>
+        <tr><th>Scanned</th><th>Who</th><th>Address mailed to</th><th>Scans</th><th>Piece</th><th>Order</th></tr>
       </thead>
       <tbody>
         {% for r in responders %}
         <tr>
           <td class="lg-nums when">{{ r.at[:16]|replace('T', ' ') if r.at else '—' }}</td>
           <td class="who">{{ r.who }}</td>
-          <td style="color:var(--text-secondary)">{{ r.property or '—' }}</td>
-          <td style="color:var(--text-muted)">{{ r.mailed_to or '—' }}</td>
+          <td style="color:var(--text-secondary)">{{ r.mailed_to or '—' }}</td>
           <td class="lg-nums" style="text-align:right">{{ r.scans }}</td>
+          <td class="lg-nums" style="color:var(--text-muted)">{{ r.piece or '—' }}</td>
           <td style="color:var(--text-muted)">{{ r.olc_order_id }}</td>
         </tr>
         {% endfor %}

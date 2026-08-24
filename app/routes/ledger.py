@@ -114,7 +114,7 @@ def _collect():
             # signal the campaign produces, so it gets names and addresses.
             cur.execute("""
                 SELECT s.contact_company, s.contact_name, s.contact_email,
-                       s.scanned_at, s.number_of_scans, s.utm_property_address,
+                       s.scanned_at, s.number_of_scans, s.olc_item_id,
                        s.olc_order_id, o.name,
                        i.street, i.city, i.state, i.zip_code
                 FROM olc_qr_scans s
@@ -128,7 +128,7 @@ def _collect():
                 "email": r[2],
                 "at": r[3],
                 "scans": r[4] or 0,
-                "property": r[5],
+                "piece": r[5],
                 "olc_order_id": r[6],
                 "order": r[7],
                 "mailed_to": ", ".join(p for p in (r[8], r[9],

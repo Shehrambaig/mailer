@@ -66,13 +66,16 @@ def _handle_qr(cur, items, now, order_labels, statuses):
         data.scan_timestamp
         data.number_of_scans          cumulative, not a per-ping increment
         data.order_details  {order_id, order_name}
-        data.utm_details    {utm_source, utm_medium, utm_campaign,
-                             utm_email, utm_phone, utm_property_address}
+        data.utm_details    documented as utm_source/utm_medium/utm_campaign/
+                            utm_email/utm_phone/utm_property_address, but what
+                            actually arrives is name/utm_source/utm_medium/
+                            utm_campaign_name/qrImagePath — no property address
 
-    There is no orderItem id and no mailing address, so the piece can only be
-    matched heuristically. Every scan is therefore recorded in full in
-    olc_qr_scans regardless; olc_order_items is updated only when a single
-    unambiguous piece matches, so a wrong guess never overwrites good data.
+    Undocumented and far more useful: data.order_item_details.order_item_id is
+    present on every scan we have received, so a scan matches its piece exactly.
+    The old name heuristic remains as a fallback and mismatched 1 in 8, so it
+    only runs when the id is absent or unknown to us. Every scan is recorded in
+    olc_qr_scans regardless, matched or not.
     """
     updated = matched = 0
 
@@ -102,9 +105,20 @@ def _handle_qr(cur, items, now, order_labels, statuses):
         except ValueError:
             scans = 0
 
-        # Best-effort: the payee name is what we put in companyName at send time.
+        # Undocumented but present on every scan we have seen: OLC's own piece
+        # id. Exact beats the name heuristic, which mismatched 1 in 8.
+        olc_item = ((entry.get("order_item_details") or {}).get("order_item_id")
+                    or (entry.get("orderItem") or {}).get("id"))
         item_id = None
-        for candidate in (company, person):
+        if olc_item:
+            cur.execute("""SELECT id FROM olc_order_items
+                           WHERE order_id = %s AND olc_item_id = %s LIMIT 1""",
+                        (local_order_id, str(olc_item)))
+            hit = cur.fetchone()
+            if hit:
+                item_id = hit[0]
+
+        for candidate in ((company, person) if item_id is None else ()):
             if not candidate:
                 continue
             cur.execute("""
@@ -121,11 +135,12 @@ def _handle_qr(cur, items, now, order_labels, statuses):
 
         cur.execute("""
             INSERT INTO olc_qr_scans
-              (order_id, item_id, olc_order_id, scanned_at, number_of_scans,
+              (order_id, item_id, olc_order_id, olc_item_id, scanned_at, number_of_scans,
                contact_company, contact_name, contact_email,
                utm_property_address, utm, received_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
         """, (local_order_id, item_id, str(olc_order_id),
+              str(olc_item) if olc_item else None,
               entry.get("scan_timestamp"), scans, company or None, person or None,
               (who.get("contact_email") or None),
               (utm.get("utm_property_address") or None),
