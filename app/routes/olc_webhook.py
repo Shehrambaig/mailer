@@ -33,7 +33,7 @@ import psycopg2.extras
 from flask import Blueprint, jsonify, request
 
 from app.api import slack_log
-from app.routes.olc_send import _conn, addr_key
+from app.routes.olc_send import _conn, addr_key, loose_addr_key
 
 olc_webhook_bp = Blueprint("olc_webhook", __name__)
 
@@ -270,6 +270,8 @@ def olc_webhook():
                 item_id = item.get("id")
                 key = addr_key(contact.get("address1"), contact.get("city"),
                                contact.get("state"), contact.get("zip"))
+                loose = loose_addr_key(contact.get("address1"), contact.get("city"),
+                                       contact.get("state"), contact.get("zip"))
 
                 if status:
                     statuses[status] += 1
@@ -284,10 +286,11 @@ def olc_webhook():
                             olc_item_id   = COALESCE(olc_item_id, %s),
                             updated_at    = %s
                         WHERE order_id = %s
-                          AND (olc_item_id = %s OR addr_key = %s)
+                          AND (olc_item_id = %s OR addr_key = %s
+                               OR addr_key_loose = %s)
                     """, (status, status in DELIVERED_STATUSES, tracking_json,
                           str(item_id) if item_id else None, now,
-                          local_order_id, str(item_id) if item_id else None, key))
+                          local_order_id, str(item_id) if item_id else None, key, loose))
                 updated += cur.rowcount
 
             cur.execute("UPDATE olc_webhook_events SET rows_updated = %s WHERE id = %s",

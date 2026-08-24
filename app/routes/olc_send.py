@@ -69,6 +69,22 @@ def norm_zip(v) -> str:
     return re.sub(r"[^0-9]", "", s)[:5]
 
 
+# USPS CASS expands "#3A" into "APT 3A", "SPC 16", "LOT 91" and so on, so the
+# address OLC echoes back in a webhook rarely keys the same as the one we sent.
+# Dropping the designator makes both sides agree.
+UNIT_WORDS = {
+    "APT", "APARTMENT", "STE", "SUITE", "UNIT", "SPC", "SPACE", "LOT",
+    "RM", "ROOM", "FL", "FLOOR", "BLDG", "BUILDING", "TRLR", "TRAILER",
+    "DEPT", "DEPARTMENT", "PMB", "BOX",
+}
+
+
+def loose_addr_key(street, city, state, zc) -> str:
+    """addr_key with secondary-unit designators removed from the street."""
+    words = [w for w in norm_text(street).split() if w not in UNIT_WORDS]
+    return "|".join([" ".join(words), norm_text(city), norm_text(state), norm_zip(zc)])
+
+
 def addr_key(street, city, state, zc) -> str:
     return "|".join([norm_text(street), norm_text(city), norm_text(state), norm_zip(zc)])
 

@@ -46,6 +46,10 @@ DDL = [
     "CREATE INDEX IF NOT EXISTS olc_qr_scans_order_idx ON olc_qr_scans (order_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS olc_qr_scans_item_idx  ON olc_qr_scans (item_id)",
     "ALTER TABLE olc_order_items ADD COLUMN IF NOT EXISTS olc_item_id   TEXT",
+    # USPS expands "#3A" to "APT 3A", so the address OLC echoes back does not
+    # key the same as the one we sent. This is the designator-free fallback.
+    "ALTER TABLE olc_order_items ADD COLUMN IF NOT EXISTS addr_key_loose TEXT",
+    "CREATE INDEX IF NOT EXISTS olc_order_items_loose_idx ON olc_order_items (order_id, addr_key_loose)",
     "ALTER TABLE olc_order_items ADD COLUMN IF NOT EXISTS qr_scanned_at TIMESTAMPTZ",
     "ALTER TABLE olc_order_items ADD COLUMN IF NOT EXISTS qr_scan_count INTEGER DEFAULT 0",
     "CREATE INDEX IF NOT EXISTS olc_order_items_olc_item_idx ON olc_order_items (olc_item_id)",
