@@ -166,12 +166,6 @@
       <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
     {% endfor %}
   </div>
-  {% if inferred_total %}
-  <div class="lg-feed" style="margin-top:12px; color:var(--accent-amber)">
-    {{ "{:,}".format(inferred_total) }} of the delivered count is assumed, not confirmed —
-    OLC marked those orders complete but never sent an event for those pieces individually.
-  </div>
-  {% endif %}
   <div class="lg-feed" style="margin-top:14px">
     {{ "{:,}".format(events.count) }} webhook event{{ '' if events.count == 1 else 's' }} received ·
     {{ "{:,}".format(events.rows) }} piece update{{ '' if events.rows == 1 else 's' }} applied
