@@ -107,12 +107,13 @@
   <div class="glass-card t"><span class="v">{{ "{:,}".format(reported) }}</span><span class="k">Reporting</span></div>
   <div class="glass-card t"><span class="v">${{ "{:,.2f}".format(total_cost) }}</span><span class="k">Spent</span></div>
   <div class="glass-card t"><span class="v">${{ "%.2f"|format(per_piece) }}</span><span class="k">Per piece</span></div>
-  <div class="glass-card t is-resp"><span class="v">{{ qr.rows }}</span><span class="k">Responded</span></div>
+  <div class="glass-card t is-resp"><span class="v">{{ qr.rows }}</span><span class="k">Scanned</span></div>
 </div>
 
 {# ── responders: the point of the whole exercise ────────────────── #}
 <div class="lg-sec-title">
-  Responded — {{ qr.rows }} scanned the QR
+  Scanned — {{ qr.rows }} {{ 'person' if qr.rows == 1 else 'people' }}
+  {%- if qr.scans and qr.scans != qr.rows %} · {{ qr.scans }} scans total{% endif %}
   {%- if delivered %} · {{ "%.2f"|format(qr.rows / delivered * 100) }}% of delivered{% endif %}
 </div>
 <div class="glass-card lg-resp-card">
@@ -138,7 +139,7 @@
   </div>
   {% else %}
   <div class="lg-empty">
-    <strong>No scans yet</strong>
+    <strong>Nobody has scanned yet</strong>
     Anyone who scans the QR on the mailer shows up here with the property it
     was sent about — the warmest signal the campaign produces.
   </div>
