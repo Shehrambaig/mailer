@@ -202,16 +202,10 @@
         {% if o.in_transit_date %}
         <span class="lg-chip"><span class="ck">In transit</span><span class="cv">{{ o.in_transit_date.strftime('%d %b %H:%M') }}</span></span>
         {% endif %}
-        {% if o.first_scan %}
-        {% if o.scan_is_first %}
+        {% if o.first_scan and o.scan_is_first %}
         <span class="lg-chip c-scan"
-              title="The first time a USPS machine read a barcode on this order. We were already listening when it happened, so nothing earlier exists."
-        ><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
-        {% else %}
-        <span class="lg-chip c-warn"
-              title="The earliest scan we hold, not provably the first. It predates the day our receiver went live, so any earlier USPS scan was carried in an event we never received."
-        ><span class="ck">Earliest scan seen</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
-        {% endif %}
+              title="The first time a USPS machine read a barcode on this order. We were listening before it happened, so nothing earlier exists. Date only — the clock time OLC reports is facility-local and we have not confirmed the offset."
+        ><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b') }}</span></span>
         {% endif %}
         {% if o.expected_date %}
         <span class="lg-chip"><span class="ck">Expected</span><span class="cv">{{ o.expected_date.strftime('%d %b') }}</span></span>
@@ -251,8 +245,10 @@
   <div class="lg-feed" style="margin-top:10px">
     USPS scans on this order —
     {{ o.scans.items() | map('join', ' ') | join(' · ') }}
-    {%- if o.first_scan and o.last_scan %}, {{ o.first_scan.strftime('%d %b') }}
-      to {{ o.last_scan.strftime('%d %b') }}{% endif %}
+    {%- if o.scan_is_first and o.first_scan and o.last_scan %}, {{ o.first_scan.strftime('%d %b') }}
+      to {{ o.last_scan.strftime('%d %b') }}
+    {%- elif not o.scan_is_first %} — earliest scans predate our receiver, so this is
+      what we caught, not the full history{% endif %}
   </div>
   {% endif %}
   <div class="lg-matrix lg-nums">
