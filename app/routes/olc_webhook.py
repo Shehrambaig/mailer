@@ -232,7 +232,14 @@ def olc_webhook():
                                 "rows_updated": updated, "slack": slack_ok})
 
             for entry in items:
-                order = entry.get("order") or {}
+                # Shapes differ by event: order_items.* nests the order under
+                # "order", while an orders.* payload IS the order object
+                # (id/status at the top level of data). Reading only the nested
+                # form silently skipped every orders.* event.
+                if event.startswith("orders."):
+                    order = entry.get("order") or entry
+                else:
+                    order = entry.get("order") or {}
                 contact = entry.get("contact") or {}
                 item = entry.get("orderItem") or {}
                 olc_order_id = order.get("id")
