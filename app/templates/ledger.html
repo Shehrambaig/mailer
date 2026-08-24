@@ -161,6 +161,10 @@
         Order {{ o.olc_order_id or '—' }}
         {%- if o.created_at %} · placed {{ o.created_at.strftime('%d %b') }}{% endif %}
         {%- if o.template_id %} · template {{ o.template_id }}{% endif %}
+        {%- if o.olc_status %} · OLC says <span style="color:var(--text-secondary)">{{ o.olc_status }}</span>
+          {%- if o.deliverable %}, {{ "{:,}".format(o.deliverable) }} deliverable{% endif %}{% endif %}
+        {%- if o.inferred %} · <span style="color:var(--accent-amber)">{{ "{:,}".format(o.inferred) }}
+          delivered from the order record, not a per-piece event</span>{% endif %}
         {%- if not o.is_live %} · <span style="color:var(--accent-amber)">TEST MODE</span>{% endif %}
       </div>
     </div>

@@ -42,7 +42,8 @@ def _collect():
             cur.execute("""
                 SELECT o.id, o.olc_order_id, o.name, o.status, o.cost,
                        o.template_id, o.recipient_count, o.created_at,
-                       o.is_live_mode, o.last_polled_at
+                       o.is_live_mode, o.last_polled_at,
+                       o.olc_status, o.deliverable_quantity, o.delivered_date
                 FROM olc_orders o ORDER BY o.id DESC
             """)
             orders = [{
@@ -50,7 +51,9 @@ def _collect():
                 "cost": float(r[4]) if r[4] else None,
                 "template_id": r[5], "recipient_count": r[6], "created_at": r[7],
                 "is_live": r[8], "last_polled_at": r[9],
+                "olc_status": r[10], "deliverable": r[11], "delivered_date": r[12],
                 "counts": _blank_counts(), "other": {}, "pieces": 0,
+                "inferred": 0,
             } for r in cur.fetchall()]
             by_id = {o["id"]: o for o in orders}
 
@@ -85,6 +88,14 @@ def _collect():
                                               f"{r[7] or ''} {r[8] or ''}".strip()) if p),
                 "item_id": r[9], "at": r[10],
             } for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT order_id, COUNT(*) FROM olc_order_items
+                WHERE status_source = 'order-completed' GROUP BY 1
+            """)
+            for order_id, n in cur.fetchall():
+                if order_id in by_id:
+                    by_id[order_id]["inferred"] = n
 
             cur.execute("""
                 SELECT COUNT(*), MAX(received_at), COALESCE(SUM(rows_updated), 0)
@@ -145,6 +156,7 @@ def _collect():
         "total_cost": sum(o["cost"] or 0 for o in orders),
         "per_piece": PER_PIECE,
         "reported": total_pieces - grand["Scheduled"],
+        "inferred_total": sum(o["inferred"] for o in orders),
         "events": {"count": ev_count, "last": ev_last, "rows": ev_rows},
         "qr": {"rows": qr_rows, "scans": qr_scans, "matched": qr_matched},
         "responders": responders,
@@ -163,7 +175,7 @@ def ledger_json():
     """Same numbers as the page, for polling or a quick curl."""
     d = _collect()
     for o in d["orders"]:
-        for k in ("created_at", "last_polled_at"):
+        for k in ("created_at", "last_polled_at", "delivered_date"):
             o[k] = o[k].isoformat() if o[k] else None
     for f in d["failures"]:
         f["at"] = f["at"].isoformat() if f["at"] else None
