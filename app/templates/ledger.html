@@ -203,7 +203,15 @@
         <span class="lg-chip"><span class="ck">In transit</span><span class="cv">{{ o.in_transit_date.strftime('%d %b %H:%M') }}</span></span>
         {% endif %}
         {% if o.first_scan %}
-        <span class="lg-chip c-scan" title="The first time a USPS machine actually read a barcode on this order"><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
+        {% if o.scan_is_first %}
+        <span class="lg-chip c-scan"
+              title="The first time a USPS machine read a barcode on this order. We were already listening when it happened, so nothing earlier exists."
+        ><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
+        {% else %}
+        <span class="lg-chip c-warn"
+              title="The earliest scan we hold, not provably the first. It predates the day our receiver went live, so any earlier USPS scan was carried in an event we never received."
+        ><span class="ck">Earliest scan seen</span><span class="cv">{{ o.first_scan.strftime('%d %b %H:%M') }}</span></span>
+        {% endif %}
         {% endif %}
         {% if o.expected_date %}
         <span class="lg-chip"><span class="ck">Expected</span><span class="cv">{{ o.expected_date.strftime('%d %b') }}</span></span>

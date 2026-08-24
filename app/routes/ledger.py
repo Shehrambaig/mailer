@@ -118,10 +118,18 @@ def _collect():
                     by_id[order_id]["inferred"] = n
 
             cur.execute("""
-                SELECT COUNT(*), MAX(received_at), COALESCE(SUM(rows_updated), 0)
+                SELECT COUNT(*), MAX(received_at), COALESCE(SUM(rows_updated), 0),
+                       MIN(received_at)
                 FROM olc_webhook_events
             """)
-            ev_count, ev_last, ev_rows = cur.fetchone()
+            ev_count, ev_last, ev_rows, listening_since = cur.fetchone()
+
+            # A scan older than the day we started listening cannot be proven
+            # to be the first one: anything USPS did before that was carried in
+            # events we never received.
+            for o in orders:
+                fs = o["first_scan"]
+                o["scan_is_first"] = bool(fs and listening_since and fs > listening_since)
 
             cur.execute("""
                 SELECT COUNT(*), COALESCE(SUM(number_of_scans), 0),
@@ -177,7 +185,8 @@ def _collect():
         "per_piece": PER_PIECE,
         "reported": total_pieces - grand["Scheduled"],
         "inferred_total": sum(o["inferred"] for o in orders),
-        "events": {"count": ev_count, "last": ev_last, "rows": ev_rows},
+        "events": {"count": ev_count, "last": ev_last, "rows": ev_rows,
+                   "listening_since": listening_since},
         "qr": {"rows": qr_rows, "scans": qr_scans, "matched": qr_matched},
         "responders": responders,
         # Response rate is only meaningful against pieces actually delivered.
@@ -203,6 +212,7 @@ def ledger_json():
     for r in d["responders"]:
         if hasattr(r["at"], "isoformat"):
             r["at"] = r["at"].isoformat()
-    if d["events"]["last"]:
-        d["events"]["last"] = d["events"]["last"].isoformat()
+    for k in ("last", "listening_since"):
+        if d["events"].get(k):
+            d["events"][k] = d["events"][k].isoformat()
     return jsonify(d)
