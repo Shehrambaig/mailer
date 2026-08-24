@@ -98,6 +98,31 @@ def _collect():
                 FROM olc_qr_scans
             """)
             qr_rows, qr_scans, qr_matched = cur.fetchone()
+
+            # Whoever scanned the QR responded to the mail — the warmest
+            # signal the campaign produces, so it gets names and addresses.
+            cur.execute("""
+                SELECT s.contact_company, s.contact_name, s.contact_email,
+                       s.scanned_at, s.number_of_scans, s.utm_property_address,
+                       s.olc_order_id, o.name,
+                       i.street, i.city, i.state, i.zip_code
+                FROM olc_qr_scans s
+                LEFT JOIN olc_orders o      ON o.id = s.order_id
+                LEFT JOIN olc_order_items i ON i.id = s.item_id
+                ORDER BY s.scanned_at DESC NULLS LAST, s.id DESC
+                LIMIT 300
+            """)
+            responders = [{
+                "who": (r[0] or r[1] or "").strip() or "(unnamed)",
+                "email": r[2],
+                "at": r[3],
+                "scans": r[4] or 0,
+                "property": r[5],
+                "olc_order_id": r[6],
+                "order": r[7],
+                "mailed_to": ", ".join(p for p in (r[8], r[9],
+                                       f"{r[10] or ''} {r[11] or ''}".strip()) if p),
+            } for r in cur.fetchall()]
     finally:
         conn.close()
 
@@ -122,6 +147,9 @@ def _collect():
         "reported": total_pieces - grand["Scheduled"],
         "events": {"count": ev_count, "last": ev_last, "rows": ev_rows},
         "qr": {"rows": qr_rows, "scans": qr_scans, "matched": qr_matched},
+        "responders": responders,
+        # Response rate is only meaningful against pieces actually delivered.
+        "delivered": grand["Delivered"],
     }
 
 
@@ -139,6 +167,9 @@ def ledger_json():
             o[k] = o[k].isoformat() if o[k] else None
     for f in d["failures"]:
         f["at"] = f["at"].isoformat() if f["at"] else None
+    for r in d["responders"]:
+        if hasattr(r["at"], "isoformat"):
+            r["at"] = r["at"].isoformat()
     if d["events"]["last"]:
         d["events"]["last"] = d["events"]["last"].isoformat()
     return jsonify(d)

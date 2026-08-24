@@ -60,6 +60,14 @@
   .lg-empty { padding: 26px; text-align: center; color: var(--text-secondary); }
   .lg-empty strong { display: block; color: var(--text-primary); margin-bottom: 6px; letter-spacing: .5px; }
 
+  .lg-totals .t.is-resp { border-color: rgba(16,185,129,.4); }
+  .lg-totals .t.is-resp .v { color: var(--accent-green); }
+
+  .lg-resp-card { padding: 0; border-color: rgba(16,185,129,.28); }
+  .lg-resp td.who { font-weight: 600; color: var(--accent-green); }
+  .lg-resp td.when { color: var(--text-secondary); white-space: nowrap; }
+  .lg-resp tr:hover td { background: rgba(16,185,129,.06); }
+
   .lg-feed { font-size: .74rem; color: var(--text-muted); }
   .lg-sec-title {
     font-size: .72rem; text-transform: uppercase; letter-spacing: 2px;
@@ -77,6 +85,42 @@
   <div class="glass-card t"><span class="v">{{ "{:,}".format(reported) }}</span><span class="k">Reporting</span></div>
   <div class="glass-card t"><span class="v">${{ "{:,.2f}".format(total_cost) }}</span><span class="k">Spent</span></div>
   <div class="glass-card t"><span class="v">${{ "%.2f"|format(per_piece) }}</span><span class="k">Per piece</span></div>
+  <div class="glass-card t is-resp"><span class="v">{{ qr.rows }}</span><span class="k">Responded</span></div>
+</div>
+
+{# ── responders: the point of the whole exercise ────────────────── #}
+<div class="lg-sec-title">
+  Responded — {{ qr.rows }} scanned the QR
+  {%- if delivered %} · {{ "%.2f"|format(qr.rows / delivered * 100) }}% of delivered{% endif %}
+</div>
+<div class="glass-card lg-resp-card">
+  {% if responders %}
+  <div class="lg-fail-wrap">
+    <table class="lg-fail lg-resp">
+      <thead>
+        <tr><th>Scanned</th><th>Who</th><th>Property</th><th>Mailed to</th><th>Scans</th><th>Order</th></tr>
+      </thead>
+      <tbody>
+        {% for r in responders %}
+        <tr>
+          <td class="lg-nums when">{{ r.at[:16]|replace('T', ' ') if r.at else '—' }}</td>
+          <td class="who">{{ r.who }}</td>
+          <td style="color:var(--text-secondary)">{{ r.property or '—' }}</td>
+          <td style="color:var(--text-muted)">{{ r.mailed_to or '—' }}</td>
+          <td class="lg-nums" style="text-align:right">{{ r.scans }}</td>
+          <td style="color:var(--text-muted)">{{ r.olc_order_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="lg-empty">
+    <strong>No scans yet</strong>
+    Anyone who scans the QR on the mailer shows up here with the property it
+    was sent about — the warmest signal the campaign produces.
+  </div>
+  {% endif %}
 </div>
 
 {# ── every piece, every state ───────────────────────────────────── #}
