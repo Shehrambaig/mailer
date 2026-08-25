@@ -26,3 +26,6 @@ migrations/
 /app/static/data/stacked/zip.json
 /Mailer_Data_set/
 /proofs/
+
+# local .env backups
+.env.bak*

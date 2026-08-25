@@ -32,6 +32,21 @@ LADDER = [
 ]
 BAD_STATUSES = ("Returned to Sender", "Failed", "Canceled")
 
+# one colour per lifecycle state, kept away from the interface accent so
+# semantic colour never competes with navigation
+STATUS_COLOR = {
+    "Scheduled":          "var(--st-scheduled)",
+    "Not Mailed":         "var(--st-scheduled)",
+    "Processing":         "var(--st-processing)",
+    "Mailed":             "var(--st-mailed)",
+    "In Transit":         "var(--st-transit)",
+    "Re-Routed":          "var(--st-rerouted)",
+    "Delivered":          "var(--st-delivered)",
+    "Returned to Sender": "var(--st-returned)",
+    "Canceled":           "var(--st-canceled)",
+    "Failed":             "var(--st-failed)",
+}
+
 
 def _blank_counts() -> dict:
     return {k: 0 for k, _ in LADDER}
@@ -214,6 +229,7 @@ def _collect():
 def ledger():
     data = _collect()
     data["now"] = datetime.now(timezone.utc)
+    data["statuscolor"] = STATUS_COLOR
     # htmx polls this and swaps just the body, so a refresh never reloads the
     # page, loses scroll position, or refetches the stylesheet.
     template = "_ledger_body.html" if request.args.get("fragment") else "ledger.html"
