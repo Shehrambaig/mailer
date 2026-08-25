@@ -5,7 +5,9 @@ written as of page load. Nothing here calls the OpenLetterConnect API.
 """
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, render_template
+from datetime import datetime, timezone
+
+from flask import Blueprint, jsonify, render_template, request
 
 from app.routes.olc_send import _conn
 
@@ -210,7 +212,12 @@ def _collect():
 
 @ledger_bp.route("/ledger")
 def ledger():
-    return render_template("ledger.html", **_collect())
+    data = _collect()
+    data["now"] = datetime.now(timezone.utc)
+    # htmx polls this and swaps just the body, so a refresh never reloads the
+    # page, loses scroll position, or refetches the stylesheet.
+    template = "_ledger_body.html" if request.args.get("fragment") else "ledger.html"
+    return render_template(template, **data)
 
 
 @ledger_bp.route("/api/ledger")

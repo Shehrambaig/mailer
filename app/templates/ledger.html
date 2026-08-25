@@ -1,5 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Mail Ledger — OLC{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Remember every keyed number before a poll, flash the ones that moved after.
+// A silent swap is indistinguishable from a dead page otherwise.
+(function () {
+  let before = {};
+  const snapshot = () => {
+    const m = {};
+    document.querySelectorAll('#ledger-live [data-k]').forEach(el => {
+      m[el.dataset.k] = el.textContent.trim();
+    });
+    return m;
+  };
+  document.body.addEventListener('htmx:beforeRequest', e => {
+    if (e.target.id === 'ledger-live') before = snapshot();
+  });
+  document.body.addEventListener('htmx:afterSwap', e => {
+    if (e.target.id !== 'ledger-live') return;
+    document.querySelectorAll('#ledger-live [data-k]').forEach(el => {
+      const was = before[el.dataset.k];
+      if (was !== undefined && was !== el.textContent.trim()) {
+        el.classList.add('just-changed');
+        setTimeout(() => el.classList.remove('just-changed'), 1800);
+      }
+    });
+  });
+  // pause polling while the tab is hidden; resume on return
+  document.addEventListener('visibilitychange', () => {
+    const el = document.getElementById('ledger-live');
+    if (!el) return;
+    if (document.hidden) {
+      el.removeAttribute('hx-trigger');
+    } else {
+      el.setAttribute('hx-trigger', 'every 15s');
+      if (window.htmx) { htmx.process(el); htmx.trigger(el, 'every'); }
+    }
+  });
+})();
+</script>
+{% endblock %}
 {% block tagline %}Mail Ledger — every piece placed, what it cost, where it is now{% endblock %}
 
 {% macro n(v) %}{{ "{:,}".format(v) }}{% endmacro %}
@@ -7,6 +48,32 @@
 {% block extra_head %}
 <style>
   .lg-nums { font-variant-numeric: tabular-nums; }
+
+  /* live indicator */
+  #live-bar {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .68rem; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 12px;
+  }
+  #live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-green); flex-shrink: 0;
+    animation: livepulse 2s ease-in-out infinite;
+  }
+  @keyframes livepulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  .htmx-request #live-dot { background: var(--accent-cyan); }
+
+  /* a value that just changed */
+  @keyframes flashnum {
+    from { background: rgba(0,240,255,.28); }
+    to   { background: transparent; }
+  }
+  .just-changed { animation: flashnum 1.6s ease-out; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #live-dot { animation: none }
+    .just-changed { animation: none }
+  }
 
   .lg-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .lg-totals .t { padding: 14px 16px; }
@@ -101,203 +168,11 @@
 {% endblock %}
 
 {% block content %}
-
-{# ── account totals ─────────────────────────────────────────────── #}
-<div class="lg-totals lg-nums">
-  <div class="glass-card t"><span class="v">{{ orders|length }}</span><span class="k">Orders</span></div>
-  <div class="glass-card t"><span class="v">{{ "{:,}".format(total_pieces) }}</span><span class="k">Pieces</span></div>
-  <div class="glass-card t"><span class="v">{{ "{:,}".format(reported) }}</span><span class="k">Reporting</span></div>
-  <div class="glass-card t"><span class="v">${{ "{:,.2f}".format(total_cost) }}</span><span class="k">Spent</span></div>
-  <div class="glass-card t"><span class="v">${{ "%.2f"|format(per_piece) }}</span><span class="k">Per piece</span></div>
-  <div class="glass-card t is-resp"><span class="v">{{ qr.rows }}</span><span class="k">Scanned</span></div>
+<div id="ledger-live"
+     hx-get="{{ url_for('ledger.ledger') }}?fragment=1"
+     hx-trigger="every 15s"
+     hx-swap="innerHTML"
+     hx-indicator="#live-dot">
+  {% include "_ledger_body.html" %}
 </div>
-
-{# ── responders: the point of the whole exercise ────────────────── #}
-<div class="lg-sec-title">
-  Scanned — {{ qr.rows }} {{ 'person' if qr.rows == 1 else 'people' }}
-  {%- if qr.scans and qr.scans != qr.rows %} · {{ qr.scans }} scans total{% endif %}
-  {%- if delivered %} · {{ "%.2f"|format(qr.rows / delivered * 100) }}% of delivered{% endif %}
-</div>
-<div class="glass-card lg-resp-card">
-  {% if responders %}
-  <div class="lg-fail-wrap">
-    <table class="lg-fail lg-resp">
-      <thead>
-        <tr><th>Scanned</th><th>Who</th><th>Address mailed to</th><th>Scans</th><th>Piece</th><th>Order</th></tr>
-      </thead>
-      <tbody>
-        {% for r in responders %}
-        <tr>
-          <td class="lg-nums when">{{ r.at[:16]|replace('T', ' ') if r.at else '—' }}</td>
-          <td class="who">{{ r.who }}</td>
-          <td style="color:var(--text-secondary)">{{ r.mailed_to or '—' }}</td>
-          <td class="lg-nums" style="text-align:right">{{ r.scans }}</td>
-          <td class="lg-nums" style="color:var(--text-muted)">{{ r.piece or '—' }}</td>
-          <td style="color:var(--text-muted)">{{ r.olc_order_id }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="lg-empty">
-    <strong>Nobody has scanned yet</strong>
-    Anyone who scans the QR on the mailer shows up here with the property it
-    was sent about — the warmest signal the campaign produces.
-  </div>
-  {% endif %}
-</div>
-
-{# ── every piece, every state ───────────────────────────────────── #}
-<div class="lg-sec-title">All pieces by status</div>
-<div class="glass-card" style="padding:16px">
-  <div class="lg-matrix lg-nums">
-    {% for key, label in ladder %}
-      {% set v = grand[key] %}
-      <div class="lg-cell {{ 'is-zero' if not v }}
-                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
-                     else ('s-good' if key == 'Delivered'
-                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
-        <span class="cn">{{ "{:,}".format(v) }}</span>
-        <span class="cl">{{ label }}</span>
-      </div>
-    {% endfor %}
-    {% for key, v in other_grand.items() %}
-      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
-    {% endfor %}
-  </div>
-  <div class="lg-feed" style="margin-top:14px">
-    {{ "{:,}".format(events.count) }} webhook event{{ '' if events.count == 1 else 's' }} received ·
-    {{ "{:,}".format(events.rows) }} piece update{{ '' if events.rows == 1 else 's' }} applied
-    {%- if events.last %} · last {{ events.last.strftime('%d %b %H:%M') }} UTC{% endif %}
-    {%- if qr.rows %} · {{ "{:,}".format(qr.scans) }} QR scan{{ '' if qr.scans == 1 else 's' }}
-      ({{ qr.matched }} matched to a piece){% endif %}
-  </div>
-</div>
-
-{# ── per order ──────────────────────────────────────────────────── #}
-<div class="lg-sec-title">Orders</div>
-{% for o in orders %}
-<div class="glass-card lg-order">
-  <div class="head">
-    <div>
-      <div class="nm">{{ o.name }}</div>
-      <div class="lg-chips">
-        <span class="lg-chip"><span class="ck">Order</span><span class="cv">{{ o.olc_order_id or '—' }}</span></span>
-        {% if o.created_at %}
-        <span class="lg-chip"><span class="ck">Placed</span><span class="cv">{{ o.created_at.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.template_id %}
-        <span class="lg-chip"><span class="ck">Template</span><span class="cv">{{ o.template_id }}</span></span>
-        {% endif %}
-        {% if o.mailed_date %}
-        <span class="lg-chip" title="OLC handed the batch to USPS"><span class="ck">To USPS</span><span class="cv">{{ o.mailed_date.strftime('%d %b %H:%M') }}</span></span>
-        {% endif %}
-        {% if o.in_transit_date %}
-        <span class="lg-chip"><span class="ck">In transit</span><span class="cv">{{ o.in_transit_date.strftime('%d %b %H:%M') }}</span></span>
-        {% endif %}
-        {% if o.first_scan and o.scan_is_first %}
-        <span class="lg-chip c-scan"
-              title="The first time a USPS machine read a barcode on this order. We were listening before it happened, so nothing earlier exists. Date only — the clock time OLC reports is facility-local and we have not confirmed the offset."
-        ><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.expected_date %}
-        <span class="lg-chip"><span class="ck">Expected</span><span class="cv">{{ o.expected_date.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.olc_status %}
-        <span class="lg-chip c-olc"><span class="ck">OLC says</span><span class="cv">{{ o.olc_status }}</span></span>
-        {% endif %}
-        {% if o.deliverable %}
-        <span class="lg-chip"><span class="ck">Deliverable</span><span class="cv">{{ "{:,}".format(o.deliverable) }}</span></span>
-        {% endif %}
-        {% if o.usps_delivered %}
-        <span class="lg-chip c-scan"
-              title="Pieces with a genuine USPS Delivered scan. OLC's own deliveredDate is stamped identically across every order, so it records when their job ran, not when mail arrived."
-        ><span class="ck">USPS delivered scans</span><span class="cv">{{ "{:,}".format(o.usps_delivered) }} · {{ o.usps_delivered_on.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.inferred %}
-        <span class="lg-chip c-warn"
-              title="OLC never sent a per-piece event for these. They are counted as delivered because OLC's order record says the whole order completed with {{ "{:,}".format(o.deliverable or 0) }} deliverable.">
-          <span class="ck">Assumed delivered</span><span class="cv">{{ "{:,}".format(o.inferred) }}</span></span>
-        {% endif %}
-        {% if not o.is_live %}
-        <span class="lg-chip c-test"><span class="ck">Mode</span><span class="cv">TEST</span></span>
-        {% endif %}
-      </div>
-    </div>
-    <div style="text-align:right">
-      <div class="amt lg-nums">{{ '$%0.2f'|format(o.cost) if o.cost else '—' }}</div>
-      <div class="qty lg-nums">{{ "{:,}".format(o.pieces) }} pieces</div>
-      <div style="margin-top:5px">
-        <span class="lg-pill {{ 'p-good' if o.status == 'Delivered'
-                                else ('p-live' if o.status in ('Mailed','In Transit','Processing') else 'p-wait') }}">
-          {{ o.status or 'unknown' }}
-        </span>
-      </div>
-    </div>
-  </div>
-
-  {% if o.scans %}
-  <div class="lg-feed" style="margin-top:10px">
-    USPS scans on this order —
-    {{ o.scans.items() | map('join', ' ') | join(' · ') }}
-    {%- if o.scan_is_first and o.first_scan and o.last_scan %}, {{ o.first_scan.strftime('%d %b') }}
-      to {{ o.last_scan.strftime('%d %b') }}
-    {%- elif not o.scan_is_first %} — earliest scans predate our receiver, so this is
-      what we caught, not the full history{% endif %}
-  </div>
-  {% endif %}
-  <div class="lg-matrix lg-nums">
-    {% for key, label in ladder %}
-      {% set v = o.counts[key] %}
-      <div class="lg-cell {{ 'is-zero' if not v }}
-                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
-                     else ('s-good' if key == 'Delivered'
-                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
-        <span class="cn">{{ "{:,}".format(v) }}</span>
-        <span class="cl">{{ label }}</span>
-      </div>
-    {% endfor %}
-    {% for key, v in o.other.items() %}
-      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
-    {% endfor %}
-  </div>
-</div>
-{% endfor %}
-
-{# ── the pieces that did not make it ────────────────────────────── #}
-<div class="lg-sec-title">
-  Did not arrive — {{ failures|length }}{{ '+' if failures|length == 500 }}
-</div>
-<div class="glass-card" style="padding:{{ '0' if failures else '0' }}">
-  {% if failures %}
-  <div class="lg-fail-wrap">
-    <table class="lg-fail">
-      <thead>
-        <tr><th>Status</th><th>Payee</th><th>Address</th><th>Order</th><th>Reported</th></tr>
-      </thead>
-      <tbody>
-        {% for f in failures %}
-        <tr>
-          <td class="st">{{ f.status }}</td>
-          <td>{{ f.name }}</td>
-          <td style="color:var(--text-secondary)">{{ f.addr }}</td>
-          <td style="color:var(--text-muted)">{{ f.olc_order_id }}</td>
-          <td style="color:var(--text-muted)" class="lg-nums">
-            {{ f.at.strftime('%d %b %H:%M') if f.at else '—' }}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="lg-empty">
-    <strong>Nothing has failed yet</strong>
-    Returned, failed and canceled pieces land here as delivery scans arrive —
-    ready to strip from next week's build.
-  </div>
-  {% endif %}
-</div>
-
 {% endblock %}
