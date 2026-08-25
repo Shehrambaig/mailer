@@ -37,7 +37,7 @@
 .county-path:hover { opacity:1 !important; }
 .county-label {
     pointer-events:none; font-family:inherit; font-weight:700; letter-spacing:.15px;
-    fill:rgba(255,255,255,0.96);
+    fill:var(--ink);
     paint-order:stroke fill;
     stroke:rgba(0,0,0,0.75);
     stroke-linejoin:round;
@@ -58,22 +58,22 @@
 .state-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.78); backdrop-filter:blur(4px); }
 .state-modal-dialog {
     position:absolute; top:2.5vh; left:2.5vw; width:95vw; height:95vh;
-    background:#0a0a14; border:1px solid rgba(255,255,255,0.08);
+    background:var(--surface); border:1px solid var(--line);
     border-radius:16px; display:flex; flex-direction:column; overflow:hidden;
     box-shadow:0 20px 60px rgba(0,0,0,0.6);
 }
 .state-modal-header {
     padding:12px 18px; display:flex; justify-content:space-between; align-items:center;
-    border-bottom:1px solid rgba(255,255,255,0.06);
+    border-bottom:1px solid var(--line);
     background:rgba(12,12,28,0.6);
 }
 .state-modal-close {
-    background:transparent; border:1px solid rgba(255,255,255,0.18); color:var(--text-secondary);
+    background:transparent; border:1px solid var(--line-2); color:var(--text-secondary);
     border-radius:8px; padding:6px 12px; cursor:pointer; font-size:.75rem; font-weight:600; font-family:inherit;
 }
-.state-modal-close:hover { background:rgba(255,255,255,0.06); color:var(--text-primary); }
+.state-modal-close:hover { background:var(--line); color:var(--text-primary); }
 .state-modal-body { flex:1; display:flex; gap:14px; padding:14px; min-height:0; min-width:0; }
-#state-modal-map { flex:1; min-width:0; position:relative; background:#080814; border-radius:10px; overflow:hidden; }
+#state-modal-map { flex:1; min-width:0; position:relative; background:var(--surface); border-radius:10px; overflow:hidden; }
 #state-modal-map svg { width:100%; height:100%; display:block; }
 #state-modal-panel-slot { flex:0 0 420px; min-width:0; overflow:hidden; display:flex; }
 #state-modal-panel-slot > #detail-panel { flex:1; height:100% !important; max-height:none !important; }
@@ -108,7 +108,7 @@
     0%   { r:3;  opacity:0.75; }
     100% { r:18; opacity:0;    }
 }
-.hunt-ring       { pointer-events:none; fill:none; stroke:#00f0ff; stroke-width:1.8; animation: ringPulse1 2.2s ease-out infinite; }
+.hunt-ring       { pointer-events:none; fill:none; stroke:var(--accent); stroke-width:1.8; animation: ringPulse1 2.2s ease-out infinite; }
 .hunt-ring.tier2 { stroke:#ffea70; stroke-width:1.4; animation: ringPulse2 2.6s ease-out infinite; }
 /* Scraped-dots overlay ────────────────────────── */
 .scraped-dot { cursor:pointer; mix-blend-mode:screen; transition:stroke-width .12s; }
@@ -116,7 +116,7 @@
 /* Filter chip rows above the layer buttons ───── */
 .fchip-row { display:flex; align-items:center; gap:5px; padding:6px 16px 0; flex-wrap:wrap; font-size:.7rem; }
 .fchip-row .fchip-label { color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; font-size:.6rem; margin-right:4px; }
-.fchip { background:transparent; color:var(--text-secondary); border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:3px 9px; cursor:pointer; transition:all .12s; font-size:.7rem; }
+.fchip { background:transparent; color:var(--text-secondary); border:1px solid var(--line); border-radius:14px; padding:3px 9px; cursor:pointer; transition:all .12s; font-size:.7rem; }
 .fchip:hover { color:var(--accent-cyan); border-color:rgba(0,240,255,.35); }
 .fchip.active { color:#000; background:var(--accent-cyan); border-color:var(--accent-cyan); font-weight:600; }
 .fchip.bk-auc.active { background:#a78bfa; border-color:#a78bfa; }
@@ -129,7 +129,7 @@
 .biv-legend { display:none; align-items:center; gap:14px; padding:6px 16px 10px; }
 .biv-legend.show { display:flex; }
 .biv-grid { display:grid; grid-template-columns:repeat(3, 18px); grid-template-rows:repeat(3, 18px); gap:1px; }
-.biv-cell { width:18px; height:18px; border:1px solid rgba(255,255,255,0.1); }
+.biv-cell { width:18px; height:18px; border:1px solid var(--line); }
 .biv-axes { display:flex; flex-direction:column; font-size:.6rem; color:var(--text-muted); gap:2px; }
 .biv-axis-x { text-align:center; font-size:.6rem; color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; }
 .biv-corner { display:flex; flex-direction:column; font-size:.64rem; gap:2px; }
@@ -189,7 +189,7 @@
 
 /* Metric grid */
 .mgrid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; padding:12px; }
-.mcell { background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.04); border-radius:7px; padding:9px 7px; text-align:center; }
+.mcell { background:var(--surface); border:1px solid var(--surface); border-radius:7px; padding:9px 7px; text-align:center; }
 .mcell .mv { font-size:.92rem; font-weight:800; color:var(--text-primary); }
 .mcell .ml { font-size:.58rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.7px; margin-top:2px; }
 .mcell.c-green .mv { color:var(--accent-green); }
@@ -200,7 +200,7 @@
 
 /* Signals */
 .sig-list { padding:10px 14px; overflow-y:auto; flex:1; }
-.sig-item { display:flex; align-items:flex-start; gap:7px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.025); }
+.sig-item { display:flex; align-items:flex-start; gap:7px; padding:7px 0; border-bottom:1px solid var(--surface); }
 .sig-item:last-child { border-bottom:none; }
 .sig-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:4px; }
 .sig-opportunity .sig-dot,.sig-strong .sig-dot { background:var(--accent-green); }
@@ -223,10 +223,10 @@
 
 /* Listings cards ─────────────────────────────── */
 .lsum-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-.lsum-cell { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); border-radius:6px; padding:7px 9px; }
+.lsum-cell { background:var(--surface); border:1px solid var(--surface); border-radius:6px; padding:7px 9px; }
 .lsum-cell .lv { font-size:.95rem; font-weight:800; color:var(--text-primary); }
 .lsum-cell .ll { font-size:.58rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.7px; margin-top:2px; }
-.lcard { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:9px 11px; margin-bottom:7px; font-size:.75rem; transition:border-color .15s; }
+.lcard { background:var(--surface); border:1px solid var(--surface); border-radius:8px; padding:9px 11px; margin-bottom:7px; font-size:.75rem; transition:border-color .15s; }
 .lcard:hover { border-color:rgba(0,240,255,0.25); }
 .lcard-head { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
 .lcard-addr { font-weight:700; color:var(--text-primary); font-size:.82rem; }
@@ -239,7 +239,7 @@
 .lc-bk { background:rgba(96,165,250,0.14); color:#60a5fa; }
 .lc-ss { background:rgba(52,211,153,0.14); color:#34d399; }
 .lc-vacant { background:rgba(0,240,255,0.12); color:var(--accent-cyan); }
-.lcard-nums { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.04); }
+.lcard-nums { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; margin-top:6px; padding-top:6px; border-top:1px solid var(--surface); }
 .lcard-num { display:flex; justify-content:space-between; font-size:.7rem; }
 .lcard-num .n-l { color:var(--text-muted); }
 .lcard-num .n-v { color:var(--text-primary); font-weight:700; }
@@ -248,7 +248,7 @@
 .lcard-footer a:hover { text-decoration:underline; }
 
 /* Default panel (top opps) */
-.opp-item { padding:9px 16px; border-bottom:1px solid rgba(255,255,255,.025); cursor:pointer; transition:background .15s; }
+.opp-item { padding:9px 16px; border-bottom:1px solid var(--surface); cursor:pointer; transition:background .15s; }
 .opp-item:hover { background:rgba(0,240,255,.025); }
 .opp-rank { font-size:.62rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; }
 .opp-name { font-size:.88rem; font-weight:700; color:var(--text-primary); }
@@ -264,16 +264,16 @@
 .sortable.sorted { color:var(--accent-cyan); }
 .sortable.sorted::after { content:' ▼'; font-size:.6rem; }
 .sortable.sorted.asc::after { content:' ▲'; }
-.filter-row th { padding:4px 8px !important; background:rgba(0,0,0,0.18); border-top:1px solid rgba(255,255,255,0.04); }
-.tfilter { background:rgba(255,255,255,0.04); color:var(--text-primary); border:1px solid rgba(255,255,255,0.08); border-radius:5px; padding:3px 6px; font-size:.66rem; font-family:inherit; max-width:100%; width:100%; }
+.filter-row th { padding:4px 8px !important; background:rgba(0,0,0,0.18); border-top:1px solid var(--surface); }
+.tfilter { background:var(--surface); color:var(--text-primary); border:1px solid var(--line); border-radius:5px; padding:3px 6px; font-size:.66rem; font-family:inherit; max-width:100%; width:100%; }
 .tfilter:focus { outline:none; border-color:var(--accent-cyan); }
 .tfilter[data-col="name"] { min-width:90px; }
 .tfilter.dirty { border-color:var(--accent-cyan); color:var(--accent-cyan); }
-.sbar-wrap { width:44px; height:5px; background:rgba(255,255,255,.06); border-radius:3px; display:inline-block; vertical-align:middle; margin-right:5px; }
+.sbar-wrap { width:44px; height:5px; background:var(--line); border-radius:3px; display:inline-block; vertical-align:middle; margin-right:5px; }
 .sbar-fill { height:100%; border-radius:3px; }
 
 /* Info tooltips */
-.info-icon { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:rgba(255,255,255,.08); color:var(--text-muted); font-size:.6rem; font-weight:700; cursor:help; margin-left:4px; vertical-align:middle; transition:background .15s; }
+.info-icon { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--line); color:var(--text-muted); font-size:.6rem; font-weight:700; cursor:help; margin-left:4px; vertical-align:middle; transition:background .15s; }
 .info-icon:hover { background:rgba(0,240,255,.15); color:var(--accent-cyan); }
 /* Source-of-truth links */
 .src-lnk { color:var(--accent-cyan); text-decoration:underline dotted; text-underline-offset:2px; }
@@ -425,7 +425,7 @@
                 <span class="tagline">buy cheap · sell fast</span>
             </div>
             <div class="biv-corner" style="margin-left:24px">
-                <span class="tag" style="color:#7c3aed">Hot Retail</span>
+                <span class="tag" style="color:var(--accent-purple)">Hot Retail</span>
                 <span class="tagline">fast market · hard to buy cheap</span>
             </div>
             <div class="biv-corner">
@@ -537,7 +537,7 @@
             <button class="rtab" onclick="setRTab(this,'bs')">Best to Buy</button>
             <button class="rtab" onclick="setRTab(this,'es')">Fastest Exit</button>
             <button class="rtab" onclick="setRTab(this,'vol')">Most Active</button>
-            <button class="rtab" id="rtab-reset" onclick="resetTableFilters()" style="margin-left:6px;color:var(--text-muted);border-color:rgba(255,255,255,.10)">Reset</button>
+            <button class="rtab" id="rtab-reset" onclick="resetTableFilters()" style="margin-left:6px;color:var(--text-muted);border-color:var(--line)">Reset</button>
         </div>
     </div>
     <div class="card-body p-0" style="overflow-x:auto;">
@@ -698,17 +698,17 @@ const LAYERS = {
     g:   { label:'Golden Zone Score',   colors:['#ef4444','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
     biv: { label:'Buy × Exit Matrix',   biv:true },
     bs:  { label:'Buy Opportunity',     colors:['#1a1a3e','#f59e0b','#10b981'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
-    es:  { label:'Exit Speed',          colors:['#ef4444','#0a0a2e','#7c3aed'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
-    lp:  { label:'Median List Price (Realtor)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[100000,1500000], fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'neither' },
+    es:  { label:'Exit Speed',          colors:['#ef4444','var(--surface-2)','var(--accent-purple)'], domain:[0,100],       fmt:v=>`${v|0}/100`, dir:'high' },
+    lp:  { label:'Median List Price (Realtor)', colors:['var(--surface)','var(--accent-purple)','#ec4899'], domain:[100000,1500000], fmt:v=>`$${(v/1000).toFixed(0)}K`, dir:'neither' },
     d:   { label:'Days on Market',      colors:['#10b981','#1a1a3e','#ef4444'], domain:[0,180],       fmt:v=>`${v|0}d`, dir:'low' },
-    pr:  { label:'Price Drops %',       colors:['#0a0a1e','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
+    pr:  { label:'Price Drops %',       colors:['var(--surface)','#f59e0b','#ef4444'], domain:[0,60],        fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
     hs:  { label:'Hotness Score (Realtor)', colors:['#1a1a3e','#f59e0b','#ec4899'], domain:[0,100],   fmt:v=>`${v|0}/100`, dir:'high' },
-    ppr: { label:'Pending Ratio %',     colors:['#1a1a3e','#7c3aed','#10b981'], domain:[0,100],       fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
+    ppr: { label:'Pending Ratio %',     colors:['#1a1a3e','var(--accent-purple)','#10b981'], domain:[0,100],       fmt:v=>`${v.toFixed(1)}%`, dir:'high' },
     fc_ct:  { label:'Pre-Foreclosures (scraped)', colors:['#1a1a3e','#f59e0b','#ef4444'], domain:[0,200], fmt:v=>`${v|0}`, dir:'high' },
-    au_ct:  { label:'Active Auctions (scraped)',  colors:['#1a1a3e','#7c3aed','#ec4899'], domain:[0,10],  fmt:v=>`${v|0}`, dir:'high' },
-    tot_ct: { label:'All Scraped Listings',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,250], fmt:v=>`${v|0}`, dir:'high' },
-    mail_score: { label:'Mail Targets (density × exit)', colors:['#0a0a1e','#7c3aed','#ec4899'], domain:[0,100], fmt:v=>`${v|0}/100`, dir:'high' },
-    mail_total: { label:'Mailable Records',       colors:['#0a0a1e','#f59e0b','#10b981'], domain:[0,2000], fmt:v=>`${v|0}`, dir:'high' },
+    au_ct:  { label:'Active Auctions (scraped)',  colors:['#1a1a3e','var(--accent-purple)','#ec4899'], domain:[0,10],  fmt:v=>`${v|0}`, dir:'high' },
+    tot_ct: { label:'All Scraped Listings',       colors:['var(--surface)','#f59e0b','#10b981'], domain:[0,250], fmt:v=>`${v|0}`, dir:'high' },
+    mail_score: { label:'Mail Targets (density × exit)', colors:['var(--surface)','var(--accent-purple)','#ec4899'], domain:[0,100], fmt:v=>`${v|0}/100`, dir:'high' },
+    mail_total: { label:'Mailable Records',       colors:['var(--surface)','#f59e0b','#10b981'], domain:[0,2000], fmt:v=>`${v|0}`, dir:'high' },
 };
 
 // Bivariate palette — 3x3 Buy × Exit
@@ -783,7 +783,7 @@ function dotColor(score) {
     const t = Math.max(0, Math.min(1, score / 100));
     if (t < 0.5) {
         const u = t / 0.5;
-        return d3.interpolateRgb('#00f0ff', '#f59e0b')(u);
+        return d3.interpolateRgb('var(--accent)', '#f59e0b')(u);
     }
     const u = (t - 0.5) / 0.5;
     return d3.interpolateRgb('#f59e0b', '#ef4444')(u);
@@ -855,7 +855,7 @@ function initMap() {
         .attr('viewBox', `0 0 ${mapW} ${mapH}`)
         .attr('preserveAspectRatio', 'xMidYMid meet')
         .style('width', '100%').style('height', 'auto')
-        .style('background', '#080814');
+        .style('background', 'var(--surface)');
 
     zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
         gSt.attr('transform', e.transform);
@@ -994,7 +994,7 @@ function strokeFor(fips, base) {
     if (!huntMode) return { stroke: base.stroke, width: base.width };
     const tier = huntTier(fips);
     if (tier === 'top3')  return { stroke:'rgba(0,240,255,1)',    width: base.width * 4 };
-    if (tier === 'top10') return { stroke:'rgba(255,255,255,0.9)', width: base.width * 2.5 };
+    if (tier === 'top10') return { stroke:'var(--ink)', width: base.width * 2.5 };
     return { stroke: base.stroke, width: base.width };
 }
 
@@ -1057,7 +1057,7 @@ function drawCountyDots(counties) {
         .attr('r',  d => d.r)
         .attr('fill', d => dotColor(d.score))
         .attr('fill-opacity', 0.78)
-        .attr('stroke', 'rgba(255,255,255,0.55)')
+        .attr('stroke', 'var(--ink)')
         .attr('stroke-width', 0.6)
         .on('mouseover', (ev, d) => {
             d3.select(ev.currentTarget).attr('stroke','#fff').attr('stroke-width', 1.6);
@@ -1065,7 +1065,7 @@ function drawCountyDots(counties) {
         })
         .on('mousemove', moveTip)
         .on('mouseout', (ev) => {
-            d3.select(ev.currentTarget).attr('stroke','rgba(255,255,255,0.55)').attr('stroke-width', 0.6);
+            d3.select(ev.currentTarget).attr('stroke','var(--ink)').attr('stroke-width', 0.6);
             hideTip();
         })
         .on('click', (ev, d) => {
@@ -1105,7 +1105,7 @@ function drawZipDots(features) {
         .attr('r',  d => d.r)
         .attr('fill', d => dotColor(d.score))
         .attr('fill-opacity', 0.82)
-        .attr('stroke', 'rgba(255,255,255,0.55)')
+        .attr('stroke', 'var(--ink)')
         .attr('stroke-width', 0.6)
         .on('mouseover', (ev, d) => {
             d3.select(ev.currentTarget).attr('stroke','#fff').attr('stroke-width', 1.6);
@@ -1113,7 +1113,7 @@ function drawZipDots(features) {
         })
         .on('mousemove', moveTip)
         .on('mouseout', (ev) => {
-            d3.select(ev.currentTarget).attr('stroke','rgba(255,255,255,0.55)').attr('stroke-width', 0.6);
+            d3.select(ev.currentTarget).attr('stroke','var(--ink)').attr('stroke-width', 0.6);
             hideTip();
         })
         .on('click', (ev, d) => { ev.stopPropagation(); selectZip(d.zip); });
@@ -1215,7 +1215,7 @@ function drawNationalView() {
             return t === 'dim' ? 'saturate(0.35) brightness(0.6)' : null;
         })
         .on('mouseover', (ev, f) => {
-            d3.select(ev.currentTarget).attr('opacity',1).attr('stroke','rgba(255,255,255,0.6)').attr('stroke-width',0.8);
+            d3.select(ev.currentTarget).attr('opacity',1).attr('stroke','var(--ink)').attr('stroke-width',0.8);
             showCountyTip(ev, String(f.id).padStart(5,'0'));
         })
         .on('mousemove', moveTip)
@@ -1242,11 +1242,11 @@ function drawNationalView() {
     // State borders
     gSt.append('path')
         .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a !== b))
-        .attr('fill','none').attr('stroke','rgba(255,255,255,0.45)').attr('stroke-width',0.9)
+        .attr('fill','none').attr('stroke','var(--ink)').attr('stroke-width',0.9)
         .attr('d', geoP).attr('pointer-events','none');
     gSt.append('path')
         .datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b) => a === b))
-        .attr('fill','none').attr('stroke','rgba(255,255,255,0.3)').attr('stroke-width',0.7)
+        .attr('fill','none').attr('stroke','var(--ink-2)').attr('stroke-width',0.7)
         .attr('d', geoP).attr('pointer-events','none');
 
     drawHuntPulses(countyFeat);
@@ -1332,7 +1332,7 @@ function _renderStateInModal(abbr, sFeat) {
         .attr('viewBox', `0 0 ${W} ${H}`)
         .attr('preserveAspectRatio', 'xMidYMid meet')
         .style('width', '100%').style('height', '100%')
-        .style('background', '#080814');
+        .style('background', 'var(--surface)');
 
     zoomB = d3.zoom().scaleExtent([1, 20]).on('zoom', e => {
         gSt.attr('transform', e.transform);
@@ -1370,11 +1370,11 @@ function _doDrillDown(abbr) {
 
     if (sFeat) {
         gSt.append('path').datum(sFeat)
-            .attr('fill','rgba(20,22,50,0.6)').attr('stroke','rgba(255,255,255,0.2)').attr('stroke-width',1.2)
+            .attr('fill','rgba(20,22,50,0.6)').attr('stroke','var(--line-2)').attr('stroke-width',1.2)
             .attr('d', geoP).attr('pointer-events','none');
     }
 
-    const baseStroke = { stroke:'rgba(255,255,255,0.13)', width: 0.5 };
+    const baseStroke = { stroke:'var(--line)', width: 0.5 };
 
     gCo.selectAll('.county-path')
         .data(counties).enter().append('path')
@@ -1572,7 +1572,7 @@ function showCountyTip(ev, fips) {
 // ── County selection ──────────────────────────────────────────
 function selectCounty(fips) {
     selFips = fips;
-    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
+    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'var(--line)';
     const baseW      = mapMode === 'national' ? 0.25 : 0.5;
     gCo.selectAll('.county-path')
         .attr('stroke', f => String(f.id).padStart(5,'0') === fips ? 'var(--accent-cyan)' : baseStroke)
@@ -1594,7 +1594,7 @@ function selectCounty(fips) {
 
 function clearSel() {
     selFips = null;
-    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.13)';
+    const baseStroke = mapMode === 'national' ? 'rgba(0,0,0,0.18)' : 'var(--line)';
     const baseW      = mapMode === 'national' ? 0.25 : 0.5;
     gCo.selectAll('.county-path')
         .attr('stroke', baseStroke).attr('stroke-width', baseW).attr('opacity',0.92);
@@ -1789,11 +1789,11 @@ function renderHistory() {
     if (!trend.length) return;
     const COPTS = {responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(5,5,14,.95)',borderColor:'rgba(0,240,255,.2)',borderWidth:1,cornerRadius:7,padding:9,titleFont:{family:'Inter'},bodyFont:{family:'Inter'}}},
-        scales:{x:{display:true,grid:{color:'rgba(255,255,255,.03)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9},maxTicksLimit:8}},y:{display:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'rgba(255,255,255,.3)',font:{size:9}}}},
+        scales:{x:{display:true,grid:{color:'var(--surface)'},ticks:{color:'var(--ink-2)',font:{size:9},maxTicksLimit:8}},y:{display:true,grid:{color:'var(--surface)'},ticks:{color:'var(--ink-2)',font:{size:9}}}},
         elements:{point:{radius:0,hoverRadius:4},line:{tension:.4,borderWidth:2}},
     };
     const labels = trend.map(d => String(d.m).slice(-2));
-    hCharts.p = new Chart(document.getElementById('hc-price'),{type:'line',data:{labels,datasets:[{label:'Median List Price (K)',data:trend.map(d=>d.lp!=null?+(d.lp/1000).toFixed(0):null),borderColor:'#00f0ff',backgroundColor:'rgba(0,240,255,.05)',fill:true}]},options:COPTS});
+    hCharts.p = new Chart(document.getElementById('hc-price'),{type:'line',data:{labels,datasets:[{label:'Median List Price (K)',data:trend.map(d=>d.lp!=null?+(d.lp/1000).toFixed(0):null),borderColor:'var(--accent)',backgroundColor:'rgba(0,240,255,.05)',fill:true}]},options:COPTS});
     hCharts.d = new Chart(document.getElementById('hc-dom'),  {type:'line',data:{labels,datasets:[{label:'DOM (days)',data:trend.map(d=>d.d!=null?+d.d.toFixed(0):null),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.05)',fill:true}]},options:COPTS});
     hCharts.r = new Chart(document.getElementById('hc-pr'),   {type:'line',data:{labels,datasets:[{label:'Hotness Score',data:trend.map(d=>d.hs!=null?+d.hs.toFixed(0):null),borderColor:'#ec4899',backgroundColor:'rgba(236,72,153,.05)',fill:true}]},options:COPTS});
 }
@@ -1817,7 +1817,7 @@ function renderScatter() {
             const h = g<40?0:g<60?30:g<75?80:140;
             return `hsla(${h},70%,55%,0.6)`;
         }),
-        borderColor:'rgba(255,255,255,.1)',
+        borderColor:'var(--line)',
         borderWidth:.5,
     }];
 
@@ -1856,8 +1856,8 @@ function renderScatter() {
                 }
             },
             scales:{
-                x:{ min:0, max:100, title:{display:true,text:'← Slow Exit   |   Exit Speed (Sell to Retail Buyers)   →',color:'rgba(255,255,255,.35)',font:{size:10,family:'Inter'}}, grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'rgba(255,255,255,.3)',font:{size:10}} },
-                y:{ min:0, max:100, title:{display:true,text:'Buy Opportunity ↑',color:'rgba(255,255,255,.35)',font:{size:10,family:'Inter'}}, grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'rgba(255,255,255,.3)',font:{size:10}} }
+                x:{ min:0, max:100, title:{display:true,text:'← Slow Exit   |   Exit Speed (Sell to Retail Buyers)   →',color:'var(--ink-2)',font:{size:10,family:'Inter'}}, grid:{color:'var(--surface)'}, ticks:{color:'var(--ink-2)',font:{size:10}} },
+                y:{ min:0, max:100, title:{display:true,text:'Buy Opportunity ↑',color:'var(--ink-2)',font:{size:10,family:'Inter'}}, grid:{color:'var(--surface)'}, ticks:{color:'var(--ink-2)',font:{size:10}} }
             },
             onClick:(ev, items)=>{
                 if (!items.length) return;
@@ -2272,7 +2272,7 @@ async function drillIntoCountyZips(fips) {
         if (cFeat) {
             gSt.append('path').datum(cFeat).attr('d', path)
                 .attr('fill','rgba(20,22,50,0.55)')
-                .attr('stroke','rgba(255,255,255,0.28)').attr('stroke-width',1.4)
+                .attr('stroke','var(--ink-2)').attr('stroke-width',1.4)
                 .attr('pointer-events','none');
         }
 
@@ -2281,7 +2281,7 @@ async function drillIntoCountyZips(fips) {
             .attr('class', 'zip-path county-path')
             .attr('d', path)
             .attr('fill', f => fillForZip((f.properties||{}).zip))
-            .attr('stroke', 'rgba(255,255,255,0.18)').attr('stroke-width', 0.6)
+            .attr('stroke', 'var(--line-2)').attr('stroke-width', 0.6)
             .attr('opacity', 0.92)
             .on('mouseover', (ev, f) => {
                 d3.select(ev.currentTarget)
@@ -2291,7 +2291,7 @@ async function drillIntoCountyZips(fips) {
             .on('mousemove', moveTip)
             .on('mouseout', (ev) => {
                 d3.select(ev.currentTarget)
-                    .attr('stroke', 'rgba(255,255,255,0.18)').attr('stroke-width', 0.6).attr('opacity', 0.92);
+                    .attr('stroke', 'var(--line-2)').attr('stroke-width', 0.6).attr('opacity', 0.92);
                 hideTip();
             })
             .on('click', (ev, f) => {
@@ -2346,7 +2346,7 @@ function selectZip(z) {
     if (tagEl) tagEl.textContent = `ZIP ${z}`;
     // Highlight the selected ZIP polygon
     gCo.selectAll('.zip-path')
-        .attr('stroke', f => (f.properties||{}).zip === z ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.18)')
+        .attr('stroke', f => (f.properties||{}).zip === z ? 'var(--accent-cyan)' : 'var(--line-2)')
         .attr('stroke-width', f => (f.properties||{}).zip === z ? 2.4 : 0.6);
 
     // Open the detail panel and load ZIP-level data into it.

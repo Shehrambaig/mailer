@@ -1,199 +1,135 @@
-<div id="live-bar"><span id="live-dot"></span><span>Live · checked {{ now.strftime("%H:%M:%S") }} UTC · refreshes every 15s</span></div>
-
-{# ── account totals ─────────────────────────────────────────────── #}
-<div class="lg-totals lg-nums">
-  <div class="glass-card t"><span class="v" data-k="orders">{{ orders|length }}</span><span class="k">Orders</span></div>
-  <div class="glass-card t"><span class="v" data-k="pieces">{{ "{:,}".format(total_pieces) }}</span><span class="k">Pieces</span></div>
-  <div class="glass-card t"><span class="v" data-k="reporting">{{ "{:,}".format(reported) }}</span><span class="k">Reporting</span></div>
-  <div class="glass-card t"><span class="v">${{ "{:,.2f}".format(total_cost) }}</span><span class="k">Spent</span></div>
-  <div class="glass-card t"><span class="v">${{ "%.2f"|format(per_piece) }}</span><span class="k">Per piece</span></div>
-  <div class="glass-card t is-resp"><span class="v" data-k="scanned">{{ qr.rows }}</span><span class="k">Scanned</span></div>
+{# ── status strip: the whole programme in one line ─────────────────── #}
+<div class="ld-strip">
+  <div class="ld-live"><span id="live-dot"></span>Live</div>
+  {% for key, label in ladder %}
+    {% set v = grand[key] %}
+    {% if v or key in ('Delivered','In Transit','Scheduled') %}
+    <div class="ld-stat {{ 'is-zero' if not v }}">
+      <span class="n num" data-k="all:{{ key }}" style="color:{{ statuscolor[key] }}">{{ "{:,}".format(v) }}</span>
+      <span class="l">{{ label }}</span>
+    </div>
+    {% endif %}
+  {% endfor %}
+  <div class="ld-stat"><span class="n num" data-k="pieces">{{ "{:,}".format(total_pieces) }}</span><span class="l">Pieces</span></div>
+  <div class="ld-stat"><span class="n num" data-k="spend">${{ "{:,.0f}".format(total_cost) }}</span><span class="l">Spend</span></div>
+  <div class="ld-stat"><span class="n num" data-k="scanned" style="color:var(--st-delivered)">{{ qr.rows }}</span><span class="l">Scanned</span></div>
+  <div class="ld-clock mono">{{ now.strftime('%H:%M:%S') }}Z</div>
 </div>
 
-{# ── responders: the point of the whole exercise ────────────────── #}
-<div class="lg-sec-title">
+{# ── orders: is the mail landing ────────────────────────────────────── #}
+<div class="sec-label">Orders</div>
+<div class="ld-tablewrap">
+  <table class="ld-table">
+    <thead>
+      <tr>
+        <th>Order</th><th>Name</th><th class="r">Pieces</th>
+        <th class="r">Delivered</th><th class="r">Transit</th><th class="r">Unreported</th>
+        <th class="r">Bad</th><th class="r">Cost</th>
+        <th class="prog">Landing</th><th>OLC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      {% set bad = o.counts['Failed'] + o.counts['Returned to Sender'] + o.counts['Canceled'] %}
+      <tr>
+        <td class="mono dim">{{ o.olc_order_id or '—' }}</td>
+        <td>
+          <span class="nm">{{ o.name }}</span>
+          <span class="sub">
+            {{ o.created_at.strftime('%d %b') if o.created_at }}
+            {%- if o.template_id %} · tpl {{ o.template_id }}{% endif %}
+            {%- if not o.is_live %} · <span class="warn">TEST</span>{% endif %}
+            {%- if o.inferred %} · <span class="warn" title="Counted delivered because OLC marked the order complete, without ever sending an event for these pieces individually.">{{ "{:,}".format(o.inferred) }} assumed</span>{% endif %}
+          </span>
+        </td>
+        <td class="r mono">{{ "{:,}".format(o.pieces) }}</td>
+        <td class="r mono strong" data-k="{{ o.olc_order_id }}:Delivered"
+            style="color:{{ 'var(--st-delivered)' if o.counts['Delivered'] else 'var(--ink-3)' }}">
+          {{ "{:,}".format(o.counts['Delivered']) }}</td>
+        <td class="r mono" data-k="{{ o.olc_order_id }}:In Transit"
+            style="color:{{ 'var(--st-transit)' if o.counts['In Transit'] else 'var(--ink-3)' }}">
+          {{ "{:,}".format(o.counts['In Transit']) }}</td>
+        <td class="r mono dim" data-k="{{ o.olc_order_id }}:Scheduled">{{ "{:,}".format(o.counts['Scheduled']) }}</td>
+        <td class="r mono" style="color:{{ 'var(--st-returned)' if bad else 'var(--ink-3)' }}">{{ bad }}</td>
+        <td class="r mono">{{ '$%0.0f'|format(o.cost) if o.cost else '—' }}</td>
+        <td class="prog">
+          {% set live = [] %}
+          {% for k, _l in ladder %}{% if o.counts[k] %}{% set _ = live.append(k) %}{% endif %}{% endfor %}
+          {% if live|length > 1 %}
+          <div class="bar" title="{% for k in live %}{{ k }} {{ o.counts[k] }}{{ ' · ' if not loop.last }}{% endfor %}">
+            {% for k in live %}
+            <span style="width:{{ (o.counts[k] / o.pieces * 100)|round(2) }}%;background:{{ statuscolor[k] }}"></span>
+            {% endfor %}
+          </div>
+          <span class="pct mono">{{ (o.counts['Delivered'] / o.pieces * 100)|round|int }}%</span>
+          {% else %}
+          <span class="dim mono sm">{{ live[0] if live else '—' }}</span>
+          {% endif %}
+        </td>
+        <td class="mono sm dim">{{ o.olc_status or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ── scanned the QR ─────────────────────────────────────────────────── #}
+<div class="sec-label">
   Scanned — {{ qr.rows }} {{ 'person' if qr.rows == 1 else 'people' }}
-  {%- if qr.scans and qr.scans != qr.rows %} · {{ qr.scans }} scans total{% endif %}
+  {%- if qr.scans and qr.scans != qr.rows %} · {{ qr.scans }} scans{% endif %}
   {%- if delivered %} · {{ "%.2f"|format(qr.rows / delivered * 100) }}% of delivered{% endif %}
 </div>
-<div class="glass-card lg-resp-card">
+<div class="ld-tablewrap">
   {% if responders %}
-  <div class="lg-fail-wrap">
-    <table class="lg-fail lg-resp">
-      <thead>
-        <tr><th>Scanned</th><th>Who</th><th>Address mailed to</th><th>Scans</th><th>Piece</th><th>Order</th></tr>
-      </thead>
-      <tbody>
-        {% for r in responders %}
-        <tr>
-          <td class="lg-nums when">{{ r.at[:16]|replace('T', ' ') if r.at else '—' }}</td>
-          <td class="who">{{ r.who }}</td>
-          <td style="color:var(--text-secondary)">{{ r.mailed_to or '—' }}</td>
-          <td class="lg-nums" style="text-align:right">{{ r.scans }}</td>
-          <td class="lg-nums" style="color:var(--text-muted)">{{ r.piece or '—' }}</td>
-          <td style="color:var(--text-muted)">{{ r.olc_order_id }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <table class="ld-table">
+    <thead><tr><th>Scanned</th><th>Who</th><th>Address mailed to</th><th class="r">Scans</th><th>Piece</th><th>Order</th></tr></thead>
+    <tbody>
+      {% for r in responders %}
+      <tr>
+        <td class="mono sm dim nowrap">{{ r.at[:16]|replace('T', ' ') if r.at else '—' }}</td>
+        <td class="strong" style="color:var(--st-delivered)">{{ r.who }}</td>
+        <td class="dim">{{ r.mailed_to or '—' }}</td>
+        <td class="r mono">{{ r.scans }}</td>
+        <td class="mono sm dim">{{ r.piece or '—' }}</td>
+        <td class="mono sm dim">{{ r.olc_order_id }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
-  <div class="lg-empty">
-    <strong>Nobody has scanned yet</strong>
-    Anyone who scans the QR on the mailer shows up here with the property it
-    was sent about — the warmest signal the campaign produces.
-  </div>
+  <div class="ld-empty"><strong>Nobody has scanned yet</strong>
+    Anyone who scans the QR shows up here with the piece it was sent on.</div>
   {% endif %}
 </div>
 
-{# ── every piece, every state ───────────────────────────────────── #}
-<div class="lg-sec-title">All pieces by status</div>
-<div class="glass-card" style="padding:16px">
-  <div class="lg-matrix lg-nums">
-    {% for key, label in ladder %}
-      {% set v = grand[key] %}
-      <div class="lg-cell {{ 'is-zero' if not v }}
-                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
-                     else ('s-good' if key == 'Delivered'
-                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
-        <span class="cn" data-k="all:{{ key }}">{{ "{:,}".format(v) }}</span>
-        <span class="cl">{{ label }}</span>
-      </div>
-    {% endfor %}
-    {% for key, v in other_grand.items() %}
-      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
-    {% endfor %}
-  </div>
-  <div class="lg-feed" style="margin-top:14px">
-    {{ "{:,}".format(events.count) }} webhook event{{ '' if events.count == 1 else 's' }} received ·
-    {{ "{:,}".format(events.rows) }} piece update{{ '' if events.rows == 1 else 's' }} applied
-    {%- if events.last %} · last {{ events.last.strftime('%d %b %H:%M') }} UTC{% endif %}
-    {%- if qr.rows %} · {{ "{:,}".format(qr.scans) }} QR scan{{ '' if qr.scans == 1 else 's' }}
-      ({{ qr.matched }} matched to a piece){% endif %}
-  </div>
-</div>
-
-{# ── per order ──────────────────────────────────────────────────── #}
-<div class="lg-sec-title">Orders</div>
-{% for o in orders %}
-<div class="glass-card lg-order">
-  <div class="head">
-    <div>
-      <div class="nm">{{ o.name }}</div>
-      <div class="lg-chips">
-        <span class="lg-chip"><span class="ck">Order</span><span class="cv">{{ o.olc_order_id or '—' }}</span></span>
-        {% if o.created_at %}
-        <span class="lg-chip"><span class="ck">Placed</span><span class="cv">{{ o.created_at.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.template_id %}
-        <span class="lg-chip"><span class="ck">Template</span><span class="cv">{{ o.template_id }}</span></span>
-        {% endif %}
-        {% if o.mailed_date %}
-        <span class="lg-chip" title="OLC handed the batch to USPS"><span class="ck">To USPS</span><span class="cv">{{ o.mailed_date.strftime('%d %b %H:%M') }}</span></span>
-        {% endif %}
-        {% if o.in_transit_date %}
-        <span class="lg-chip"><span class="ck">In transit</span><span class="cv">{{ o.in_transit_date.strftime('%d %b %H:%M') }}</span></span>
-        {% endif %}
-        {% if o.first_scan and o.scan_is_first %}
-        <span class="lg-chip c-scan"
-              title="The first time a USPS machine read a barcode on this order. We were listening before it happened, so nothing earlier exists. Date only — the clock time OLC reports is facility-local and we have not confirmed the offset."
-        ><span class="ck">1st USPS scan</span><span class="cv">{{ o.first_scan.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.expected_date %}
-        <span class="lg-chip"><span class="ck">Expected</span><span class="cv">{{ o.expected_date.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.olc_status %}
-        <span class="lg-chip c-olc"><span class="ck">OLC says</span><span class="cv">{{ o.olc_status }}</span></span>
-        {% endif %}
-        {% if o.deliverable %}
-        <span class="lg-chip"><span class="ck">Deliverable</span><span class="cv">{{ "{:,}".format(o.deliverable) }}</span></span>
-        {% endif %}
-        {% if o.usps_delivered %}
-        <span class="lg-chip c-scan"
-              title="Pieces with a genuine USPS Delivered scan. OLC's own deliveredDate is stamped identically across every order, so it records when their job ran, not when mail arrived."
-        ><span class="ck">USPS delivered scans</span><span class="cv">{{ "{:,}".format(o.usps_delivered) }} · {{ o.usps_delivered_on.strftime('%d %b') }}</span></span>
-        {% endif %}
-        {% if o.inferred %}
-        <span class="lg-chip c-warn"
-              title="OLC never sent a per-piece event for these. They are counted as delivered because OLC's order record says the whole order completed with {{ "{:,}".format(o.deliverable or 0) }} deliverable.">
-          <span class="ck">Assumed delivered</span><span class="cv">{{ "{:,}".format(o.inferred) }}</span></span>
-        {% endif %}
-        {% if not o.is_live %}
-        <span class="lg-chip c-test"><span class="ck">Mode</span><span class="cv">TEST</span></span>
-        {% endif %}
-      </div>
-    </div>
-    <div style="text-align:right">
-      <div class="amt lg-nums">{{ '$%0.2f'|format(o.cost) if o.cost else '—' }}</div>
-      <div class="qty lg-nums">{{ "{:,}".format(o.pieces) }} pieces</div>
-      <div style="margin-top:5px">
-        <span class="lg-pill {{ 'p-good' if o.status == 'Delivered'
-                                else ('p-live' if o.status in ('Mailed','In Transit','Processing') else 'p-wait') }}">
-          {{ o.status or 'unknown' }}
-        </span>
-      </div>
-    </div>
-  </div>
-
-  {% if o.scans %}
-  <div class="lg-feed" style="margin-top:10px">
-    USPS scans on this order —
-    {{ o.scans.items() | map('join', ' ') | join(' · ') }}
-    {%- if o.scan_is_first and o.first_scan and o.last_scan %}, {{ o.first_scan.strftime('%d %b') }}
-      to {{ o.last_scan.strftime('%d %b') }}
-    {%- elif not o.scan_is_first %} — earliest scans predate our receiver, so this is
-      what we caught, not the full history{% endif %}
-  </div>
-  {% endif %}
-  <div class="lg-matrix lg-nums">
-    {% for key, label in ladder %}
-      {% set v = o.counts[key] %}
-      <div class="lg-cell {{ 'is-zero' if not v }}
-                  {{ 's-bad' if key in ('Returned to Sender','Failed','Canceled')
-                     else ('s-good' if key == 'Delivered'
-                     else ('s-live' if key in ('Mailed','In Transit','Re-Routed','Processing') else '')) }}">
-        <span class="cn" data-k="{{ o.olc_order_id }}:{{ key }}">{{ "{:,}".format(v) }}</span>
-        <span class="cl">{{ label }}</span>
-      </div>
-    {% endfor %}
-    {% for key, v in o.other.items() %}
-      <div class="lg-cell"><span class="cn">{{ "{:,}".format(v) }}</span><span class="cl">{{ key }}</span></div>
-    {% endfor %}
-  </div>
-</div>
-{% endfor %}
-
-{# ── the pieces that did not make it ────────────────────────────── #}
-<div class="lg-sec-title">
-  Did not arrive — {{ failures|length }}{{ '+' if failures|length == 500 }}
-</div>
-<div class="glass-card" style="padding:{{ '0' if failures else '0' }}">
+{# ── did not arrive ─────────────────────────────────────────────────── #}
+<div class="sec-label">Did not arrive — {{ failures|length }}{{ '+' if failures|length == 500 }}</div>
+<div class="ld-tablewrap">
   {% if failures %}
-  <div class="lg-fail-wrap">
-    <table class="lg-fail">
-      <thead>
-        <tr><th>Status</th><th>Payee</th><th>Address</th><th>Order</th><th>Reported</th></tr>
-      </thead>
-      <tbody>
-        {% for f in failures %}
-        <tr>
-          <td class="st">{{ f.status }}</td>
-          <td>{{ f.name }}</td>
-          <td style="color:var(--text-secondary)">{{ f.addr }}</td>
-          <td style="color:var(--text-muted)">{{ f.olc_order_id }}</td>
-          <td style="color:var(--text-muted)" class="lg-nums">
-            {{ f.at.strftime('%d %b %H:%M') if f.at else '—' }}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <table class="ld-table">
+    <thead><tr><th>Status</th><th>Payee</th><th>Address</th><th>Order</th><th>Reported</th></tr></thead>
+    <tbody>
+      {% for f in failures %}
+      <tr>
+        <td class="strong nowrap" style="color:var(--st-returned)">{{ f.status }}</td>
+        <td>{{ f.name }}</td>
+        <td class="dim">{{ f.addr }}</td>
+        <td class="mono sm dim">{{ f.olc_order_id }}</td>
+        <td class="mono sm dim nowrap">{{ f.at.strftime('%d %b %H:%M') if f.at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
-  <div class="lg-empty">
-    <strong>Nothing has failed yet</strong>
-    Returned, failed and canceled pieces land here as delivery scans arrive —
-    ready to strip from next week's build.
-  </div>
+  <div class="ld-empty"><strong>Nothing has failed yet</strong>
+    Returned, failed and canceled pieces land here as scans arrive.</div>
   {% endif %}
+</div>
+
+{# ── provenance ─────────────────────────────────────────────────────── #}
+<div class="ld-foot mono">
+  {{ "{:,}".format(events.count) }} webhook events · {{ "{:,}".format(events.rows) }} piece updates
+  {%- if events.last %} · last {{ events.last.strftime('%d %b %H:%M') }}Z{% endif %}
+  {%- if inferred_total %} · <span class="warn">{{ "{:,}".format(inferred_total) }} deliveries assumed from the
+    order record, never confirmed per piece</span>{% endif %}
 </div>

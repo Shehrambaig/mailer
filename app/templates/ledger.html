@@ -1,10 +1,107 @@
 {% extends "base.html" %}
-{% block title %}Mail Ledger — OLC{% endblock %}
+{% block title %}Ledger — Mailer Intel{% endblock %}
+{% block tagline %}Every piece placed through OpenLetterConnect{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── status strip: the whole programme on one line ──────────────── */
+  .ld-strip {
+    display: flex; align-items: stretch; flex-wrap: wrap;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); overflow: hidden;
+  }
+  .ld-stat { padding: 9px 16px; border-right: 1px solid var(--line); min-width: 92px; }
+  .ld-stat .n {
+    display: block; font-size: 1.15rem; font-weight: 600;
+    letter-spacing: -.02em; line-height: 1.2; color: var(--ink);
+  }
+  .ld-stat .l {
+    font-size: .6rem; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-3);
+  }
+  .ld-stat.is-zero { opacity: .42; }
+
+  .ld-live {
+    display: flex; align-items: center; gap: 6px; padding: 0 14px;
+    border-right: 1px solid var(--line); background: var(--surface);
+    font-size: .6rem; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--ink-2); font-weight: 600;
+  }
+  #live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--st-delivered); animation: livepulse 2.4s ease-in-out infinite;
+  }
+  @keyframes livepulse { 0%,100% { opacity: 1 } 50% { opacity: .2 } }
+  .htmx-request #live-dot { background: var(--accent); }
+
+  .ld-clock {
+    margin-left: auto; display: flex; align-items: center; padding: 0 14px;
+    border-left: 1px solid var(--line); background: var(--surface);
+    font-size: .68rem; color: var(--ink-3);
+  }
+
+  /* ── dense tables ───────────────────────────────────────────────── */
+  .ld-tablewrap { border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+  .ld-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .ld-table th {
+    text-align: left; padding: 7px 11px; white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: .6rem; font-weight: 500; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--ink-3);
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .ld-table td { padding: 8px 11px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .ld-table tbody tr:last-child td { border-bottom: 0; }
+  .ld-table tbody tr:hover td { background: var(--surface); }
+  .ld-table .r { text-align: right; }
+  .ld-table .dim { color: var(--ink-3); }
+  .ld-table .sm { font-size: .72rem; }
+  .ld-table .strong { font-weight: 600; }
+  .ld-table .nowrap { white-space: nowrap; }
+  .ld-table .warn { color: var(--st-processing); }
+  .ld-table .nm { font-weight: 600; display: block; line-height: 1.3; }
+  .ld-table .sub { font-size: .68rem; color: var(--ink-3); }
+
+  /* ── the landing bar: the answer to "is my mail arriving" ───────── */
+  .ld-table th.prog, .ld-table td.prog { width: 190px; min-width: 150px; }
+  td.prog .bar {
+    display: flex; height: 7px; border-radius: 2px; overflow: hidden;
+    background: var(--surface-2); width: 100%;
+  }
+  td.prog .bar span { display: block; height: 100%; min-width: 2px; }
+  td.prog .pct { font-size: .64rem; color: var(--ink-3); margin-top: 3px; display: block; }
+
+  .ld-empty { padding: 22px; text-align: center; color: var(--ink-3); font-size: .82rem; }
+  .ld-empty strong { display: block; color: var(--ink); margin-bottom: 3px; font-size: .88rem; }
+
+  .ld-foot {
+    margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--line);
+    font-size: .68rem; color: var(--ink-3);
+  }
+  .ld-foot .warn { color: var(--st-processing); }
+
+  /* a value that moved on the last poll */
+  @keyframes flashnum { from { background: #cfe6f7; } to { background: transparent; } }
+  .just-changed { animation: flashnum 1.6s ease-out; border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) {
+    #live-dot { animation: none } .just-changed { animation: none }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="ledger-live"
+     hx-get="{{ url_for('ledger.ledger') }}?fragment=1"
+     hx-trigger="every 15s"
+     hx-swap="innerHTML"
+     hx-indicator="#live-dot">
+  {% include "_ledger_body.html" %}
+</div>
+{% endblock %}
 
 {% block extra_scripts %}
 <script>
-// Remember every keyed number before a poll, flash the ones that moved after.
-// A silent swap is indistinguishable from a dead page otherwise.
+// Remember every keyed number before a poll and flash the ones that moved —
+// a silent swap is indistinguishable from a dead page otherwise.
 (function () {
   let before = {};
   const snapshot = () => {
@@ -27,7 +124,6 @@
       }
     });
   });
-  // pause polling while the tab is hidden; resume on return
   document.addEventListener('visibilitychange', () => {
     const el = document.getElementById('ledger-live');
     if (!el) return;
@@ -40,139 +136,4 @@
   });
 })();
 </script>
-{% endblock %}
-{% block tagline %}Mail Ledger — every piece placed, what it cost, where it is now{% endblock %}
-
-{% macro n(v) %}{{ "{:,}".format(v) }}{% endmacro %}
-
-{% block extra_head %}
-<style>
-  .lg-nums { font-variant-numeric: tabular-nums; }
-
-  /* live indicator */
-  #live-bar {
-    display: flex; align-items: center; gap: 8px;
-    font-size: .68rem; letter-spacing: 1.4px; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 12px;
-  }
-  #live-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--accent-green); flex-shrink: 0;
-    animation: livepulse 2s ease-in-out infinite;
-  }
-  @keyframes livepulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-  .htmx-request #live-dot { background: var(--accent-cyan); }
-
-  /* a value that just changed */
-  @keyframes flashnum {
-    from { background: rgba(0,240,255,.28); }
-    to   { background: transparent; }
-  }
-  .just-changed { animation: flashnum 1.6s ease-out; border-radius: 4px; }
-
-  @media (prefers-reduced-motion: reduce) {
-    #live-dot { animation: none }
-    .just-changed { animation: none }
-  }
-
-  .lg-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-  .lg-totals .t { padding: 14px 16px; }
-  .lg-totals .v { display: block; font-size: 1.55rem; font-weight: 700; letter-spacing: -.02em; }
-  .lg-totals .k { font-size: .68rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.4px; }
-
-  /* status ladder — one colour per state, used identically everywhere */
-  .lg-matrix { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-  .lg-cell {
-    padding: 10px 12px; border-radius: 8px;
-    background: rgba(255,255,255,.02);
-    border: 1px solid var(--border-glass);
-  }
-  .lg-cell .cn { display: block; font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
-  .lg-cell .cl { font-size: .66rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
-  .lg-cell.is-zero { opacity: .38; }
-  .lg-cell.s-live   { border-color: rgba(0,240,255,.28); }
-  .lg-cell.s-good   { border-color: rgba(16,185,129,.34); }
-  .lg-cell.s-bad    { border-color: rgba(239,68,68,.40); background: rgba(239,68,68,.07); }
-  .lg-cell.s-live  .cn { color: var(--accent-cyan); }
-  .lg-cell.s-good  .cn { color: var(--accent-green); }
-  .lg-cell.s-bad   .cn { color: var(--accent-red); }
-
-  .lg-order { padding: 16px 18px; margin-bottom: 12px; }
-  .lg-order .head { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-  .lg-order .nm { font-size: 1rem; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
-  .lg-order .mt { font-size: .72rem; color: var(--text-muted); }
-  .lg-order .amt { font-size: 1rem; font-weight: 700; }
-  .lg-order .qty { font-size: .72rem; color: var(--text-secondary); }
-
-  .lg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .lg-chip {
-    padding: 5px 10px; border-radius: 7px;
-    background: rgba(255,255,255,.025);
-    border: 1px solid var(--border-glass);
-    line-height: 1.25;
-  }
-  .lg-chip .ck {
-    display: block; font-size: .58rem; letter-spacing: 1.1px;
-    text-transform: uppercase; color: var(--text-muted);
-  }
-  .lg-chip .cv {
-    display: block; font-size: .78rem; font-weight: 600;
-    color: var(--text-primary); font-variant-numeric: tabular-nums;
-  }
-  .lg-chip.c-olc   { border-color: rgba(0,240,255,.26); }
-  .lg-chip.c-olc   .cv { color: var(--accent-cyan); }
-  .lg-chip.c-scan  { border-color: rgba(124,58,237,.34); }
-  .lg-chip.c-scan  .cv { color: #a78bfa; }
-  .lg-chip.c-warn  { border-color: rgba(245,158,11,.34); background: rgba(245,158,11,.06); }
-  .lg-chip.c-warn  .cv { color: var(--accent-amber); }
-  .lg-chip.c-test  { border-color: rgba(245,158,11,.34); }
-  .lg-chip.c-test  .cv { color: var(--accent-amber); }
-
-  .lg-pill {
-    display: inline-block; padding: 3px 10px; border-radius: 999px;
-    font-size: .64rem; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
-    border: 1px solid currentColor;
-  }
-  .lg-pill.p-live { color: var(--accent-cyan); }
-  .lg-pill.p-wait { color: var(--accent-amber); }
-  .lg-pill.p-good { color: var(--accent-green); }
-
-  .lg-fail-wrap { overflow-x: auto; }
-  .lg-fail { width: 100%; border-collapse: collapse; min-width: 620px; }
-  .lg-fail th {
-    text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: 1.2px;
-    color: var(--text-secondary); font-weight: 500;
-    padding: 8px 12px; border-bottom: 1px solid var(--border-glass);
-  }
-  .lg-fail td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.04); font-size: .84rem; }
-  .lg-fail td.st { color: var(--accent-red); font-weight: 600; white-space: nowrap; }
-  .lg-fail tr:hover td { background: rgba(255,255,255,.02); }
-
-  .lg-empty { padding: 26px; text-align: center; color: var(--text-secondary); }
-  .lg-empty strong { display: block; color: var(--text-primary); margin-bottom: 6px; letter-spacing: .5px; }
-
-  .lg-totals .t.is-resp { border-color: rgba(16,185,129,.4); }
-  .lg-totals .t.is-resp .v { color: var(--accent-green); }
-
-  .lg-resp-card { padding: 0; border-color: rgba(16,185,129,.28); }
-  .lg-resp td.who { font-weight: 600; color: var(--accent-green); }
-  .lg-resp td.when { color: var(--text-secondary); white-space: nowrap; }
-  .lg-resp tr:hover td { background: rgba(16,185,129,.06); }
-
-  .lg-feed { font-size: .74rem; color: var(--text-muted); }
-  .lg-sec-title {
-    font-size: .72rem; text-transform: uppercase; letter-spacing: 2px;
-    color: var(--text-secondary); margin: 26px 0 10px;
-  }
-</style>
-{% endblock %}
-
-{% block content %}
-<div id="ledger-live"
-     hx-get="{{ url_for('ledger.ledger') }}?fragment=1"
-     hx-trigger="every 15s"
-     hx-swap="innerHTML"
-     hx-indicator="#live-dot">
-  {% include "_ledger_body.html" %}
-</div>
 {% endblock %}

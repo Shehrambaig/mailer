@@ -11,7 +11,7 @@
     border-bottom: 1px solid var(--border-glass);
     flex-wrap: wrap;
 }
-.tabs { display: flex; gap: 4px; padding: 4px; background: rgba(255,255,255,.03); border-radius: 10px; }
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface); border-radius: 10px; }
 .tabs button {
     background: transparent; color: var(--text-secondary); border: none;
     padding: 6px 16px; font-size: .78rem; font-weight: 700; letter-spacing: .5px;
@@ -27,7 +27,7 @@
 .search-wrap { flex: 1; min-width: 280px; position: relative; }
 .search-box {
     width: 100%;
-    background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+    background: var(--surface); border: 1px solid var(--border-glass);
     border-radius: 8px; padding: 8px 12px; color: var(--text-primary); font-size: .82rem;
 }
 .search-box:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,240,255,.04); }
@@ -48,7 +48,7 @@
     display: flex; align-items: center; gap: 10px;
     padding: 8px 12px; cursor: pointer;
     font-size: .82rem; color: var(--text-primary);
-    border-bottom: 1px solid rgba(255,255,255,.04);
+    border-bottom: 1px solid var(--surface);
 }
 #search-suggest .ss-item:last-child { border-bottom: none; }
 #search-suggest .ss-item.active,
@@ -58,7 +58,7 @@
 #search-suggest .ss-primary { flex: 1; text-transform: capitalize; }
 #search-suggest .ss-state {
     font-size: .68rem; font-weight: 700; letter-spacing: .5px;
-    color: var(--text-secondary); background: rgba(255,255,255,.06);
+    color: var(--text-secondary); background: var(--line);
     padding: 2px 6px; border-radius: 4px;
 }
 #search-suggest .ss-key {
@@ -69,7 +69,7 @@
 }
 
 .btn-tool {
-    background: rgba(255,255,255,.05); color: var(--text-primary);
+    background: var(--surface); color: var(--text-primary);
     border: 1px solid var(--border-glass); border-radius: 8px;
     padding: 7px 12px; font-size: .76rem; font-weight: 600; cursor: pointer;
     transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
@@ -87,7 +87,7 @@
     padding: 6px 12px;
     font-size: .68rem; font-weight: 600; letter-spacing: .3px;
     color: var(--text-secondary);
-    background: rgba(255,255,255,.03);
+    background: var(--surface);
     border: 1px solid var(--border-glass);
     border-radius: 999px;
     white-space: nowrap;
@@ -140,8 +140,8 @@
     width: 18px; height: 18px;
     padding: 0; border-radius: 4px;
     line-height: 1; margin-left: 4px;
-    border: 1px solid rgba(255,255,255,.10);
-    background: rgba(255,255,255,.04);
+    border: 1px solid var(--line);
+    background: var(--surface);
     transition: all .12s;
 }
 .grid-table thead th .filter-icon i { font-size: .7rem; line-height: 1; }
@@ -160,8 +160,8 @@
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px; padding: 0; border-radius: 4px;
     line-height: 1; margin-left: 3px;
-    border: 1px solid rgba(255,255,255,.10);
-    background: rgba(255,255,255,.04);
+    border: 1px solid var(--line);
+    background: var(--surface);
     transition: all .12s;
 }
 .grid-table thead th .pin-icon i { font-size: .7rem; line-height: 1; }
@@ -216,7 +216,7 @@
     text-transform: uppercase; letter-spacing: .5px; min-width: 38px;
 }
 #filter-popover input[type="text"], #filter-popover input[type="number"] {
-    flex: 1; background: rgba(255,255,255,.04);
+    flex: 1; background: var(--surface);
     border: 1px solid var(--border-glass); border-radius: 6px;
     padding: 6px 9px; color: var(--text-primary); font-size: .82rem;
 }
@@ -225,7 +225,7 @@
     display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;
 }
 #filter-popover .fp-chips button {
-    background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+    background: var(--surface); border: 1px solid var(--border-glass);
     color: var(--text-secondary); border-radius: 6px;
     padding: 4px 8px; font-size: .68rem; cursor: pointer;
 }
@@ -286,7 +286,7 @@
 }
 .chip-bar .clear-all:hover { color: var(--accent-red); }
 .grid-table tbody td {
-    border-bottom: 1px solid rgba(255,255,255,.025);
+    border-bottom: 1px solid var(--surface);
     padding: 8px 12px; white-space: nowrap;
 }
 .grid-table tbody tr:hover { background: rgba(0,240,255,.03); }
@@ -336,7 +336,7 @@
 #col-drawer .col-row input { accent-color: var(--accent-cyan); }
 #col-drawer .col-row .src {
     margin-left: auto; font-size: .6rem; padding: 2px 6px; border-radius: 4px;
-    background: rgba(255,255,255,.05); color: var(--text-muted);
+    background: var(--surface); color: var(--text-muted);
     text-transform: uppercase; letter-spacing: .5px;
 }
 #col-drawer .col-row .src.hot { background: rgba(236,72,153,.15); color: var(--accent-pink); }
@@ -449,7 +449,7 @@
 }
 #cc-drawer input[type="text"], #cc-drawer select, #cc-drawer input[type="number"] {
     width: 100%;
-    background: rgba(255,255,255,.04);
+    background: var(--surface);
     border: 1px solid var(--border-glass);
     border-radius: 6px;
     padding: 6px 9px;
@@ -464,7 +464,7 @@
     gap: 6px 6px; align-items: center;
     margin-bottom: 10px;
     padding-bottom: 10px;
-    border-bottom: 1px dashed rgba(255,255,255,.06);
+    border-bottom: 1px dashed var(--line);
 }
 #cc-drawer .cc-term:last-of-type { border-bottom: none; }
 #cc-drawer .cc-adjust {
@@ -516,7 +516,7 @@
 #cc-drawer .cc-add-btn:hover { background: rgba(0,240,255,.12); }
 #cc-drawer .cc-preview {
     margin-top: 14px; padding: 8px 10px;
-    background: rgba(255,255,255,.03);
+    background: var(--surface);
     border: 1px solid var(--border-glass);
     border-radius: 6px;
     font-family: 'Consolas', 'Menlo', monospace;
@@ -582,7 +582,7 @@
     text-transform: uppercase; margin-bottom: 14px;
 }
 #mail-modal .summary {
-    background: rgba(255,255,255,.025); border: 1px solid var(--border-glass);
+    background: var(--surface); border: 1px solid var(--border-glass);
     border-radius: 8px; padding: 10px 12px; font-size: .76rem;
     color: var(--text-secondary); margin-bottom: 16px;
     word-break: break-word;
@@ -594,7 +594,7 @@
 }
 #mail-modal .stat {
     padding: 10px 12px; border: 1px solid var(--border-glass); border-radius: 9px;
-    background: rgba(255,255,255,.015);
+    background: var(--surface);
 }
 #mail-modal .stat .lbl { font-size: .55rem; letter-spacing: 1.4px; text-transform: uppercase;
                           color: var(--text-muted); font-weight: 700; }
@@ -613,13 +613,13 @@
 #mail-modal .actions button {
     padding: 8px 16px; border-radius: 8px; cursor: pointer;
     font-size: .8rem; font-weight: 600;
-    background: rgba(255,255,255,.04); color: var(--text-secondary);
+    background: var(--surface); color: var(--text-secondary);
     border: 1px solid var(--border-glass);
 }
-#mail-modal .actions button:hover { color: var(--text-primary); border-color: rgba(255,255,255,.15); }
+#mail-modal .actions button:hover { color: var(--text-primary); border-color: var(--line-2); }
 #mail-modal .actions button.primary {
     background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-    color: #04060c; border-color: transparent; font-weight: 700;
+    color: #ffffff; border-color: transparent; font-weight: 700;
 }
 #mail-modal .actions button.primary:hover { box-shadow: 0 0 22px rgba(0,240,255,.3); }
 #mail-modal .actions button:disabled { opacity: .5; cursor: not-allowed; }

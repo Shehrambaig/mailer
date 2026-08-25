@@ -112,8 +112,8 @@
 .scr-pill {
     font-size:.62rem; letter-spacing:.8px; text-transform:uppercase;
     padding:3px 7px; border-radius:4px; font-weight:700;
-    background: rgba(255,255,255,.04); color: var(--text-muted);
-    border:1px solid rgba(255,255,255,.08);
+    background: var(--surface); color: var(--text-muted);
+    border:1px solid var(--line);
     min-width: 60px; text-align:center;
 }
 .scr-pill.active     { background: rgba(34,197,94,.10);  color:#86efac; border-color: rgba(34,197,94,.25); }
@@ -178,8 +178,8 @@
     display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;
 }
 .scr-bucket {
-    background: rgba(255,255,255,.02);
-    border: 1px solid rgba(255,255,255,.06);
+    background: var(--surface);
+    border: 1px solid var(--line);
     border-radius: 8px;
     padding: 10px 12px;
 }
@@ -207,18 +207,18 @@
 .scr-markers .empty { color: var(--text-muted); font-style: italic; font-size: .75rem; }
 
 .scr-svg { width:100%; height: 200px; display:block; }
-.scr-svg .axis     { stroke: rgba(255,255,255,.10); stroke-width: 1; }
-.scr-svg .grid     { stroke: rgba(255,255,255,.05); stroke-width: 1; stroke-dasharray: 2 3; }
+.scr-svg .axis     { stroke: var(--line); stroke-width: 1; }
+.scr-svg .grid     { stroke: var(--surface); stroke-width: 1; stroke-dasharray: 2 3; }
 .scr-svg .line     { fill: none; stroke: var(--accent-cyan); stroke-width: 2; filter: drop-shadow(0 0 4px rgba(0,240,255,.4)); }
 .scr-svg .area     { fill: url(#scr-area-grad); }
 .scr-svg .pt       { fill: var(--accent-cyan); }
 .scr-svg .lbl      { fill: var(--text-muted); font-size: 10px; font-family: 'Inter'; }
 
 .scr-county-tbl { width:100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
-.scr-county-tbl th, .scr-county-tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px dashed rgba(255,255,255,.06); }
-.scr-county-tbl th { font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,.10); }
+.scr-county-tbl th, .scr-county-tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px dashed var(--line); }
+.scr-county-tbl th { font-size:.62rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid var(--line); }
 .scr-county-tbl th:first-child, .scr-county-tbl td:first-child { text-align: left; }
-.scr-county-tbl tbody tr:hover { background: rgba(255,255,255,.02); }
+.scr-county-tbl tbody tr:hover { background: var(--surface); }
 .scr-county-tbl .num-active     { color: #86efac; }
 .scr-county-tbl .num-closed     { color: #cbd5e1; }
 .scr-county-tbl .num-closed-doc { color: #fcd34d; }
@@ -227,8 +227,8 @@
 .scr-county-tbl .num-zero       { color: var(--text-muted); }
 
 .scr-playbook { width:100%; border-collapse: collapse; font-size: .76rem; }
-.scr-playbook th, .scr-playbook td { padding: 6px 8px; text-align: left; border-bottom: 1px dashed rgba(255,255,255,.06); vertical-align: top; }
-.scr-playbook th { font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,.10); }
+.scr-playbook th, .scr-playbook td { padding: 6px 8px; text-align: left; border-bottom: 1px dashed var(--line); vertical-align: top; }
+.scr-playbook th { font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:700; color: var(--text-muted); border-bottom: 1px solid var(--line); }
 .scr-playbook .doc-name { color: var(--text-primary); font-weight: 600; }
 .scr-playbook .yields   { color: var(--text-secondary); }
 .scr-playbook .count    { color: var(--accent-cyan); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; min-width: 60px; }
@@ -246,14 +246,14 @@
 .scr-ny-cases { font-size: .76rem; max-height: 360px; overflow-y: auto; }
 .scr-ny-case-row {
     display:grid; grid-template-columns: 110px 1fr 90px 70px 70px; gap: 12px; align-items:center;
-    padding: 6px 6px; border-bottom: 1px dashed rgba(255,255,255,.06);
+    padding: 6px 6px; border-bottom: 1px dashed var(--line);
     cursor: pointer;
 }
 .scr-ny-case-row:hover { background: rgba(0,240,255,.04); }
 .scr-ny-case-row .cn      { color: var(--accent-cyan); font-variant-numeric: tabular-nums; }
 .scr-ny-case-row .who     { color: var(--text-primary); }
 .scr-ny-case-row .who small { color: var(--text-muted); display:block; }
-.scr-ny-case-row .pill    { font-size:.62rem; letter-spacing:.8px; text-transform:uppercase; padding:2px 6px; border-radius:3px; text-align:center; font-weight:700; background: rgba(255,255,255,.04); color: var(--text-muted); }
+.scr-ny-case-row .pill    { font-size:.62rem; letter-spacing:.8px; text-transform:uppercase; padding:2px 6px; border-radius:3px; text-align:center; font-weight:700; background: var(--surface); color: var(--text-muted); }
 .scr-ny-case-row .pill.y  { background: rgba(34,197,94,.12); color:#86efac; }
 .scr-ny-case-row .pill.n  { background: rgba(148,163,184,.12); color:#cbd5e1; }
 .scr-ny-case-row .num     { color: var(--text-muted); text-align:right; font-variant-numeric: tabular-nums; }
@@ -269,7 +269,7 @@
 }
 .scr-modal-bg.open { display: flex; }
 .scr-modal {
-    background: var(--bg-glass, #0e1426); border: 1px solid var(--border-glass);
+    background: var(--bg-glass, #ffffff); border: 1px solid var(--border-glass);
     border-radius: 12px; max-width: 900px; width: 100%;
     max-height: 90vh; overflow-y: auto;
     padding: 22px 26px;
@@ -288,7 +288,7 @@
 .scr-modal-meta .lbl { font-size:.6rem; letter-spacing:1.2px; text-transform:uppercase; color: var(--text-muted); font-weight:700; display:block; margin-bottom:2px; }
 .scr-modal-meta .val { color: var(--text-primary); }
 .scr-person {
-    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.06);
+    background: rgba(0,0,0,.25); border: 1px solid var(--line);
     border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: .8rem;
 }
 .scr-person .role-line { display:flex; gap: 10px; align-items: center; margin-bottom: 4px; }
@@ -302,7 +302,7 @@
 .scr-person .meta { color: var(--text-muted); font-size:.68rem; margin-top: 4px; line-height: 1.5; }
 
 .scr-prop {
-    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.06);
+    background: rgba(0,0,0,.25); border: 1px solid var(--line);
     border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: .76rem;
     color: var(--text-secondary);
 }
@@ -641,8 +641,8 @@ function renderChart(wrap, pts) {
     wrap.innerHTML = `
       <svg class="scr-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         <defs><linearGradient id="scr-area-grad" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.30"/>
-          <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.30"/>
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
         </linearGradient></defs>
         ${yTicks.map(t => `
           <line class="grid" x1="${PAD_L}" x2="${W - PAD_R}" y1="${t.y.toFixed(1)}" y2="${t.y.toFixed(1)}"/>
@@ -888,7 +888,7 @@ function _aiSideColumn(label, accent, side) {
     if (!side) {
         return `
             <div style="flex: 1; min-width: 0; padding: 12px 14px; background: rgba(0,0,0,.20);
-                        border: 1px dashed rgba(255,255,255,.10); border-radius: 6px;">
+                        border: 1px dashed var(--line); border-radius: 6px;">
                 <div style="font-size:.66rem; letter-spacing: 1.4px; text-transform: uppercase;
                             color: var(--text-muted); font-weight: 700; margin-bottom: 8px;">
                     ${label}
@@ -1159,7 +1159,7 @@ function renderNcRow(c) {
 
     // Documents — chronological list with event_type, document_name, page count, link.
     const docsList = documents.length
-        ? `<div style="max-height: 280px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+        ? `<div style="max-height: 280px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid var(--surface); border-radius: 6px; padding: 6px;">` +
           documents.map(d => {
               const dn = d.document_name || d.event_type || '—';
               const et = d.event_type || '';
@@ -1167,10 +1167,10 @@ function renderNcRow(c) {
               const pages = d.page_count ? ` • ${d.page_count}p` : '';
               const link = d.pdf_url ? `<a href="${d.pdf_url}" target="_blank" rel="noopener" style="color:var(--accent-cyan); margin-left:auto;">PDF</a>` : '';
               return `
-                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .75rem;">
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-bottom: 1px dashed var(--surface); font-size: .75rem;">
                       <span style="color: var(--text-muted); min-width: 78px; font-variant-numeric: tabular-nums;">${dt}</span>
                       <span style="color: var(--text-primary); flex: 1;">${dn}${pages}</span>
-                      ${et && et !== dn ? `<span style="font-size:.65rem; color: var(--text-muted); padding: 2px 6px; border-radius: 3px; background: rgba(255,255,255,.03);">${et}</span>` : ''}
+                      ${et && et !== dn ? `<span style="font-size:.65rem; color: var(--text-muted); padding: 2px 6px; border-radius: 3px; background: var(--surface);">${et}</span>` : ''}
                       ${link}
                   </div>`;
           }).join('') +
@@ -1362,13 +1362,13 @@ function renderOkRow(c) {
         : '';
 
     const pdfList = pdfs.length
-        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid var(--surface); border-radius: 6px; padding: 6px;">` +
           pdfs.map(d => {
               const name = _okCleanDocName(d.name);
               const pill = _okDocPill(name);
               const link = d.url ? `<a href="${d.url}" target="_blank" rel="noopener" style="color:var(--accent-cyan); margin-left:auto; flex-shrink:0;">PDF</a>` : '';
               return `
-                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed var(--surface); font-size: .76rem;">
                       <span style="color: var(--text-primary); flex: 1; word-break: break-word;">${name}</span>
                       ${pill}
                       ${link}
@@ -1592,7 +1592,7 @@ function renderGaRow(key, c) {
 
     // PDF refs — Cobb has only {cid, digest}, Rockdale has {url, kind, name}.
     const pdfList = pdfRefs.length
-        ? `<div style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+        ? `<div style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid var(--surface); border-radius: 6px; padding: 6px;">` +
           pdfRefs.map(d => {
               const name = d.name || '';
               const link = d.url
@@ -1602,7 +1602,7 @@ function renderGaRow(key, c) {
                   ? `<span style="font-family: 'JetBrains Mono', monospace; font-size:.7rem; color: var(--text-muted);">cid ${d.cid}</span>`
                   : '';
               return `
-                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed var(--surface); font-size: .76rem;">
                       <span style="color: var(--text-primary); flex: 1;">${name || '<em style="color:var(--text-muted)">(no doc title — Cobb pdf_refs only carries cid/digest)</em>'}</span>
                       ${blob}
                       ${link}
@@ -1712,13 +1712,13 @@ function renderGwRow(c) {
         : '';
 
     const eventsHtml = events.length
-        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid var(--surface); border-radius: 6px; padding: 6px;">` +
           events.map(e => {
               const name = e.name || e.description || '—';
               const pill = _gwEventPill(name);
               const date = e.date_raw || e.date || '';
               return `
-                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed var(--surface); font-size: .76rem;">
                       <span style="color: var(--text-muted); min-width: 78px; font-variant-numeric: tabular-nums;">${date}</span>
                       <span style="color: var(--text-primary); flex: 1; word-break: break-word;">${name}</span>
                       ${pill}
@@ -1820,7 +1820,7 @@ function renderGprRow(c) {
         : '';
 
     const docsHtml = docs.length
-        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.05); border-radius: 6px; padding: 6px;">` +
+        ? `<div style="max-height: 320px; overflow-y: auto; background: rgba(0,0,0,.2); border: 1px solid var(--surface); border-radius: 6px; padding: 6px;">` +
           docs.map(d => {
               const name = d.name || d.filing_type || '—';
               const pill = _gprDocPill(name);
@@ -1831,7 +1831,7 @@ function renderGprRow(c) {
                   ? `<span style="font-size:.6rem; padding:2px 6px; border-radius:3px; background: rgba(124,58,237,.10); color:#c4b5fd; border:1px solid rgba(124,58,237,.20);">petition</span>`
                   : '';
               return `
-                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.04); font-size: .76rem;">
+                  <div style="display:flex; gap: 8px; align-items: baseline; padding: 5px 6px; border-bottom: 1px dashed var(--surface); font-size: .76rem;">
                       <span style="color: var(--text-primary); flex: 1; word-break: break-word;">${name}</span>
                       ${petitionTag}
                       ${pill}
