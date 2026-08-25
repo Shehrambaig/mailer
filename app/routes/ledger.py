@@ -124,7 +124,8 @@ def _collect():
 
             cur.execute("""
                 SELECT order_id, COUNT(*) FROM olc_order_items
-                WHERE status_source = 'order-completed' GROUP BY 1
+                WHERE status_source = 'order-completed' AND status = 'Delivered'
+                GROUP BY 1
             """)
             for order_id, n in cur.fetchall():
                 if order_id in by_id:

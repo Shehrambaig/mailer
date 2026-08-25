@@ -307,6 +307,9 @@ def olc_webhook():
                             is_delivered  = CASE WHEN %s THEN TRUE ELSE is_delivered END,
                             tracking_code = COALESCE(%s, tracking_code),
                             olc_item_id   = COALESCE(olc_item_id, %s),
+                            -- a real event supersedes an inferred delivery, so
+                            -- the piece stops counting as assumed
+                            status_source = NULL,
                             updated_at    = %s
                         WHERE order_id = %s
                           AND (olc_item_id = %s OR addr_key = %s
