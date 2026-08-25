@@ -62,6 +62,8 @@ DDL = [
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="reconcile again even if this order was done before")
     args = ap.parse_args()
 
     key = os.environ["OLC_API_KEY"]
@@ -109,6 +111,19 @@ def main() -> int:
 
         if olc_status != "Completed" or not deliverable:
             print("   -> not Completed, leaving per-piece status to the webhook")
+            continue
+
+        # Reconcile an order once. deliverableQuantity is a snapshot from the
+        # moment OLC completed the order; chasing it later means that when a
+        # real event moves a piece OUT of Delivered, we promote a replacement
+        # to hit the number again — inventing a delivery to paper over
+        # evidence that a delivery did not happen.
+        cur.execute("""SELECT COUNT(*) FROM olc_order_items
+                       WHERE order_id = %s AND status_source = 'order-completed'""",
+                    (local_id,))
+        if cur.fetchone()[0] and not args.force:
+            print("   -> already reconciled once, leaving it to the webhook "
+                  "(--force to redo)")
             continue
 
         need = deliverable - delivered_now
